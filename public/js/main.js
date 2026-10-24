@@ -342,7 +342,7 @@ function iconOf(o) {
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
-  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль';
+  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
   if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
   if (o.kind === 'drone') return o.o === S.name ? 'Ваш дрон' : 'Дрон: ' + o.o;
@@ -659,6 +659,7 @@ function updateBrackets() {
     if (o.kind === 'ship') {
       if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
       if (o.cr) cls.push('crim'); else if (o.su) cls.push('susp');
+      if (o.ol) cls.push('outlaw');
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
@@ -997,7 +998,7 @@ function renderWin() {
   const el = $('#win-body');
   if (S.win === 'info') return setHTML(el, S.winHtml);
   if (S.win === 'cargo') return setHTML(el, cargoHTML(!S.docked));
-  if (S.win === 'skills') return setHTML(el, skillsHTML());
+  if (S.win === 'skills') { setHTML(el, skillsHTML()); return updateSkillProgress(); }
   if (S.win === 'missions') return setHTML(el, missionsHTML(false));
   if (S.win === 'assets') return setHTML(el, assetsHTML());
   if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
@@ -1053,23 +1054,64 @@ function cargoHTML(inSpace) {
     itemsTable(p.ship.cargo, (id) => inSpace ? `<button data-a="jettison" data-item="${id}">Выбросить</button>` : `<button data-a="unload" data-item="${id}">В ангар</button>`);
 }
 
+// Эмблемы навыков (SVG): своя фигура и цвет у каждого
+const SKILL_ICON = {
+  gunnery: ['#ff7a50', '<circle cx="24" cy="24" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M24 6v10M24 32v10M6 24h10M32 24h10" stroke="currentColor" stroke-width="2.5"/><circle cx="24" cy="24" r="2.5" fill="currentColor"/>'],
+  shields: ['#5fb8ff', '<path d="M24 6l15 6v10c0 10-7 17-15 20C16 39 9 32 9 22V12z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 23l5 5 9-10" fill="none" stroke="currentColor" stroke-width="2.5"/>'],
+  armor: ['#c8cdd4', '<path d="M10 14h28v8H10zM10 26h28v8H10z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 14v8M31 14v8M24 26v8" stroke="currentColor" stroke-width="2"/>'],
+  targeting: ['#ff5a6a', '<path d="M12 18v-6h6M30 12h6v6M36 30v6h-6M18 36h-6v-6" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M24 17l7 7-7 7-7-7z" fill="none" stroke="currentColor" stroke-width="2.2"/>'],
+  drones: ['#9fe08a', '<circle cx="24" cy="24" r="5" fill="currentColor"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="36" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="39" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5M33 15l-5 5M24 29v6" stroke="currentColor" stroke-width="1.8"/>'],
+  navigation: ['#5fe0d0', '<circle cx="24" cy="24" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M24 11l5 13-5 13-5-13z" fill="currentColor" opacity=".9"/>'],
+  warpnav: ['#a08cff', '<path d="M8 16h18M6 24h26M8 32h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M30 14l10 10-10 10" fill="none" stroke="currentColor" stroke-width="2.8"/>'],
+  engineering: ['#ffd24a', '<path d="M27 6L13 27h10l-3 15 15-22H25z" fill="currentColor"/>'],
+  mining: ['#7cf0a0', '<path d="M24 7l11 10-11 24-11-24z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M13 17h22M24 7v34" stroke="currentColor" stroke-width="1.6"/>'],
+  scanning: ['#4ad0ff', '<circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="24" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M24 24L36 13" stroke="currentColor" stroke-width="2.5"/><circle cx="31" cy="29" r="2.5" fill="currentColor"/>'],
+  trade: ['#e8b45f', '<circle cx="19" cy="27" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="30" cy="20" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M30 16v8M19 23v8" stroke="currentColor" stroke-width="2"/>']
+};
+function skillIcon(id, big) {
+  const [color, body] = SKILL_ICON[id] || ['#5fc8e8', '<circle cx="24" cy="24" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/>'];
+  return `<svg class="sk-icon${big ? ' big' : ''}" viewBox="0 0 48 48" style="color:${color}"><path d="M24 2l19 11v22L24 46 5 35V13z" fill="rgba(255,255,255,0.04)" stroke="currentColor" stroke-opacity=".45" stroke-width="1.5"/>${body}</svg>`;
+}
+function skillLevelText(sk, lv) {
+  if (sk.levels) return sk.levels[lv - 1];
+  return `${sk.sign || '+'}${sk.step * lv}${sk.unit} ${sk.what}`;
+}
 function skillsHTML() {
   const p = S.prof;
-  let html = '';
-  if (p.training) {
-    const tr = p.training;
-    const f = (S.serverNow() - tr.start) / (tr.end - tr.start);
-    html += `<div class="mission"><div>Изучается: <b>${esc(S.data.skills[tr.skill].name)} ${tr.level}</b></div><div class="cap-bar"><i style="width:${Math.min(100, f * 100)}%"></i></div><div class="muted">Осталось: ${fmtTime((tr.end - S.serverNow()) / 1000)}</div></div>`;
-  } else html += '<div class="muted" style="margin-bottom:8px">Навык не изучается. Навыки изучаются в реальном времени, даже когда вы не в игре.</div>';
-  for (const [id, sk] of Object.entries(S.data.skills)) {
-    const lv = p.skills[id] || 0;
-    const tr = p.training && p.training.skill === id;
-    const boxes = [1, 2, 3, 4, 5].map(i => `<i class="${i <= lv ? 'on' : tr && i === lv + 1 ? 'tr' : ''}"></i>`).join('');
-    const next = lv < 5 ? S.data.skillTime[lv + 1] : 0;
-    html += `<div class="skill"><div class="lv">${boxes}</div><div class="sn"><div>${esc(sk.name)}</div><div class="muted">${esc(sk.desc)}</div></div>
-      ${lv < 5 && !tr ? `<button data-a="train" data-skill="${id}">Изучить ${lv + 1} (${fmtTime(next)})</button>` : ''}</div>`;
+  let html = '<div id="sk-train"></div>';
+  const groups = {};
+  for (const [id, sk] of Object.entries(S.data.skills)) (groups[sk.group || 'Прочее'] = groups[sk.group || 'Прочее'] || []).push([id, sk]);
+  for (const [grp, list] of Object.entries(groups)) {
+    html += `<h3>${esc(grp)}</h3><div class="sk-grid">`;
+    for (const [id, sk] of list) {
+      const lv = p.skills[id] || 0;
+      const tr = p.training && p.training.skill === id;
+      const boxes = [1, 2, 3, 4, 5].map(i => `<i class="${i <= lv ? 'on' : tr && i === lv + 1 ? 'tr' : ''}"></i>`).join('');
+      const steps = [1, 2, 3, 4, 5].map(i => `<div class="sk-step ${i <= lv ? 'got' : i === lv + 1 ? 'next' : ''}"><b>${i}</b><span>${esc(skillLevelText(sk, i))}</span><em>${fmtTime(S.data.skillTime[i])}</em></div>`).join('');
+      html += `<div class="sk-card ${tr ? 'training' : ''}">
+        <div class="sk-head">${skillIcon(id)}<div class="sk-title"><div class="sk-name">${esc(sk.name)}</div><div class="lv">${boxes}</div></div></div>
+        <div class="muted sk-desc">${esc(sk.desc)}</div>
+        <div class="sk-now">Сейчас: <b>${lv ? esc(skillLevelText(sk, lv)) : 'нет бонуса'}</b></div>
+        <details class="sk-steps"><summary>Что даёт каждый уровень</summary>${steps}</details>
+        ${lv >= 5 ? '<div class="sk-max">Изучен полностью</div>' : tr ? '<div class="sk-max">Изучается…</div>' : `<button class="primary" data-a="train" data-skill="${id}">Изучить ${lv + 1} · ${fmtTime(S.data.skillTime[lv + 1])}</button>`}
+      </div>`;
+    }
+    html += '</div>';
   }
   return html;
+}
+// Прогресс изучения обновляем отдельно, не трогая кнопки (иначе нажатия теряются)
+function updateSkillProgress() {
+  const el = document.getElementById('sk-train');
+  if (!el || !S.prof) return;
+  const tr = S.prof.training;
+  let h;
+  if (tr) {
+    const f = Math.min(1, (S.serverNow() - tr.start) / (tr.end - tr.start));
+    h = `<div class="sk-training">${skillIcon(tr.skill, true)}<div style="flex:1"><div>Изучается: <b>${esc(S.data.skills[tr.skill].name)} ${tr.level}</b> — ${esc(skillLevelText(S.data.skills[tr.skill], tr.level))}</div>
+      <div class="cap-bar"><i style="width:${(f * 100).toFixed(1)}%"></i></div><div class="muted">Осталось: ${fmtTime((tr.end - S.serverNow()) / 1000)}</div></div></div>`;
+  } else h = '<div class="muted" style="margin-bottom:8px">Навык не изучается. Навыки изучаются в реальном времени, даже когда вы не в игре. Выберите навык ниже.</div>';
+  setHTML(el, h);
 }
 
 function missionsHTML(withOffers) {
@@ -1106,7 +1148,7 @@ function assetsHTML() {
 }
 
 // Концепт-арты кораблей (в одиночной сборке встроены в страницу как window.VF_ART)
-const SHIP_ART = ['strizh', 'sokol', 'staratel', 'vihr', 'piligrim', 'leviafan', 'kit', 'citadel'];
+const SHIP_ART = ['iskra', 'klinok', 'burlak', 'tyagach', 'strazh', 'molot', 'strizh', 'sokol', 'staratel', 'vihr', 'piligrim', 'leviafan', 'kit', 'citadel'];
 function shipArt(type) {
   if (!SHIP_ART.includes(type)) return null;
   return (window.VF_ART && window.VF_ART[type]) || `img/ships/${type}.jpg`;
@@ -1317,7 +1359,7 @@ function renderStation() {
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
         <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
-          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><button class="primary" data-a="buyShip" data-item="${id}">Купить</button></div>`; }).join('')}</div>`;
+          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`;
       break;
     }
     case 'exchange': {
@@ -1336,8 +1378,32 @@ function renderStation() {
     }
     case 'agents': html = missionsHTML(true); break;
     case 'skills': html = skillsHTML(); break;
+    case 'ships': html = shipsTabHTML(); break;
   }
   setHTML(el, html);
+  if (S.stTab === 'skills') updateSkillProgress();
+}
+
+// Вкладка «Корабли»: смена активного корабля
+function shipsTabHTML() {
+  const p = S.prof, h = p.hangar || { ships: [] };
+  const t = S.data.ships[p.ship.type];
+  const reqHTML = (st) => Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(p.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
+  const card = (type, btn) => {
+    const st = S.data.ships[type], req = reqHTML(st);
+    return `<div class="shipcard">${artImg(type)}<div class="sname">${esc(st.name)} <span class="muted">${esc(st.cls)}</span></div><div class="muted">${esc(st.desc)}</div>
+      <div class="kv"><span>Скорость</span><span>${num(st.maxSpeed)} м/с</span><span>Щит / броня / корпус</span><span>${num(st.shield)} / ${num(st.armor)} / ${num(st.hull)}</span><span>Трюм</span><span>${num(st.cargo)} м³</span><span>Слоты</span><span>${st.slots.high}/${st.slots.mid}/${st.slots.low}</span></div>
+      ${req ? `<div class="muted">Навыки: ${req}</div>` : ''}${btn}</div>`;
+  };
+  let html = `<h3>Сейчас вы летите на</h3><div class="ship-current">${card(p.ship.type, '<div class="sk-max">Активный корабль</div>')}</div>`;
+  html += '<h3>Корабли на этой станции</h3>';
+  html += h.ships.length ? `<div class="grid-cards">${h.ships.map(sh => card(sh.type, `<button class="primary" data-a="board" data-uid="${sh.uid}">Пересесть</button>`)).join('')}</div>`
+    : '<div class="muted">Других кораблей здесь нет. Купите новый на рынке или в списке ниже — он сразу станет вашим.</div>';
+  const elsewhere = (p.assets || []).filter(a => a.station !== S.docked.id && a.ships.length);
+  if (elsewhere.length) html += `<h3>Корабли на других станциях</h3>${elsewhere.map(a => `<div class="slot-row">${a.ships.map(tp => artImg(tp, 'ship-thumb')).join('')}<span class="sm">${a.ships.map(tp => esc(S.data.ships[tp].name)).join(', ')}<br><span class="muted">${esc(a.name)}</span></span><button data-a="route" data-sys="${S.stationById[a.station].sys}">Маршрут</button></div>`).join('')}`;
+  html += '<h3>Купить и сразу пересесть</h3><div class="grid-cards">' + Object.entries(S.data.ships).filter(([, st]) => st.price > 0 && st !== t)
+    .map(([id, st]) => card(id, `<div class="isk">${isk(st.price)}</div><button data-a="buyBoard" data-item="${id}" ${p.credits < st.price ? 'disabled' : ''}>Купить и пересесть</button>`)).join('') + '</div>';
+  return html;
 }
 
 // Единый обработчик кнопок с data-a
@@ -1366,6 +1432,7 @@ function onActionClick(e) {
     case 'sell': send({ t: 'sell', item: d.item, qty: +$('#sq-' + d.item).value }); break;
     case 'buy': send({ t: 'buy', item: d.item, qty: 1 }); break;
     case 'buyShip': send({ t: 'buy', item: d.item }); break;
+    case 'buyBoard': send({ t: 'buy', item: d.item, board: true }); break;
     case 'buyOrder': send({ t: 'buyOrder', id: d.id, qty: +$('#bq-' + d.id).value }); break;
     case 'cancelOrder': send({ t: 'cancelOrder', id: d.id }); break;
     case 'placeOrder': send({ t: 'placeOrder', item: $('#po-item').value, qty: +$('#po-qty').value, price: +$('#po-price').value }); break;
@@ -1488,9 +1555,9 @@ function loop(now) {
   if (now - lastUi > 200) {
     lastUi = now;
     if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
-    if (S.win === 'skills') renderWin();
+    if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }
-    if (S.docked && S.stTab === 'skills') renderStation();
+
   }
 }
 requestAnimationFrame(loop);

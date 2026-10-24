@@ -278,7 +278,7 @@ function hullSet(paint, accent, faction, seed) {
     if (t < bareShare) { // голый металл
       const v = 0.75 + r() * 0.35;
       cg.fillStyle = rgb(new THREE.Color(0.62, 0.64, 0.67), v); cg.fillRect(X, Y, Wd, Hd);
-      og.fillStyle = orm(120 + r() * 60, 190); og.fillRect(X, Y, Wd, Hd);
+      og.fillStyle = orm(145 + r() * 60, 190); og.fillRect(X, Y, Wd, Hd);
       hg.fillStyle = gray(150 + r() * 20); hg.fillRect(X, Y, Wd, Hd);
     } else if (t < bareShare + 0.08) { // решётка радиатора
       cg.fillStyle = '#33373d'; cg.fillRect(X, Y, Wd, Hd);
@@ -293,7 +293,7 @@ function hullSet(paint, accent, faction, seed) {
     } else { // окрашенная панель
       const v = 0.9 + r() * 0.16;
       cg.fillStyle = rgb(P, v); cg.fillRect(X, Y, Wd, Hd);
-      og.fillStyle = orm(70 + r() * 40, 40); og.fillRect(X, Y, Wd, Hd);
+      og.fillStyle = orm(115 + r() * 40, 40); og.fillRect(X, Y, Wd, Hd);
       hg.fillStyle = gray(160 + r() * 15); hg.fillRect(X, Y, Wd, Hd);
       // фаска по краю
       hg.strokeStyle = gray(190); hg.lineWidth = 2; hg.strokeRect(X + 2, Y + 2, Wd - 4, Hd - 4);
@@ -597,7 +597,7 @@ function pbrMat(paint, faction, opts = {}) {
     map: set.map, normalMap: set.normalMap, normalScale: new THREE.Vector2(1.1, 1.1),
     roughnessMap: set.ormMap, metalnessMap: set.ormMap, roughness: 1, metalness: 1,
     emissiveMap: set.emissiveMap, emissive: 0xffffff, emissiveIntensity: 1.4,
-    clearcoat: faction === 'dark' ? 0 : 0.35, clearcoatRoughness: 0.4, envMapIntensity: 1.25, ...opts
+    clearcoat: faction === 'dark' ? 0 : 0.12, clearcoatRoughness: 0.55, envMapIntensity: 1.2, ...opts
   });
   m.userData.boxUV = true;
   matCache.set(key, m);

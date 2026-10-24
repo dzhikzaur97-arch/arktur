@@ -170,10 +170,10 @@ class Game {
     b.speed += 0.05 * (sk.navigation || 0);
     const eng = 1 + 0.05 * (sk.engineering || 0);
     return {
-      maxSpeed: t.maxSpeed * (1 + b.speed), align: t.align, warpSpeed: t.warpSpeed, sig: t.sig, radius: t.radius,
-      shield: t.shield * (1 + 0.05 * (sk.shields || 0)), armor: t.armor, hull: t.hull,
+      maxSpeed: t.maxSpeed * (1 + b.speed), align: t.align, warpSpeed: t.warpSpeed * (1 + 0.1 * (sk.warpnav || 0)), sig: t.sig, radius: t.radius,
+      shield: t.shield * (1 + 0.05 * (sk.shields || 0)), armor: t.armor * (1 + 0.05 * (sk.armor || 0)), hull: t.hull,
       cap: t.cap * eng, capRegen: t.capRegen * eng, cargo: t.cargo * (1 + b.cargo),
-      maxLocks: t.maxLocks, lockRange: t.lockRange, lockTime: t.lockTime,
+      maxLocks: t.maxLocks + ((sk.targeting || 0) >= 5 ? 2 : (sk.targeting || 0) >= 3 ? 1 : 0), lockRange: t.lockRange * (1 + 0.1 * (sk.targeting || 0)), lockTime: t.lockTime,
       dmgMul: 1 + b.damage, mineMul: 1 + b.mining, scanBonus: b.scan, droneMul: b.drones, droneBay: t.droneBay || 0, maxDrones: t.maxDrones || 0
     };
   }
@@ -523,7 +523,7 @@ class Game {
       if (t.belt && this.beltState[t.belt]) this.beltState[t.belt].npcs.delete(t.id);
       if (t.anom) this.anomNpcKilled(t, killerPlayer);
       if (killerPlayer) {
-        const bounty = NPCS[t.npc].bounty;
+        const bounty = Math.round(NPCS[t.npc].bounty * (t.bountyMul || 1));
         killerPlayer.credits += bounty;
         killerPlayer.stats.npcKills++;
         const ks = killerEnt.session;
@@ -761,6 +761,7 @@ class Game {
     const occupied = new Set();
     for (const s of this.sessions) if (s.ent) occupied.add(s.ent.sys);
     this.civTraffic(occupied);
+    this.outlawSpawns(occupied);
     for (const sysId of occupied) {
       const sys = this.U.systems[sysId];
       const sec = sys.def.sec;
@@ -793,7 +794,7 @@ class Game {
     for (const sysId of occupied) {
       const sys = this.U.systems[sysId];
       const sec = sys.def.sec;
-      const want = sys.def.hub ? 12 : sec >= 0.5 ? 7 : sec > 0 ? 4 : 2;
+      const want = sys.def.hub ? 15 : sec >= 0.5 ? 10 : sec > 0 ? 6 : 3;
       if ((bySys[sysId] || 0) < want && Math.random() < 0.6) this.spawnCiv(sysId);
       // болтовня в локальном чате
       if ((bySys[sysId] || 0) > 0 && Math.random() < 0.025) {
@@ -805,12 +806,33 @@ class Game {
     }
   }
 
+  outlawSpawns(occupied) {
+    for (const sysId of occupied) {
+      const sys = this.U.systems[sysId];
+      if (sys.def.sec >= 0.5) continue;
+      const have = [...this.ents.values()].filter(e => e.outlaw && e.sys === sysId).length;
+      const want = sys.def.sec > 0 ? 2 : 3;
+      if (have >= want || Math.random() > 0.15) continue;
+      const g = sys.gates[Math.floor(Math.random() * sys.gates.length)];
+      const pos = add(g.pos, [rnd(-8000, 8000), rnd(-2000, 2000), rnd(-8000, 8000)]);
+      const ship = ['strizh', 'klinok', 'vihr', 'strazh', 'vihr', 'molot'][Math.floor(Math.random() * (sys.def.sec > 0 ? 4 : 6))];
+      const name = CIV_NAMES[0][Math.floor(Math.random() * CIV_NAMES[0].length)] + ' «' + ['Гадюка', 'Ворон', 'Шрам', 'Палач', 'Тень', 'Клык', 'Призрак'][Math.floor(Math.random() * 7)] + '»';
+      const e = this.spawnNpc('outlaw', sysId, pos, { ship, name });
+      e.outlaw = true; e.nextRoam = this.now + 20000;
+      // корабль-преступник крепче обычного пирата и платит награду по размеру
+      const k = SHIPS[ship].radius > 100 ? 2.2 : SHIPS[ship].radius > 60 ? 1.4 : 1;
+      e.stats.shield *= k; e.stats.armor *= k; e.stats.hull *= k; e.shield = e.stats.shield; e.armor = e.stats.armor; e.hull = e.stats.hull;
+      e.bountyMul = k;
+      this.fxSys(sysId, pos, { k: 'jump', pos });
+    }
+  }
+
   spawnCiv(sysId) {
     const sys = this.U.systems[sysId];
     const roll = Math.random();
-    const role = roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler';
+    const role = sys.def.sec < 0.8 && Math.random() < 0.28 ? 'hunter' : roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler';
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
-    const shipType = role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
+    const shipType = role === 'hunter' ? pick(['klinok', 'strazh', 'vihr', 'molot', 'piligrim', 'strizh']) : role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
       : role === 'hauler' ? pick(['tyagach', 'tyagach', 'tyagach', 'kit'])
       : pick(['klinok', 'strazh', 'iskra', 'strizh', 'sokol', 'vihr', 'piligrim', 'molot', 'citadel']);
     let pos, vel = [0, 0, 0];
@@ -840,6 +862,10 @@ class Game {
   civGoal(e) {
     const sys = this.U.systems[e.sys];
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    if (e.civ === 'hunter' && (e.kills || 0) < 4) {
+      const hot = sys.belts.filter(b => this.beltState[b.id] && this.beltState[b.id].npcs.size);
+      if (hot.length) return { type: 'hunt', target: pick(hot).id };
+    }
     if (e.civ === 'miner' && !e.mined && sys.belts.length) return { type: 'mine', target: pick(sys.belts).id, cycles: 4 + Math.floor(Math.random() * 6) };
     if (sys.stations.length && Math.random() < 0.55) return { type: 'dock', target: pick(sys.stations).id };
     return { type: 'jump', target: pick(sys.gates).id };
@@ -859,6 +885,27 @@ class Game {
       else if (e.cmd.type !== g.type) e.cmd = { type: g.type, target: tgt.id };
       return;
     }
+    // охота: долететь до пояса с пиратами и сражаться
+    if (g.type === 'hunt') {
+      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+      if (far) { this.startAlignWarp(e, tgt, 0); return; }
+      let prey = g.prey && this.ents.get(g.prey);
+      if (!prey || prey.sys !== e.sys) {
+        prey = [...this.ents.values()].filter(o => o.npc && o.sys === e.sys && dist(o.pos, e.pos) < 80000).sort((a, b) => dist(a.pos, e.pos) - dist(b.pos, e.pos))[0];
+        if (!prey) { e.goal = null; e.kills = (e.kills || 0) + 1; return; }
+        g.prey = prey.id;
+        if (Math.random() < 0.3) this.broadcastSys(e.sys, { t: 'chat', ch: 'local', from: e.name, text: pick(['Беру пиратов в первом поясе, не мешайте.', 'Охота началась.', 'Ещё одна награда за голову — моя.', 'Скверна, вам здесь не рады.']) });
+      }
+      e.cmd = { type: 'orbit', target: prey.id, range: 6000 };
+      if (this.surfaceDist(e, prey) < 18000 && (!g.next || this.now >= g.next)) {
+        g.next = this.now + 2500;
+        const hit = Math.random() < 0.8;
+        this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: prey.id, color: 0xffa040, hit, dur: 0.9 });
+        if (hit) this.applyDamage(prey, rnd(45, 110) * (SHIPS[e.shipType].radius > 100 ? 2 : 1), e);
+        if (!this.ents.has(prey.id)) { g.prey = null; e.kills = (e.kills || 0) + 1; }
+      }
+      return;
+    }
     // добыча: долететь до пояса, подойти к астероиду, работать буром
     if (far) { this.startAlignWarp(e, tgt, 0); return; }
     let ast = g.ast && this.ents.get(g.ast);
@@ -876,14 +923,15 @@ class Game {
     }
   }
 
-  spawnNpc(type, sysId, pos) {
+  spawnNpc(type, sysId, pos, opts = {}) {
     const n = NPCS[type];
-    const t = SHIPS[n.ship];
-    const stats = this.calcStats(null, { type: n.ship, fit: [] });
+    const shipType = opts.ship || n.ship;
+    const t = SHIPS[shipType];
+    const stats = this.calcStats(null, { type: shipType, fit: [] });
     stats.shield *= n.hpMul; stats.armor *= n.hpMul; stats.hull *= n.hpMul;
     stats.lockTime = 2; stats.lockRange = 60000;
     const e = {
-      id: 'npc_' + uid(), type: 'ship', npc: type, name: n.name, shipType: n.ship, sys: sysId,
+      id: 'npc_' + uid(), type: 'ship', npc: type, name: opts.name || n.name, shipType, sys: sysId,
       pos, vel: [0, 0, 0], heading: [1, 0, 0], stats, shield: stats.shield, armor: stats.armor, hull: stats.hull, cap: stats.cap * 10,
       cmd: { type: 'stop' }, speedFrac: 1, modules: Array.from({ length: n.guns }, () => ({ id: n.weapon, active: false, cycleEnd: 0, target: null })),
       locks: new Set(), locking: new Map(), warp: null, scrambledUntil: 0, aggressors: new Map(), radius: t.radius,
@@ -908,10 +956,25 @@ class Game {
         const d = dist(o.pos, e.pos);
         if (d < bd) { bd = d; best = o; }
       }
-      if (best) { e.npcTarget = best.id; t = best; }
+      if (best) {
+        e.npcTarget = best.id; t = best;
+        if (e.outlaw && (!e.taunt || this.now - e.taunt > 120000)) {
+          e.taunt = this.now;
+          const msg = ['Твой трюм теперь мой, ' + best.name + '.', 'Ничего личного, просто бизнес.', 'Беги, ' + best.name + '. Если успеешь.', 'Здесь нет Стражей. Только я.', 'Отличный корабль. Был.'];
+          this.broadcastSys(e.sys, { t: 'chat', ch: 'local', from: e.name, text: msg[Math.floor(Math.random() * msg.length)] });
+        }
+      }
     }
     if (!t) {
       for (const m of e.modules) m.active = false;
+      if (e.outlaw && !e.warp && this.now > (e.nextRoam || 0)) {
+        // преступник бродит по системе: пояса, врата, станции
+        e.nextRoam = this.now + 40000 + Math.random() * 50000;
+        const sys = this.U.systems[e.sys];
+        const spots = [...sys.belts, ...sys.gates, ...sys.stations].filter(c => dist(c.pos, e.pos) > MIN_WARP);
+        if (spots.length) { this.startAlignWarp(e, spots[Math.floor(Math.random() * spots.length)], 15000 + Math.random() * 20000); return; }
+      }
+      if (e.cmd.type === 'align') return;
       if (e.home && dist(e.pos, e.home) > 30000) e.cmd = { type: 'dir', dir: norm(sub(e.home, e.pos)) };
       else if (e.cmd.type !== 'orbit') { e.cmd = { type: 'stop' }; }
       return;
@@ -1053,8 +1116,10 @@ class Game {
       const cost = Math.round(SHIPS[m.item].price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
       p.credits -= cost;
-      this.hangar(p, st).ships.push(this.newShip(m.item, false));
+      const ship = this.newShip(m.item, false);
+      this.hangar(p, st).ships.push(ship);
       this.notify(s, `Куплен корабль «${SHIPS[m.item].name}». Он в ангаре.`, 'good');
+      if (m.board) { this.sendProfile(s); return this.c_board(s, { uid: ship.uid }, p); }
     } else return;
     this.sendProfile(s); this.save();
   }
@@ -1357,6 +1422,7 @@ class Game {
       v.r = o.radius;
       if (o.warp) v.w = 1;
       if (o.npc) v.npc = 1;
+      if (o.outlaw) v.ol = 1;
       if (o.guardian) v.gd = 1;
       if (o.civ) { v.civ = 1; v.o = o.name; }
       if (o.owner) {
