@@ -52,7 +52,7 @@ class Game {
     for (const sys of Object.values(this.U.systems)) {
       for (const b of sys.belts) {
         const r = rng(b.id);
-        const n = 10 + Math.floor(r() * 8);
+        const n = 16 + Math.floor(r() * 10);
         this.beltState[b.id] = { npcs: new Set(), nextSpawn: 0, counter: n, r, size: n };
         for (let i = 0; i < n; i++) { const a = makeAsteroid(b, r, i); this.ents.set(a.id, a); }
       }

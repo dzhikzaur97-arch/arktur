@@ -113,7 +113,7 @@ function makeAsteroid(belt, r, idx) {
   const ore = pickWeighted(r, belt.ores);
   const rad = 250 + r() * 900;
   const ang = r() * Math.PI * 2, dist = 3000 + r() * 22000;
-  const amount = (Math.round(rad * rad * 0.01 / ITEMS[ore].vol) + 300) * 10; // руда богаче в 10 раз
+  const amount = (Math.round(rad * rad * 0.01 / ITEMS[ore].vol) + 300) * 50; // руда богаче в 50 раз
   return {
     id: `${belt.id}:a${idx}`, type: 'asteroid', sys: belt.sys, belt: belt.id, ore,
     name: `${ITEMS[ore].name} (астероид)`,
