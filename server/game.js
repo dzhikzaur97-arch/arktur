@@ -39,6 +39,7 @@ class Game {
     this.missionBoards = {};
     this.beltState = {};
     this.initBelts();
+    this.loadStructures();
     this.rollPrices();
     setInterval(() => this.rollPrices(), 10 * 60 * 1000);
   }
@@ -102,7 +103,7 @@ class Game {
         ships: SHIPS, modules: MODULES, drones: DRONES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,
         stars: Object.fromEntries(Object.values(this.U.systems).map(x => [x.id, x.celestials[0].star])),
-        stations: Object.values(this.U.celestials).filter(c => c.kind === 'station').map(s => ({ id: s.id, name: s.name, sys: s.sys }))
+        stations: Object.values(this.U.celestials).filter(c => c.kind === 'station').map(s => ({ id: s.id, name: s.name, sys: s.sys, owner: s.owner }))
       }
     });
     if (p.loc.docked) this.enterStation(sess, p.loc.docked, true);
@@ -227,7 +228,7 @@ class Game {
     sess.send({
       t: 'system', id: sysId, name: sys.def.name, sec: sys.def.sec,
       region: sys.def.region, income: incomeOf(sysId),
-      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star }))
+      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star, owner: c.owner }))
     });
     this.sendLocalMembers(sysId);
     this.sendAnoms(sess);
@@ -366,6 +367,8 @@ class Game {
     if (!e || e.warp) return;
     const t = this.findTarget(e, m.id);
     if (!t || t.kind !== 'station') return this.notify(s, 'Цель — не станция', 'warn');
+    const ps = t.player && (this.db.structures || []).find(x => x.id === t.id);
+    if (ps && ps.buildUntil > this.now) return this.notify(s, `Станция ещё строится (${Math.ceil((ps.buildUntil - this.now) / 1000)} с)`, 'warn');
     if (dist(e.pos, t.pos) > MIN_WARP) this.startAlignWarp(e, t, 0, 'dock');
     else e.cmd = { type: 'dock', target: t.id };
   }
@@ -1046,6 +1049,7 @@ class Game {
 
   // Раз в секунду: навыки, стражи, обновление профилей
   slowTick() {
+    this.structTick();
     for (const s of this.sessions) {
       const p = s.player;
       if (this.checkSkills(p)) this.sendProfile(s);

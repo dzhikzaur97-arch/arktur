@@ -258,6 +258,13 @@ function onMsg(m) {
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
     case 'agents': S.agents = m.offers; if (S.docked && S.stTab === 'agents') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
+    case 'struct':
+      S.struct = m; S.structAt = performance.now();
+      $('#st-tabs [data-tab=factory]').classList.toggle('hidden', !(S.docked && m.mine && m.mine.id === S.docked.id));
+      if (S.win === 'build') renderWin();
+      if (S.docked && S.stTab === 'factory') renderStation();
+      break;
+    case 'stationAdd': if (!S.stationById[m.station.id]) { S.data.stations.push(m.station); S.stationById[m.station.id] = m.station; } break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'destroyed':
@@ -320,6 +327,7 @@ function pushSnap(rec, t, p, v, h, warp) {
   if (s.length > 8) s.shift();
 }
 function sample(rec, rt) {
+  if (!rec) return;
   const s = rec.snaps;
   if (!s || !s.length) return;
   let a = s[0], b = null;
@@ -690,7 +698,7 @@ function updateDamageNumbers(now) {
 }
 
 function updateBrackets() {
-  if (!S.me || S.docked) { if (brackets.size) clearBrackets(); return; }
+  if (!S.me || !S.meRec || S.docked) { if (brackets.size) clearBrackets(); return; }
   const origin = S.meRec.dp;
   const used = new Set();
   const objs = allObjects();
@@ -1054,8 +1062,9 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
+  if (name === 'build' && S.win !== 'build') send({ t: 'structInfo' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1073,6 +1082,7 @@ function renderWin() {
   if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
   if (S.win === 'settings') return setHTML(el, settingsHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
+  if (S.win === 'build') return setHTML(el, buildHTML());
 }
 onTap($('#win-body'), onActionClick);
 
@@ -1268,7 +1278,7 @@ function checkTutorial() {
   const p = S.prof;
   if (!p) return;
   if (S.me && !S.docked) markTut('undock');
-  if (S.me && S.sys && S.sys.celestials.some(c => c.kind === 'belt' && len(sub(c.pos, S.meRec.dp)) < 60000)) markTut('belt');
+  if (S.me && S.meRec && S.sys && S.sys.celestials.some(c => c.kind === 'belt' && len(sub(c.pos, S.meRec.dp)) < 60000)) markTut('belt');
   if (S.me && S.me.locks.some(id => { const e = S.ents.get(id); return e && e.k === 'a'; })) markTut('lock');
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
@@ -1290,6 +1300,63 @@ onTap($('#tut'), (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = tr
 // ======================================================================
 // Дроны
 // ======================================================================
+// ---------- Своя перерабатывающая станция ----------
+function buildHTML() {
+  const st = S.struct;
+  if (!st) return '<div class="muted">Загрузка…</div>';
+  const lv = st.levels;
+  if (st.mine) {
+    const m = st.mine, sys = S.sysById[m.sys];
+    return `<div class="bm-head" style="border-color:#c08a3a"><div class="bm-logo" style="border-color:#ffa040;color:#ffa040">⚙</div><div><div class="bm-name">${esc(m.name)}</div>
+      <div class="muted">${esc(sys.name)} (${sys.sec.toFixed(1)}) · уровень ${m.level} · выход ×${lv[m.level].yield}, скорость ×${lv[m.level].speed}</div></div></div>
+      ${m.building ? `<p>Строится… будет готова через ${fmtTime((m.building - st.now) / 1000)}.</p>` : ''}
+      <p>Заказов в работе: ${m.jobs.length}. Перерабатывать руду и улучшать станцию — во вкладке «Завод», когда вы пристыкованы к ней.</p>
+      ${S.sys && S.sys.id !== m.sys ? `<button data-a="route" data-sys="${m.sys}">Проложить маршрут к станции</button>` : ''}`;
+  }
+  const rows = Object.entries(st.recipes).map(([ore, r]) => {
+    const oi = S.data.items[ore], mi = S.data.items[r.out];
+    const gain = Math.round((r.ratio * mi.base / oi.base - 1) * 100);
+    return `<tr><td>${esc(oi.name)}</td><td>→ ${esc(mi.name)}</td><td class="r">${r.ratio * 100} ед. из 100</td><td class="r" style="color:var(--good)">+${gain}%…+${Math.round((r.ratio * lv[3].yield * mi.base / oi.base - 1) * 100)}%</td></tr>`;
+  }).join('');
+  return `<p>Постройте перерабатывающий завод прямо в космосе. Он превращает руду в материалы, которые стоят дороже и занимают меньше места. Работает, даже когда вас нет в игре.</p>
+    <table class="tbl"><tr><th>Руда</th><th>Материал</th><th class="r">Выход</th><th class="r">Выгода (ур.1…3)</th></tr>${rows}</table>
+    <div class="kv" style="margin-top:10px"><span>Стоимость</span><span class="isk">${isk(st.cost)}</span><span>Улучшения</span><span>ур. 2 — ${isk(lv[2].cost)}, ур. 3 — ${isk(lv[3].cost)}</span>
+    <span>Где можно</span><span>в любой системе, кроме столичных (1.0), дальше 200 км от планет, станций и врат</span></div>
+    <p class="muted">Совет: отлетите от объектов — двойной щелчок по космосу и подождите, или варп к поясу на 50 км и отлетите ещё.</p>
+    ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="build" ${S.prof.credits < st.cost ? 'disabled' : ''}>Построить здесь за ${isk(st.cost)}</button>`}`;
+}
+function factoryHTML() {
+  const st = S.struct;
+  if (!st || !st.mine) return '<div class="muted">Загрузка…</div>';
+  const m = st.mine, lv = st.levels[m.level], next = st.levels[m.level + 1];
+  const h = (S.prof.hangar || { items: {} }).items;
+  let html = `<div class="bm-head" style="border-color:#c08a3a"><div class="bm-logo" style="border-color:#ffa040;color:#ffa040">⚙</div><div><div class="bm-name">${esc(m.name)} · уровень ${m.level}</div>
+    <div class="muted">Выход ×${lv.yield} · скорость ×${lv.speed} · заказов ${m.jobs.length} из ${st.maxJobs}</div></div>
+    ${next ? `<button data-a="upgrade" style="margin-left:auto">Улучшить до ${m.level + 1}: выход ×${next.yield}, скорость ×${next.speed} — ${isk(next.cost)}</button>` : '<span class="sk-max" style="margin-left:auto">Максимальный уровень</span>'}</div>`;
+  html += '<h3>Заказы</h3>' + (m.jobs.length ? m.jobs.map((j, i) => `<div class="mission"><div>${esc(S.data.items[j.ore].name)} ×${num(j.qty)} → <b>${esc(S.data.items[j.out].name)} ×${num(j.outQty)}</b></div>
+    <div class="cap-bar"><i id="job-${i}" style="width:0%"></i></div><div class="muted" id="jobt-${i}"></div></div>`).join('') : '<div class="muted">Нет заказов.</div>');
+  html += '<h3>Переработать руду из ангара станции</h3>';
+  const ores = Object.keys(st.recipes).filter(o => h[o]);
+  html += ores.length ? `<table class="tbl"><tr><th>Руда</th><th class="r">В ангаре</th><th>Получится</th><th></th></tr>${ores.map(o => {
+    const r = st.recipes[o], q = h[o];
+    return `<tr><td>${esc(S.data.items[o].name)}</td><td class="r">${num(q)}</td><td>${esc(S.data.items[r.out].name)} ×${num(Math.floor(q * r.ratio * lv.yield))} <span class="muted">(${isk(Math.floor(q * r.ratio * lv.yield) * S.data.items[r.out].base)} против ${isk(q * S.data.items[o].base)})</span></td>
+      <td class="r"><input class="qty" type="number" min="1" max="${q}" value="${q}" id="rq-${o}"> <button class="primary" data-a="refine" data-item="${o}">Переработать</button></td></tr>`;
+  }).join('')}</table>` : '<div class="muted">В ангаре этой станции нет руды. Разгрузите трюм во вкладке «Ангар».</div>';
+  html += '<p class="muted">Готовые материалы появятся в ангаре этой станции. Продать их можно на рынке любой станции.</p>';
+  return html;
+}
+function updateJobs() {
+  const st = S.struct; if (!st || !st.mine) return;
+  const now = st.now + (performance.now() - S.structAt);
+  st.mine.jobs.forEach((j, i) => {
+    const bar = document.getElementById('job-' + i), t = document.getElementById('jobt-' + i);
+    if (!bar) return;
+    const f = Math.max(0, Math.min(1, (now - j.start) / (j.end - j.start)));
+    bar.style.width = (f * 100).toFixed(1) + '%';
+    t.textContent = now < j.start ? 'В очереди' : `Осталось: ${fmtTime((j.end - now) / 1000)}`;
+  });
+}
+
 // Окно чёрного рынка
 function blackHTML() {
   const b = S.black;
@@ -1381,6 +1448,9 @@ function renderDrones() {
 // Станция
 // ======================================================================
 function showStation() {
+  $('#st-tabs [data-tab=factory]').classList.add('hidden');
+  if (S.stTab === 'factory') S.stTab = 'hangar';
+  send({ t: 'structInfo' });
   document.body.classList.add('docked'); togglePanel('x', false);
   $('#station').classList.remove('hidden');
   for (const id of ['#rightcol', '#targets', '#hud']) $(id).classList.add('hidden');
@@ -1470,6 +1540,7 @@ function renderStation() {
     case 'agents': html = missionsHTML(true); break;
     case 'skills': html = skillsHTML(); break;
     case 'ships': html = shipsTabHTML(); break;
+    case 'factory': html = factoryHTML(); break;
   }
   setHTML(el, html);
   if (S.stTab === 'skills') updateSkillProgress();
@@ -1523,6 +1594,9 @@ function onActionClick(e) {
     case 'sell': send({ t: 'sell', item: d.item, qty: +$('#sq-' + d.item).value }); break;
     case 'buy': send({ t: 'buy', item: d.item, qty: 1 }); break;
     case 'buyShip': send({ t: 'buy', item: d.item }); break;
+    case 'build': send({ t: 'build' }); break;
+    case 'upgrade': send({ t: 'upgrade' }); break;
+    case 'refine': send({ t: 'refine', item: d.item, qty: +$('#rq-' + d.item).value }); break;
     case 'bmBuy': send({ t: 'blackBuy', id: S.black.id, item: d.item, qty: +$('#bq-bm-' + d.item).value }); break;
     case 'bmSell': send({ t: 'blackSell', id: S.black.id, item: d.item }); break;
     case 'buyBoard': send({ t: 'buy', item: d.item, board: true }); break;
@@ -1669,7 +1743,7 @@ function loop(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (!S.data) return;
-  if (S.me && !S.docked) {
+  if (S.me && S.meRec && !S.docked) {
     const rt = now + (S.timeOff || 0) - RENDER_DELAY;
     sample(S.meRec, rt);
     for (const e of S.ents.values()) sample(e, rt);
@@ -1677,11 +1751,12 @@ function loop(now) {
   R.frame(viewState(), dt, now / 1000);
   autoQuality(now, dt);
   updateBrackets();
-  if (S.me && !S.docked) updateDamageNumbers(now);
+  if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;
-    if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
+    if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
+    if (S.docked && S.stTab === 'factory') updateJobs();
     if (S.win === 'black' && S.black) { const t = document.querySelector('.bm-timer'); if (t) t.textContent = fmtTime(Math.max(0, (S.black.expires - S.serverNow()) / 1000)); }
     if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }
 

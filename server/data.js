@@ -132,6 +132,11 @@ const ITEMS = {
   ore_korundit:  { name: 'Корундит', cat: 'Руда', vol: 1, base: 26, color: 0xb07040 },
   ore_arkselit:  { name: 'Аркселит', cat: 'Руда', vol: 1.5, base: 85, color: 0x6aa0c0 },
   ore_xenon:     { name: 'Ксенон-кристалл', cat: 'Руда', vol: 3, base: 720, color: 0x50ffd0 },
+  mat_steel:     { name: 'Сталь', cat: 'Материалы', vol: 0.5, base: 80 },
+  mat_ceramite:  { name: 'Керамит', cat: 'Материалы', vol: 0.6, base: 230 },
+  mat_crystal:   { name: 'Кристаллит', cat: 'Материалы', vol: 0.8, base: 950 },
+  mat_nullalloy: { name: 'Нуль-сплав', cat: 'Материалы', vol: 1, base: 3000 },
+  mat_xcore:     { name: 'Ксенон-ядро', cat: 'Материалы', vol: 1.5, base: 16000 },
   ore_nullium:   { name: 'Нуллий', cat: 'Руда', vol: 2, base: 220, color: 0xb050e0 },
   salv_scrap:    { name: 'Металлолом', cat: 'Трофеи', vol: 1, base: 600 },
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
@@ -272,8 +277,21 @@ const STAR_TYPES = {
   red:       { name: 'Красный карлик', light: 0xff9c78 },
   blackhole: { name: 'Чёрная дыра', light: 0xc8a0ff }
 };
+// Перерабатывающая станция игрока: рецепты (выход материала на 1 ед. руды), уровни
+const RECIPES = {
+  ore_ferit: { out: 'mat_steel', ratio: 0.2 },
+  ore_korundit: { out: 'mat_ceramite', ratio: 0.15 },
+  ore_arkselit: { out: 'mat_crystal', ratio: 0.12 },
+  ore_nullium: { out: 'mat_nullalloy', ratio: 0.1 },
+  ore_xenon: { out: 'mat_xcore', ratio: 0.06 }
+};
+const REFINERY = {
+  buildCost: 1500000, buildTime: 30,
+  levels: [null, { yield: 1.0, speed: 1, cost: 0 }, { yield: 1.15, speed: 1.6, cost: 2000000 }, { yield: 1.3, speed: 2.5, cost: 5000000 }],
+  maxJobs: 3
+};
 const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); return s ? REGIONS[s.region].income : 1; };
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf };
+module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY };

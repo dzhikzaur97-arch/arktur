@@ -1151,7 +1151,7 @@ function asteroidModel(radius, seed, ore) {
 function stationModel(style) {
   const T = sharedTextures();
   const g = new THREE.Group();
-  const tint = [0xb8c0c8, 0xc8b8a0, 0xa8b8a8][style || 0];
+  const tint = [0xb8c0c8, 0xc8b8a0, 0xa8b8a8, 0xc89060][style || 0];
   const M = pbrMat(tint, 'station');
   const D = darkMetal();
   const winMat = new THREE.MeshStandardMaterial({ color: tint, map: T.hull, metalness: 0.6, roughness: 0.5, emissive: 0xffffff, emissiveMap: T.windows, emissiveIntensity: 2.2 });
@@ -1187,6 +1187,20 @@ function stationModel(style) {
   lights.push([0, 3700, 0, 70], [2600, -2500, 0, 50], [-2600, -2500, 0, 50]);
   addLights(g, lights, 0xff4030);
   greebles(g, 3000, 120, D, [1100, 700, 1100]);
+  if (style === 3) {
+    // завод игрока: резервуары с рудой, трубы и светящиеся плавильни
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(380, 380, 1500, 20), pbrMat(0x8a6a48, 'dark'));
+      tank.position.set(Math.cos(a) * 3300, -700, Math.sin(a) * 3300); g.add(tank);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(390, 40, 6, 24), glowMat(0xff8030, 2.2));
+      ring.rotation.x = Math.PI / 2; ring.position.set(Math.cos(a) * 3300, -300, Math.sin(a) * 3300); g.add(ring);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(70, 70, 1400, 8), D);
+      pipe.rotation.z = Math.PI / 2; pipe.rotation.y = -a; pipe.position.set(Math.cos(a) * 2600, -700, Math.sin(a) * 2600); g.add(pipe);
+    }
+    const furnace = new THREE.Mesh(new THREE.SphereGeometry(650, 24, 16), glowMat(0xff6020, 1.6));
+    furnace.position.y = -2300; g.add(furnace);
+  }
   applyBoxUV(g, 450, false);
   g.userData.spinY = 0.012;
   return g;

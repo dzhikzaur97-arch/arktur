@@ -425,4 +425,121 @@ module.exports = function install(Game) {
     this.notify(s, `Продано контрабандисту: ${ITEMS[m.item].name} ×${qty} за ${fmt(price * qty)} ISK`, 'good');
     this.sendProfile(s); this.sendBlack(s, d); this.save();
   };
+
+  // ======================================================================
+  // Перерабатывающие станции игроков
+  // ======================================================================
+  P.loadStructures = function () {
+    if (!this.db.structures) this.db.structures = [];
+    for (const st of this.db.structures) this.attachStructure(st);
+  };
+
+  // Добавляет станцию игрока во вселенную как обычную станцию (стыковка, ангар, рынок)
+  P.attachStructure = function (st) {
+    const sys = this.U.systems[st.sys];
+    if (!sys) return null;
+    const ang = rng(st.id)() * Math.PI * 2;
+    const c = {
+      id: st.id, kind: 'station', sys: st.sys, name: st.name, pos: st.pos, radius: 2500, landing: 4500,
+      undock: [Math.cos(ang), 0, Math.sin(ang)], style: 3, owner: st.owner, player: true
+    };
+    this.U.celestials[c.id] = c;
+    sys.celestials.push(c); sys.stations.push(c);
+    this.prices[c.id] = {};
+    for (const id of Object.keys(ITEMS)) this.prices[c.id][id] = 0.95; // на частной станции чуть дешевле
+    return c;
+  };
+
+  P.myStructure = function (p) { return (this.db.structures || []).find(x => x.owner === p.name); };
+
+  P.c_structInfo = function (s, m, p) {
+    const st = this.myStructure(p);
+    const D = require('./data');
+    s.send({ t: 'struct', mine: st ? { id: st.id, name: st.name, sys: st.sys, level: st.level, jobs: st.jobs, building: st.buildUntil > this.now ? st.buildUntil : 0 } : null,
+      cost: D.REFINERY.buildCost, levels: D.REFINERY.levels, recipes: D.RECIPES, maxJobs: D.REFINERY.maxJobs, now: this.now });
+  };
+
+  P.c_build = function (s, m, p, e) {
+    const D = require('./data');
+    if (!e || e.warp) return this.notify(s, 'Строить можно только в космосе', 'warn');
+    if (this.myStructure(p)) return this.notify(s, 'У вас уже есть станция. Её можно улучшить.', 'warn');
+    if (this.U.byId[e.sys].sec >= 1.0) return this.notify(s, 'В столичных системах (1.0) частные станции запрещены', 'warn');
+    if (p.credits < D.REFINERY.buildCost) return this.notify(s, `Нужно ${fmt(D.REFINERY.buildCost)} ISK`, 'warn');
+    for (const c of this.U.systems[e.sys].celestials) {
+      if (dist(c.pos, e.pos) - (c.radius || 0) < 200000) return this.notify(s, `Слишком близко к объекту «${c.name}». Отлетите дальше 200 км (варп в пустое место или двойной щелчок по космосу).`, 'warn');
+    }
+    p.credits -= D.REFINERY.buildCost;
+    const st = { id: 'ps_' + uid(), owner: p.name, name: `Завод «${p.name}»`, sys: e.sys, pos: e.pos.map(x => x + rnd(-1, 1) * 4000), level: 1, jobs: [],
+      buildUntil: this.now + D.REFINERY.buildTime * 1000, created: this.now };
+    this.db.structures.push(st);
+    this.attachStructure(st);
+    this.fxSys(e.sys, st.pos, { k: 'jump', pos: st.pos });
+    this.notify(s, `Строительство началось! Станция будет готова через ${D.REFINERY.buildTime} с.`, 'good');
+    for (const o of this.sessions) {
+      o.send({ t: 'stationAdd', station: { id: st.id, name: st.name, sys: st.sys, owner: st.owner } });
+      if (this.playerSys(o.player) === e.sys && !o.docked) this.sendSystem(o);
+    }
+    this.broadcastSys(e.sys, { t: 'chat', ch: 'local', from: '*', text: `${p.name} строит перерабатывающую станцию` });
+    this.sendProfile(s); this.c_structInfo(s, m, p); this.save(true);
+  };
+
+  P.ownStation = function (s, p) {
+    const st = this.myStructure(p);
+    if (!st || s.docked !== st.id) { this.notify(s, 'Нужно находиться на своей станции', 'warn'); return null; }
+    return st;
+  };
+
+  P.c_upgrade = function (s, m, p) {
+    const D = require('./data');
+    const st = this.ownStation(s, p); if (!st) return;
+    const next = D.REFINERY.levels[st.level + 1];
+    if (!next) return this.notify(s, 'Станция уже максимального уровня', 'warn');
+    if (p.credits < next.cost) return this.notify(s, `Нужно ${fmt(next.cost)} ISK`, 'warn');
+    p.credits -= next.cost; st.level++;
+    this.notify(s, `Станция улучшена до уровня ${st.level}: выход ×${next.yield}, скорость ×${next.speed}`, 'good');
+    this.sendProfile(s); this.c_structInfo(s, m, p); this.save(true);
+  };
+
+  P.c_refine = function (s, m, p) {
+    const D = require('./data');
+    const st = this.ownStation(s, p); if (!st) return;
+    const rec = D.RECIPES[m.item];
+    const h = this.hangar(p, st.id);
+    const qty = Math.min(h.items[m.item] || 0, Math.floor(+m.qty) || 0);
+    if (!rec || qty <= 0) return this.notify(s, 'Нет руды в ангаре станции. Разгрузите трюм.', 'warn');
+    if (st.jobs.length >= D.REFINERY.maxJobs) return this.notify(s, `Одновременно не больше ${D.REFINERY.maxJobs} заказов`, 'warn');
+    const lv = D.REFINERY.levels[st.level];
+    const outQty = Math.floor(qty * rec.ratio * lv.yield);
+    if (outQty <= 0) return this.notify(s, 'Слишком мало руды для переработки', 'warn');
+    h.items[m.item] -= qty; if (!h.items[m.item]) delete h.items[m.item];
+    // заказы идут по очереди: каждый начинается после предыдущего
+    const start = Math.max(this.now, ...st.jobs.map(j => j.end));
+    const dur = Math.max(5, qty * ITEMS[m.item].base / 600 / lv.speed) * 1000;
+    st.jobs.push({ ore: m.item, qty, out: rec.out, outQty, start, end: start + dur });
+    this.notify(s, `Заказ принят: ${ITEMS[m.item].name} ×${qty} → ${ITEMS[rec.out].name} ×${outQty}`, 'good');
+    this.sendProfile(s); this.c_structInfo(s, m, p); this.save(true);
+  };
+
+  // Раз в секунду: стройка и готовые заказы (работают и без игрока в сети)
+  P.structTick = function () {
+    for (const st of this.db.structures || []) {
+      if (st.buildUntil && this.now >= st.buildUntil) {
+        st.buildUntil = 0;
+        for (const s of this.sessions) if (s.player.name === st.owner) this.notify(s, `Станция «${st.name}» построена! Пристыкуйтесь к ней, вкладка «Завод».`, 'good');
+      }
+      const done = st.jobs.filter(j => this.now >= j.end);
+      if (!done.length) continue;
+      st.jobs = st.jobs.filter(j => this.now < j.end);
+      const p = this.db.players[st.owner];
+      if (!p) continue;
+      const h = this.hangar(p, st.id);
+      for (const j of done) h.items[j.out] = (h.items[j.out] || 0) + j.outQty;
+      for (const s of this.sessions) if (s.player === p) {
+        this.notify(s, 'Переработка завершена: ' + done.map(j => `${ITEMS[j.out].name} ×${j.outQty}`).join(', ') + ' (ангар вашей станции)', 'good');
+        this.sendProfile(s);
+        if (s.docked === st.id) this.c_structInfo(s, {}, p);
+      }
+      this.save();
+    }
+  };
 };
