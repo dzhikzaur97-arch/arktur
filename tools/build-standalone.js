@@ -88,7 +88,12 @@ const html = read('public/index.html');
 const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('<script type="module"'));
 let css = read('public/style.css');
 css = css.replace(':root {', ':root {\n  color-scheme: dark;');
+// концепт-арты кораблей встраиваем прямо в страницу
+const artDir = path.join(ROOT, 'public/img/ships');
+const art = {};
+for (const f of fs.existsSync(artDir) ? fs.readdirSync(artDir) : []) if (f.endsWith('.jpg')) art[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(artDir, f)).toString('base64');
 const page = `<title>Void Frontier</title>
+<script>window.VF_ART = ${JSON.stringify(art)};</script>
 <style>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }

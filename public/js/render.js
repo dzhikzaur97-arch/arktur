@@ -677,8 +677,84 @@ function greebles(g, R, count, mat, region) {
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
   strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260 };
 
+
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
 const rbox = (w, h, d) => new RoundedBoxGeometry(w, h, d, 3, Math.min(w, h, d) * 0.22);
+
+// Отрезок манипулятора между двумя точками
+function armSegment(g, a, b, r, mat) {
+  const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+  const len = va.distanceTo(vb);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r, len, 10), mat);
+  m.position.copy(va).add(vb).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.sub(va).normalize());
+  g.add(m);
+  return m;
+}
+
+// Гатлинг: корпус и вращающийся блок стволов
+function gatling(g, x, y, z, s, M, D, flip = 1) {
+  const t = new THREE.Group();
+  t.add(Object.assign(new THREE.Mesh(rbox(s * 1.3, s * 1.0, s * 1.4), M), {}));
+  const barrels = new THREE.Group();
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.07, s * 0.07, s * 2.2, 6), D);
+    b.rotation.x = Math.PI / 2; b.position.set(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22, s * 1.6);
+    barrels.add(b);
+  }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.32, s * 0.32, s * 0.25, 12), D);
+  hub.rotation.x = Math.PI / 2; hub.position.z = s * 0.8; barrels.add(hub);
+  barrels.userData.spin = ['z', 4];
+  for (const sd of [1, -1]) { const twin = barrels.clone(); twin.position.x = sd * s * 0.35; twin.userData.spin = ['z', 4 * sd]; t.add(twin); }
+  t.position.set(x, y, z);
+  if (flip < 0) t.rotation.z = Math.PI;
+  g.add(t);
+}
+
+// Общая основа «стелс»-истребителя: гранёный фюзеляж, дельта-крыло, кили, два двигателя, красные огни
+function fighterBase(g, R, M, D, eng, o = {}) {
+  const L = o.long || 1, W = o.wide || 1;
+  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  // фюзеляж из граней — как у стелс-самолёта
+  const body = add(lathe(R * 2.5 * L, R * 0.2, [[0, 0.8], [0.06, 0.95], [0.45, 1], [0.7, 0.82], [0.88, 0.42], [1, 0.02]], 6), M, 0, 0, R * 0.1 * L);
+  body.scale.set(1.35 * W, 0.6, 1); body.rotation.z = Math.PI / 6;
+  add(rbox(R * 0.26 * W, R * 0.1, R * 1.3 * L), M, 0, R * 0.09, -R * 0.2);
+  // гранёный фонарь кабины
+  const canopy = add(new THREE.SphereGeometry(R * 0.13, 6, 4), glassMat(), 0, R * 0.12, R * 0.62 * L);
+  canopy.scale.set(0.95, 0.62, 2.6);
+  // дельта-крыло
+  const wing = new THREE.Shape();
+  wing.moveTo(0, R * 0.35); wing.lineTo(R * 1.05 * W, -R * 0.82); wing.lineTo(R * 1.0 * W, -R * 0.98); wing.lineTo(0, -R * 0.95);
+  const wg = new THREE.ExtrudeGeometry(wing, { depth: R * 0.03, bevelEnabled: true, bevelThickness: R * 0.012, bevelSize: R * 0.012, bevelSegments: 1 });
+  wg.translate(0, 0, -R * 0.015); wg.rotateX(Math.PI / 2);
+  for (const sd of [1, -1]) {
+    const w = add(wg, M, sd * R * 0.12, -R * 0.03, -R * 0.05 * L); w.scale.x = sd;
+    // переднее наплывное крыло
+    const can = new THREE.Shape(); can.moveTo(0, R * 0.25); can.lineTo(R * 0.32, -R * 0.12); can.lineTo(0, -R * 0.15);
+    const cg = new THREE.ExtrudeGeometry(can, { depth: R * 0.02, bevelEnabled: false }); cg.rotateX(Math.PI / 2);
+    const c = add(cg, M, sd * R * 0.14, R * 0.02, R * 0.55 * L); c.scale.x = sd;
+    // разведённые кили
+    const fin = add(rbox(R * 0.025, R * 0.42, R * 0.34), M, sd * R * 0.26 * W, R * 0.22, -R * 0.82 * L);
+    fin.rotation.set(-0.45, 0, -sd * 0.38);
+    // двигатели
+    add(lathe(R * 0.7, R * 0.1, [[0, 0.85], [0.15, 1], [0.85, 0.95], [1, 0.6]], 14), D, sd * R * 0.16 * W, -R * 0.02, -R * 0.78 * L);
+    addEngine(g, sd * R * 0.16 * W, -R * 0.02, -R * 1.14 * L, R * 0.085, eng, 0.9);
+    // орудия под крыльями
+    if (o.guns) for (let k = 0; k < o.guns; k++) {
+      const gun = add(new THREE.CylinderGeometry(R * 0.018, R * 0.022, R * 0.55, 8), D, sd * R * (0.55 + k * 0.3) * W, -R * 0.07, -R * 0.15 - k * R * 0.2);
+      gun.rotation.x = Math.PI / 2;
+    }
+  }
+  // носовой штырь
+  add(new THREE.CylinderGeometry(R * 0.006, R * 0.012, R * 0.35, 6), D, 0, 0, R * 1.5 * L).rotation.x = Math.PI / 2;
+  // постоянные красные огни по корпусу и мигающие на законцовках крыльев
+  const red = glowMat(0xff1a1a, 4);
+  for (const [x, y, z] of [[0.22, 0.04, 0.45], [-0.22, 0.04, 0.45], [0.12, 0.13, 0.15], [-0.12, 0.13, 0.15], [0.3, 0.42, -0.95], [-0.3, 0.42, -0.95]])
+    add(new THREE.SphereGeometry(R * 0.018, 8, 6), red, R * x * W, R * y, R * z * L);
+  addLights(g, [[R * 1.04 * W, -R * 0.03, -R * 0.92, R * 0.022], [-R * 1.04 * W, -R * 0.03, -R * 0.92, R * 0.022]], 0xff2020);
+}
+
 
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
@@ -769,170 +845,138 @@ function buildShip(type, color, faction) {
       break;
     }
 
-    // ---------------- Перехватчик «Стриж»: игла с крыльями обратной стреловидности ----------------
+    // ===== Новые корабли по концепт-артам: тёмный «стелс»-корпус, дельта-крылья, красные огни =====
     case 'strizh': {
-      add(lathe(R * 2.7, R * 0.2, [[0, 0.7], [0.08, 1], [0.4, 0.95], [0.75, 0.6], [0.92, 0.25], [1, 0.01]], 16), M, 0, 0, 0, 1, 0.75, 1);
-      add(new THREE.SphereGeometry(R * 0.12, 20, 12), glassMat(), 0, R * 0.1, R * 0.45, 0.9, 0.55, 2.6);
-      const w = wingGeo(R * 0.85, R * 0.5, -R * 0.45, R * 0.03);
-      add(w, M, R * 0.12, 0, -R * 0.55); const w2 = add(w, M, -R * 0.12, 0, -R * 0.55); w2.scale.x = -1;
-      for (const sd of [1, -1]) {
-        add(lathe(R * 1.0, R * 0.07, [[0, 0.8], [0.15, 1], [0.8, 0.9], [1, 0.1]], 10), D, sd * R * 0.95, 0, -R * 0.35);
-        addEngine(g, sd * R * 0.95, 0, -R * 0.88, R * 0.06, eng, 0.7);
-        const fin = add(rbox(R * 0.03, R * 0.42, R * 0.38), M, sd * R * 0.18, R * 0.2, -R * 0.95);
-        fin.rotation.z = -sd * 0.45;
-      }
-      add(rbox(R * 0.03, R * 0.02, R * 1.2), glowMat(faction === 'pirate' ? 0xff3020 : 0x40ffe0, 1.1), 0, R * 0.155, -R * 0.1);
-      addEngine(g, 0, 0, -R * 1.35, R * 0.15, eng, 1.2);
-      addLights(g, [[R * 1.0, 0, R * 0.15, R * 0.03], [-R * 1.0, 0, R * 0.15, R * 0.03]], 0x40ffe0);
+      fighterBase(g, R, M, D, eng, { guns: 2 });
       break;
     }
-    // ---------------- Разведчик «Сокол»: тарелка сканера, кольцо антенны, длинный сенсорный щуп ----------------
     case 'sokol': {
-      add(lathe(R * 2.0, R * 0.34, [[0, 0.5], [0.12, 0.85], [0.4, 1], [0.7, 0.85], [0.9, 0.5], [1, 0.12]], 24), M, 0, 0, 0, 1.15, 0.8, 1);
-      add(new THREE.SphereGeometry(R * 0.15, 20, 12), glassMat(), 0, R * 0.15, R * 0.55, 1.2, 0.6, 1.6);
-      const dish = add(new THREE.SphereGeometry(R * 0.42, 32, 12, 0, Math.PI * 2, 0, 0.55), M, 0, R * 0.62, -R * 0.15);
-      dish.material = M; dish.rotation.x = -0.5;
-      add(new THREE.CylinderGeometry(R * 0.04, R * 0.06, R * 0.35, 8), D, 0, R * 0.38, -R * 0.12);
-      add(new THREE.SphereGeometry(R * 0.06, 12, 8), glowMat(0x80d0ff, 3), 0, R * 0.78, R * 0.02);
-      add(new THREE.CylinderGeometry(R * 0.015, R * 0.025, R * 1.0, 6), D, 0, 0, R * 1.35).rotation.x = Math.PI / 2;
-      addLights(g, [[0, 0, R * 1.88, R * 0.035]], 0x80d0ff);
-      const ring = add(new THREE.TorusGeometry(R * 0.55, R * 0.035, 10, 48), D, 0, 0, -R * 0.6);
-      ring.userData.spin = ['z', 0.6];
+      fighterBase(g, R, M, D, eng, { guns: 1 });
+      // мачта с сенсорной сферой
+      add(new THREE.CylinderGeometry(R * 0.025, R * 0.04, R * 0.55, 10), D, 0, R * 0.38, R * 0.05);
+      add(new THREE.SphereGeometry(R * 0.09, 20, 14), M, 0, R * 0.7, R * 0.05);
+      add(new THREE.SphereGeometry(R * 0.045, 16, 10), glowMat(0x50e0c0, 2.2), 0, R * 0.7, R * 0.13);
+      // приборный отсек на хребте
+      add(rbox(R * 0.32, R * 0.12, R * 0.55), M, 0, R * 0.15, -R * 0.05);
+      // тарелка под брюхом
+      const dish = add(new THREE.SphereGeometry(R * 0.3, 28, 10, 0, Math.PI * 2, 0, 0.6), D, 0, -R * 0.3, R * 0.15);
+      dish.rotation.x = Math.PI * 0.75;
+      // камерные модули у двигателей
       for (const sd of [1, -1]) {
-        const panel = add(rbox(R * 0.7, R * 0.02, R * 0.32), new THREE.MeshStandardMaterial({ map: sharedTextures().solar, metalness: 0.9, roughness: 0.25, color: 0x99aadd }), sd * R * 0.75, 0, -R * 0.2);
-        panel.rotation.z = sd * 0.12;
-        addEngine(g, sd * R * 0.2, -R * 0.05, -R * 1.0, R * 0.09, eng);
+        add(new THREE.SphereGeometry(R * 0.08, 16, 12), M, sd * R * 0.36, -R * 0.02, -R * 0.65, 1, 1, 1.3);
+        add(new THREE.CircleGeometry(R * 0.04, 16), glowMat(0x60c0ff, 1.8), sd * R * 0.36, -R * 0.02, -R * 0.54);
       }
       break;
     }
-    // ---------------- Шахтёрский фрегат «Старатель»: светящиеся буровые кристаллы и грузовые бочки ----------------
     case 'staratel': {
-      add(rbox(R * 0.85, R * 0.55, R * 1.3), M, 0, 0, 0);
-      add(rbox(R * 0.5, R * 0.25, R * 0.45), M, 0, R * 0.38, R * 0.25);
-      add(new THREE.SphereGeometry(R * 0.13, 16, 10), glassMat(), 0, R * 0.42, R * 0.48, 1.6, 0.6, 1);
-      for (const sd of [1, -1]) {
-        add(new THREE.CylinderGeometry(R * 0.22, R * 0.22, R * 1.05, 20), M, sd * R * 0.62, -R * 0.08, -R * 0.1).rotation.x = Math.PI / 2;
-        for (const z of [-0.45, 0.05, 0.35]) add(new THREE.TorusGeometry(R * 0.225, R * 0.025, 8, 24), D, sd * R * 0.62, -R * 0.08, R * z);
-        const arm = add(new THREE.CylinderGeometry(R * 0.05, R * 0.07, R * 0.8, 10), D, sd * R * 0.28, -R * 0.12, R * 0.95);
-        arm.rotation.x = Math.PI / 2; arm.rotation.z = sd * 0.25;
-        const crystal = add(new THREE.OctahedronGeometry(R * 0.13, 0), glowMat(0x50ff9a, 2.6), sd * R * 0.38, -R * 0.12, R * 1.38, 0.8, 0.8, 1.5);
-        crystal.userData.spin = ['z', sd * 2];
+      fighterBase(g, R, M, D, eng, { guns: 1 });
+      // грузовые ящики на хребте и бортах
+      const crate = pbrMat(0x3a3d42, 'dark');
+      for (const [x, y, z, w, h, d] of [[0, 0.17, 0.05, 0.34, 0.16, 0.5], [0, 0.15, -0.55, 0.4, 0.2, 0.42], [0.3, 0.06, -0.45, 0.2, 0.16, 0.5], [-0.3, 0.06, -0.45, 0.2, 0.16, 0.5]])
+        add(rbox(R * w, R * h, R * d), crate, R * x, R * y, R * z);
+      // четыре манипулятора под брюхом с буровыми головками
+      for (const [sx, z] of [[1, 0.25], [-1, 0.25], [1, -0.25], [-1, -0.25]]) {
+        const j1 = [sx * R * 0.2, -R * 0.1, R * z], j2 = [sx * R * 0.38, -R * 0.38, R * (z + 0.08)], j3 = [sx * R * 0.3, -R * 0.62, R * (z + 0.22)];
+        armSegment(g, j1, j2, R * 0.035, D); armSegment(g, j2, j3, R * 0.03, D);
+        add(new THREE.SphereGeometry(R * 0.045, 12, 8), D, ...j2);
+        add(rbox(R * 0.1, R * 0.1, R * 0.1), M, ...j3).rotation.set(0.6, 0.6, 0);
+        const tip = add(new THREE.OctahedronGeometry(R * 0.04), glowMat(0xe8f4ff, 3), j3[0], j3[1] - R * 0.06, j3[2] + R * 0.05);
+        tip.userData.spin = ['y', 3 * sx];
       }
-      addEngine(g, 0, 0, -R * 0.75, R * 0.2, eng);
-      addEngine(g, R * 0.62, -R * 0.08, -R * 0.66, R * 0.1, eng);
-      addEngine(g, -R * 0.62, -R * 0.08, -R * 0.66, R * 0.1, eng);
-      addLights(g, [[R * 0.45, R * 0.3, -R * 0.6, R * 0.03], [-R * 0.45, R * 0.3, -R * 0.6, R * 0.03]], 0xffaa30);
-      greebles(g, R, 18, D, [R * 0.7, R * 0.28, R * 1.0]);
       break;
     }
-    // ---------------- Эсминец «Вихрь»: вилка-таран и шесть турелей в ряд ----------------
     case 'vihr': {
-      add(lathe(R * 2.3, R * 0.27, [[0, 0.75], [0.1, 1], [0.6, 0.95], [0.85, 0.7], [1, 0.4]], 6), M, 0, 0, -R * 0.1, 1.3, 0.6, 1);
-      for (const sd of [1, -1]) {
-        add(lathe(R * 1.0, R * 0.07, [[0, 1], [0.7, 0.8], [1, 0.05]], 6), M, sd * R * 0.2, 0, R * 1.35, 1.2, 0.6, 1);
-        add(lathe(R * 1.1, R * 0.15, [[0, 0.7], [0.15, 1], [0.85, 1], [1, 0.5]], 12), M, sd * R * 0.48, -R * 0.05, -R * 0.55);
-        addEngine(g, sd * R * 0.48, -R * 0.05, -R * 1.12, R * 0.12, eng);
-        add(rbox(R * 0.04, R * 0.03, R * 1.5), glowMat(faction === 'pirate' ? 0xff3020 : 0xff6080, 2), sd * R * 0.36, R * 0.05, -R * 0.1);
-      }
-      add(rbox(R * 0.24, R * 0.14, R * 1.7), M, 0, R * 0.18, -R * 0.1);
-      for (let i = 0; i < 6; i++) addTurret(g, 0, R * 0.26, R * (0.6 - i * 0.26), R * 0.11, D);
-      add(rbox(R * 0.3, R * 0.2, R * 0.28), M, 0, R * 0.3, -R * 0.95);
-      add(new THREE.BoxGeometry(R * 0.25, R * 0.03, R * 0.05), glowMat(0xffd9a0, 1.4), 0, R * 0.34, -R * 0.81);
-      addEngine(g, 0, R * 0.05, -R * 1.25, R * 0.14, eng);
-      greebles(g, R, 24, D, [R * 0.6, R * 0.13, R * 1.8]);
-      addLights(g, [[R * 0.2, 0, R * 1.85, R * 0.025], [-R * 0.2, 0, R * 1.85, R * 0.025]], 0xff3030);
+      fighterBase(g, R, M, D, eng, { guns: 2, wide: 1.15 });
+      // четыре гатлинга: два сверху, два снизу
+      for (const [x, y, z, flip] of [[0.32, 0.17, 0.05, 1], [-0.32, 0.17, 0.05, 1], [0.24, -0.15, -0.3, -1], [-0.24, -0.15, -0.3, -1]])
+        gatling(g, R * x, R * y, R * z, R * 0.2, M, D, flip);
       break;
     }
-    // ---------------- Дроновый крейсер «Пилигрим»: светящиеся ангары и вращающееся кольцо ----------------
     case 'piligrim': {
-      add(lathe(R * 2.0, R * 0.38, [[0, 0.7], [0.12, 1], [0.6, 1], [0.85, 0.75], [1, 0.25]], 10), M, 0, 0, 0, 1.6, 0.5, 1);
-      const bay = glowMat(0x9cffb0, 0.85);
-      for (const sd of [1, -1]) {
-        add(rbox(R * 0.45, R * 0.32, R * 1.3), M, sd * R * 0.82, 0, -R * 0.1);
-        for (const z of [-0.5, -0.1, 0.3]) add(new THREE.PlaneGeometry(R * 0.26, R * 0.16), bay, sd * R * 1.051, 0, R * z).rotation.y = sd * Math.PI / 2;
-        addEngine(g, sd * R * 0.82, 0, -R * 0.82, R * 0.14, eng);
+      fighterBase(g, R, M, D, eng, { guns: 1, long: 1.35 });
+      add(rbox(R * 0.5, R * 0.22, R * 1.8), M, 0, R * 0.02, -R * 0.15);
+      // два ангара дронов с тёплым светом на каждом борту
+      const bayGlow = glowMat(0xffb070, 1.3);
+      for (const sd of [1, -1]) for (const z of [0.25, -0.55]) {
+        add(rbox(R * 0.12, R * 0.26, R * 0.42), M, sd * R * 0.3, -R * 0.02, R * z);
+        add(new THREE.PlaneGeometry(R * 0.34, R * 0.17), bayGlow, sd * R * 0.362, -R * 0.03, R * z).rotation.y = sd * Math.PI / 2;
       }
-      add(rbox(R * 0.36, R * 0.42, R * 0.5), M, 0, R * 0.35, -R * 0.3);
-      const win = new THREE.Mesh(rbox(R * 0.37, R * 0.08, R * 0.4), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.5 }));
-      win.position.set(0, R * 0.45, -R * 0.3); g.add(win);
-      const ring = add(new THREE.TorusGeometry(R * 0.62, R * 0.05, 12, 64), M, 0, 0, R * 0.25);
-      ring.userData.spin = ['z', 0.35];
-      for (let i = 0; i < 4; i++) { const sp = add(new THREE.CylinderGeometry(R * 0.02, R * 0.02, R * 0.55, 6), D, 0, 0, R * 0.25); sp.rotation.z = i * Math.PI / 2; }
-      addEngine(g, 0, 0, -R * 1.05, R * 0.18, eng);
-      greebles(g, R, 30, D, [R * 1.0, R * 0.2, R * 1.4]);
-      addLights(g, [[R * 1.05, R * 0.18, R * 0.55, R * 0.02], [-R * 1.05, R * 0.18, R * 0.55, R * 0.02], [0, R * 0.6, -R * 0.3, R * 0.02]], 0x40ff60);
+      addTurret(g, 0, R * 0.14, -R * 0.75, R * 0.11, D);
+      add(new THREE.CylinderGeometry(R * 0.012, R * 0.012, R * 0.5, 6), D, 0, 0, R * 1.85).rotation.x = Math.PI / 2;
       break;
     }
-    // ---------------- Эксгуматор «Левиафан»: барабан переработки и четыре манипулятора ----------------
     case 'leviafan': {
-      add(rbox(R * 0.95, R * 0.6, R * 1.5), M, 0, 0, -R * 0.15);
-      const drum = add(new THREE.CylinderGeometry(R * 0.3, R * 0.3, R * 1.05, 32), D, 0, R * 0.5, -R * 0.25);
-      drum.rotation.z = Math.PI / 2;
-      const drumG = new THREE.Group(); drumG.position.set(0, R * 0.5, -R * 0.25); g.add(drumG);
-      for (let i = -3; i <= 3; i++) { const rib = new THREE.Mesh(new THREE.TorusGeometry(R * 0.31, R * 0.025, 8, 32), M); rib.position.x = i * R * 0.15; rib.rotation.y = Math.PI / 2; drumG.add(rib); }
-      drumG.userData.spin = ['x', 0.4];
-      add(rbox(R * 0.4, R * 0.3, R * 0.35), M, 0, R * 0.2, R * 0.7);
-      add(new THREE.BoxGeometry(R * 0.32, R * 0.04, R * 0.05), glowMat(0xffd9a0, 1.4), 0, R * 0.27, R * 0.88);
-      for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-        const a1 = add(new THREE.CylinderGeometry(R * 0.05, R * 0.06, R * 0.7, 10), D, sx * R * 0.38, sy * R * 0.15, R * 0.85);
-        a1.rotation.x = Math.PI / 2; a1.rotation.z = sx * 0.35;
-        const a2 = add(new THREE.CylinderGeometry(R * 0.035, R * 0.05, R * 0.5, 10), D, sx * R * 0.5, sy * R * 0.18, R * 1.35);
-        a2.rotation.x = Math.PI / 2; a2.rotation.z = -sx * 0.2;
-        add(new THREE.SphereGeometry(R * 0.06, 12, 8), glowMat(0x50ff9a, 3), sx * R * 0.46, sy * R * 0.18, R * 1.62);
+      // промышленный корпус: длинный короб, рамы, трубы, баки, манипуляторы с красными излучателями
+      add(rbox(R * 0.55, R * 0.42, R * 1.9), M, 0, 0, 0);
+      add(rbox(R * 0.65, R * 0.5, R * 0.45), M, 0, 0, R * 0.9);
+      for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(R * 0.09, R * 0.09, R * 0.28, 16), pbrMat(0x5a4a3e, 'dark'), R * (0.15 - (i % 2) * 0.3), R * 0.34, -R * (0.15 + Math.floor(i / 2) * 0.22));
+      for (const [x, z, h] of [[0.15, 0.4, 0.3], [-0.12, 0.55, 0.22], [0.05, -0.6, 0.35]]) add(new THREE.CylinderGeometry(R * 0.02, R * 0.02, R * h, 6), D, R * x, R * (0.21 + h / 2), R * z);
+      // рама сверху
+      for (const z of [-0.5, 0, 0.5]) { add(rbox(R * 0.03, R * 0.25, R * 0.03), D, R * 0.26, R * 0.33, R * z); add(rbox(R * 0.03, R * 0.25, R * 0.03), D, -R * 0.26, R * 0.33, R * z); }
+      add(rbox(R * 0.55, R * 0.03, R * 1.1), D, 0, R * 0.46, 0);
+      // трубы вдоль бортов
+      for (const sd of [1, -1]) for (const y of [0.05, -0.1]) add(new THREE.CylinderGeometry(R * 0.025, R * 0.025, R * 1.7, 8), pbrMat(0x6a4a30, 'dark'), sd * R * 0.3, R * y, -R * 0.05).rotation.x = Math.PI / 2;
+      // кормовой блок двигателей
+      add(rbox(R * 0.75, R * 0.6, R * 0.35), M, 0, 0, -R * 0.95);
+      for (const [x, y] of [[0.2, 0.15], [-0.2, 0.15], [0.2, -0.15], [-0.2, -0.15]]) addEngine(g, R * x, R * y, -R * 1.15, R * 0.11, eng);
+      // манипуляторы-излучатели на носу
+      for (const [x, y] of [[0.22, 0.18], [-0.22, 0.18], [0.25, -0.12], [-0.25, -0.12], [0, 0.26]]) {
+        const base = [R * x * 0.8, R * y * 0.8, R * 1.1], mid = [R * x * 1.3, R * y * 1.3, R * 1.35], end = [R * x * 1.1, R * y * 1.1, R * 1.6];
+        armSegment(g, base, mid, R * 0.045, D); armSegment(g, mid, end, R * 0.035, M);
+        add(new THREE.SphereGeometry(R * 0.035, 12, 8), glowMat(0xff2020, 3), ...end);
       }
-      for (const sd of [1, -1]) {
-        add(new THREE.CapsuleGeometry(R * 0.18, R * 0.9, 6, 16), M, sd * R * 0.62, -R * 0.15, -R * 0.2).rotation.x = Math.PI / 2;
-        addEngine(g, sd * R * 0.62, -R * 0.15, -R * 0.95, R * 0.13, eng);
-        addEngine(g, sd * R * 0.22, 0, -R * 0.95, R * 0.13, eng);
-      }
-      greebles(g, R, 40, D, [R * 0.9, R * 0.32, R * 1.4]);
-      addLights(g, [[R * 0.5, R * 0.33, R * 0.6, R * 0.025], [-R * 0.5, R * 0.33, R * 0.6, R * 0.025], [0, R * 1.0, -R * 0.2, R * 0.025]], 0xffaa30);
+      // два нижних манипулятора к астероиду
+      for (const sd of [1, -1]) { armSegment(g, [sd * R * 0.2, -R * 0.2, -R * 0.3], [sd * R * 0.25, -R * 0.55, -R * 0.1], R * 0.03, D); add(new THREE.SphereGeometry(R * 0.03, 10, 8), glowMat(0xff3030, 3), sd * R * 0.25, -R * 0.57, -R * 0.1); }
+      greebles(g, R, 50, D, [R * 0.5, R * 0.22, R * 1.6]);
+      addLights(g, [[R * 0.28, R * 0.2, R * 0.6, R * 0.02], [-R * 0.28, R * 0.2, R * 0.6, R * 0.02], [R * 0.28, R * 0.2, -R * 0.3, R * 0.02], [-R * 0.28, R * 0.2, -R * 0.3, R * 0.02]], 0xff2020);
       break;
     }
-    // ---------------- Грузовоз «Кит»: хребет с кольцами контейнеров ----------------
     case 'kit': {
-      add(new THREE.CylinderGeometry(R * 0.08, R * 0.08, R * 1.7, 12), D, 0, 0, 0).rotation.x = Math.PI / 2;
-      const r2 = seeded(11);
-      const cols = [0x8a3a2a, 0x3a5a7a, 0x9a8a50, 0x5a6a5a, 0xa06030, 0x6a4a7a, 0xc0c4c8];
-      for (let ringI = 0; ringI < 5; ringI++) {
-        const z = R * (0.55 - ringI * 0.27);
-        for (let a = 0; a < 8; a++) {
-          const ang = a * Math.PI / 4;
-          const box = add(rbox(R * 0.14, R * 0.14, R * 0.24), pbrMat(cols[Math.floor(r2() * cols.length)], 'dark'),
-            Math.cos(ang) * R * 0.22, Math.sin(ang) * R * 0.22, z);
-          box.rotation.z = ang;
-        }
-        add(new THREE.TorusGeometry(R * 0.13, R * 0.015, 6, 24), D, 0, 0, z + R * 0.13);
+      // ферма-хребет, контейнерные блоки в два яруса, рубка с антеннами, четыре больших двигателя
+      add(rbox(R * 0.2, R * 0.2, R * 1.9), D, 0, 0, 0);
+      for (const sd of [1, -1]) add(rbox(R * 0.03, R * 0.03, R * 1.8), D, sd * R * 0.14, R * 0.14, 0);
+      const cont = pbrMat(0x34383e, 'dark');
+      for (let i = 0; i < 5; i++) {
+        const z = R * (0.62 - i * 0.3);
+        for (const sd of [1, -1]) for (const y of [0.1, -0.12]) add(rbox(R * 0.26, R * 0.2, R * 0.26), cont, sd * R * 0.26, R * y, z);
+        if (i % 2 === 0) add(rbox(R * 0.26, R * 0.16, R * 0.26), cont, 0, R * 0.22, z);
       }
-      add(lathe(R * 0.4, R * 0.2, [[0, 0.8], [0.3, 1], [0.8, 0.8], [1, 0.35]], 16), M, 0, 0, R * 1.0);
-      const win = new THREE.Mesh(rbox(R * 0.3, R * 0.06, R * 0.2), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.4 }));
-      win.position.set(0, R * 0.17, R * 1.03); g.add(win);
-      add(rbox(R * 0.55, R * 0.55, R * 0.3), M, 0, 0, -R * 0.9);
-      for (const sd of [1, -1]) add(rbox(R * 0.8, R * 0.015, R * 0.25), D, sd * R * 0.6, 0, -R * 0.9);
-      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; addEngine(g, Math.cos(a) * R * 0.17, Math.sin(a) * R * 0.17, -R * 1.07, R * 0.07, eng); }
-      addLights(g, [[R * 1.0, 0, -R * 0.9, R * 0.02], [-R * 1.0, 0, -R * 0.9, R * 0.02], [0, R * 0.25, R * 1.0, R * 0.015]], 0xff3030);
+      add(rbox(R * 0.4, R * 0.35, R * 0.3), M, 0, 0, R * 0.92);
+      add(rbox(R * 0.22, R * 0.12, R * 0.18), M, 0, R * 0.32, -R * 0.55);
+      add(rbox(R * 0.16, R * 0.08, R * 0.12), M, 0, R * 0.42, -R * 0.55);
+      const win = new THREE.Mesh(rbox(R * 0.23, R * 0.025, R * 0.15), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.4 }));
+      win.position.set(0, R * 0.34, -R * 0.55); g.add(win);
+      for (const x of [0.04, -0.04]) add(new THREE.CylinderGeometry(R * 0.006, R * 0.006, R * 0.18, 5), D, R * x, R * 0.55, -R * 0.55);
+      add(rbox(R * 0.6, R * 0.5, R * 0.3), M, 0, 0, -R * 0.95);
+      for (const [x, y] of [[0.17, 0.13], [-0.17, 0.13], [0.17, -0.13], [-0.17, -0.13]]) {
+        add(new THREE.CylinderGeometry(R * 0.1, R * 0.12, R * 0.25, 16), D, R * x, R * y, -R * 1.15).rotation.x = Math.PI / 2;
+        addEngine(g, R * x, R * y, -R * 1.28, R * 0.1, eng);
+      }
+      addLights(g, [[R * 0.4, R * 0.2, R * 0.62, R * 0.012], [-R * 0.4, R * 0.2, R * 0.62, R * 0.012], [0, R * 0.65, -R * 0.55, R * 0.012], [R * 0.4, -R * 0.22, -R * 0.6, R * 0.012]], 0xff2020);
       break;
     }
-    // ---------------- Линкор «Цитадель»: ступенчатая башня, броня и восемь тяжёлых турелей ----------------
     case 'citadel': {
-      add(lathe(R * 2.1, R * 0.36, [[0, 0.8], [0.1, 1], [0.55, 1], [0.82, 0.75], [1, 0.15]], 8), M, 0, 0, 0, 1.55, 0.55, 1);
+      // бронированный корпус-утюг, ярусы надстроек, много башен со спаренными стволами
+      add(rbox(R * 0.7, R * 0.36, R * 2.0), M, 0, 0, 0);
+      add(rbox(R * 0.55, R * 0.3, R * 0.5), M, 0, -R * 0.05, R * 1.1).rotation.x = -0.15;
       for (const sd of [1, -1]) {
-        for (let k = 0; k < 4; k++) add(rbox(R * 0.06, R * 0.28, R * 0.42), M, sd * R * (0.56 - k * 0.02), 0, R * (0.45 - k * 0.42));
-        add(lathe(R * 1.2, R * 0.13, [[0, 0.8], [0.12, 1], [0.85, 1], [1, 0.5]], 12), D, sd * R * 0.45, -R * 0.12, -R * 0.5);
-        addEngine(g, sd * R * 0.45, -R * 0.12, -R * 1.1, R * 0.11, eng);
-        addEngine(g, sd * R * 0.22, R * 0.02, -R * 1.07, R * 0.13, eng);
+        for (let k = 0; k < 5; k++) add(rbox(R * 0.08, R * 0.3, R * 0.36), M, sd * R * 0.39, -R * 0.02, R * (0.75 - k * 0.38));
+        add(new THREE.CylinderGeometry(R * 0.05, R * 0.05, R * 1.6, 12), pbrMat(0x2a2c30, 'dark'), sd * R * 0.42, -R * 0.12, R * 0.05).rotation.x = Math.PI / 2;
+        // носовые стволы
+        for (const y of [0.05, -0.08]) add(new THREE.CylinderGeometry(R * 0.018, R * 0.018, R * 0.5, 8), D, sd * R * 0.2, R * y, R * 1.45).rotation.x = Math.PI / 2;
       }
-      add(rbox(R * 0.55, R * 0.18, R * 1.0), M, 0, R * 0.2, -R * 0.2);
-      add(rbox(R * 0.38, R * 0.16, R * 0.55), M, 0, R * 0.36, -R * 0.35);
-      add(rbox(R * 0.22, R * 0.2, R * 0.3), M, 0, R * 0.52, -R * 0.42);
-      const win = new THREE.Mesh(rbox(R * 0.4, R * 0.05, R * 0.5), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.6 }));
-      win.position.set(0, R * 0.4, -R * 0.34); g.add(win);
-      add(new THREE.BoxGeometry(R * 0.2, R * 0.03, R * 0.04), glowMat(0xffd9a0, 1.6), 0, R * 0.55, -R * 0.27);
-      for (let i = 0; i < 4; i++) for (const sd of [1, -1]) addTurret(g, sd * R * 0.22, R * 0.29, R * (0.62 - i * 0.24), R * 0.12, D);
-      add(new THREE.ConeGeometry(R * 0.12, R * 0.4, 4), D, 0, -R * 0.05, R * 1.2).rotation.x = Math.PI / 2;
-      addEngine(g, 0, R * 0.12, -R * 1.12, R * 0.15, eng);
-      greebles(g, R, 60, D, [R * 1.0, R * 0.18, R * 1.6]);
-      addLights(g, [[R * 0.6, 0, R * 0.5, R * 0.02], [-R * 0.6, 0, R * 0.5, R * 0.02], [0, R * 0.65, -R * 0.42, R * 0.02], [0, -R * 0.2, R * 1.35, R * 0.02]], faction === 'guard' ? 0x80c0ff : 0xff3020);
+      add(rbox(R * 0.5, R * 0.16, R * 0.9), M, 0, R * 0.25, -R * 0.2);
+      add(rbox(R * 0.36, R * 0.16, R * 0.5), M, 0, R * 0.4, -R * 0.35);
+      add(rbox(R * 0.2, R * 0.12, R * 0.28), M, 0, R * 0.54, -R * 0.42);
+      const win = new THREE.Mesh(rbox(R * 0.37, R * 0.035, R * 0.45), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.5 }));
+      win.position.set(0, R * 0.43, -R * 0.34); g.add(win);
+      for (const x of [0.05, -0.05]) add(new THREE.CylinderGeometry(R * 0.006, R * 0.006, R * 0.2, 5), D, R * x, R * 0.7, -R * 0.45);
+      for (let i = 0; i < 4; i++) for (const sd of [1, -1]) addTurret(g, sd * R * 0.2, R * 0.2, R * (0.85 - i * 0.22), R * 0.14, D);
+      addTurret(g, 0, R * 0.34, R * 0.25, R * 0.12, D);
+      add(rbox(R * 0.8, R * 0.5, R * 0.3), M, 0, 0, -R * 1.05);
+      for (const [x, y] of [[0.25, 0.12], [-0.25, 0.12], [0.25, -0.12], [-0.25, -0.12], [0, 0]]) addEngine(g, R * x, R * y, -R * 1.22, R * 0.11, eng);
+      greebles(g, R, 70, D, [R * 0.65, R * 0.19, R * 1.8]);
+      addLights(g, [[R * 0.44, R * 0.15, R * 0.9, R * 0.015], [-R * 0.44, R * 0.15, R * 0.9, R * 0.015], [R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [-R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [0, R * 0.8, -R * 0.45, R * 0.015]], faction === 'guard' ? 0x80c0ff : 0xff2020);
       break;
     }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
