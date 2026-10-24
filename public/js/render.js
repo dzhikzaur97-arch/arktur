@@ -22,6 +22,21 @@ let stationView = null;
 const GU = { time: { value: 0 } }; // общие uniform-переменные шейдеров
 
 let quality = 'high';
+// Прогрев: заранее строим модели и текстуры кораблей маленькими порциями, чтобы не было пауз в бою
+export function prewarm(ships) {
+  const jobs = [];
+  for (const [type, t] of Object.entries(ships)) {
+    jobs.push([type, t.color, 'player'], [type, 0x4a3a38, 'pirate']);
+  }
+  jobs.push(['molot', 0xd8e4f0, 'guard']);
+  const step = () => {
+    const j = jobs.shift();
+    if (!j) return;
+    shipModel(j[0], j[1], 50, j[2]);
+    (window.requestIdleCallback || ((f) => setTimeout(f, 30)))(step, { timeout: 400 });
+  };
+  setTimeout(step, 300);
+}
 // Качество графики: high — всё; medium — без теней и с меньшим разрешением; low — без свечения, следов и постэффектов
 export function setQuality(q) {
   quality = q;
@@ -252,7 +267,7 @@ function plumeTexture() {
 // Полный PBR-набор обшивки: цвет с покраской и маркировкой, карта нормалей (швы, заклёпки),
 // шероховатость и металличность (G/B каналы), светящиеся окна
 function hullSet(paint, accent, faction, seed) {
-  const W = 1024, r = seeded(seed);
+  const W = 512, r = seeded(seed);
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = W; return [c, c.getContext('2d')]; };
   const [cc, cg] = mk(), [hc, hg] = mk(), [oc, og] = mk(), [ec, eg] = mk();
   const P = new THREE.Color(paint), A = new THREE.Color(accent);
@@ -990,7 +1005,7 @@ function buildShip(type, color, faction) {
       sp.rotation.set(0, 0, a - Math.PI / 2); g.add(sp);
     }
   }
-  applyBoxUV(g, R * 0.9, true);
+  applyBoxUV(g, R * 0.55, true);
   return g;
 }
 
@@ -1161,7 +1176,7 @@ function stationModel(style) {
   lights.push([0, 3700, 0, 70], [2600, -2500, 0, 50], [-2600, -2500, 0, 50]);
   addLights(g, lights, 0xff4030);
   greebles(g, 3000, 120, D, [1100, 700, 1100]);
-  applyBoxUV(g, 700, false);
+  applyBoxUV(g, 450, false);
   g.userData.spinY = 0.012;
   return g;
 }
@@ -1191,7 +1206,7 @@ function gateModel() {
         gl_FragColor = vec4(col, 1.0); }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
   }));
-  applyBoxUV(g, 700, false);
+  applyBoxUV(g, 450, false);
   g.add(disk);
   return g;
 }
@@ -1588,12 +1603,13 @@ export function frame(view, dt, time) {
     const rel = [e.dp[0] - origin[0], e.dp[1] - origin[1], e.dp[2] - origin[2]];
     rec.obj.position.set(rel[0], rel[1], rel[2]);
     if (e.k === 's') {
-      if (e.h) { tmpV.set(rel[0] + e.h[0], rel[1] + e.h[1], rel[2] + e.h[2]); rec.obj.lookAt(tmpV); }
+      const eh = e.dh || e.h;
+      if (eh) { tmpV.set(rel[0] + eh[0], rel[1] + eh[1], rel[2] + eh[2]); rec.obj.lookAt(tmpV); }
       rec.obj.visible = !e.w || Math.hypot(...rel) < 2e6;
       const t = view.data.ships[e.st];
       const sf = e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0;
       setEngines(rec.obj, sf, time);
-      if (quality !== 'low' && e.h && Math.hypot(...rel) < 60000) updateTrail(e.id, e.dp, e.h, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
+      if (quality !== 'low' && eh && Math.hypot(...rel) < 60000) updateTrail(e.id, e.dp, eh, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1, time);

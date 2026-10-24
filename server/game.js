@@ -326,6 +326,7 @@ class Game {
     if (c && c.sys === e.sys) return c;
     const a = this.anoms && this.anoms.get(id);
     if (a && a.sys === e.sys) return a;
+    if (id.startsWith('bm_bm_')) { const d = this.ents.get(id.slice(3)); if (d && d.sys === e.sys) return d; }
     return null;
   }
 
@@ -388,6 +389,7 @@ class Game {
     if (!e || e.warp) return;
     const t = this.ents.get(m.id);
     if (!t || t.sys !== e.sys || t === e || !['ship', 'asteroid', 'wreck', 'drone'].includes(t.type)) return;
+    if (t.dealer) return this.notify(s, 'Контрабандиста нельзя захватить — подлетите и нажмите «Торговать»', 'warn');
     if (t.civ) return this.notify(s, 'Гражданское судно под защитой Стражей — захват невозможен', 'warn');
     if (e.locks.has(t.id) || e.locking.has(t.id)) return;
     if (e.locks.size + e.locking.size >= e.stats.maxLocks) return this.notify(s, `Максимум целей: ${e.stats.maxLocks}`, 'warn');
@@ -678,6 +680,7 @@ class Game {
     }
     this.npcSpawns();
     this.anomTick();
+    this.blackTick();
     if (!this._slow || now - this._slow > 1000) { this._slow = now; this.slowTick(); }
     this.broadcastState();
   }
@@ -1097,13 +1100,13 @@ class Game {
     const st = this.requireDocked(s); if (!st) return;
     const sell = {}, buy = {};
     for (const id of Object.keys(ITEMS)) if (!ITEMS[id].noSell) sell[id] = Math.round(this.priceOf(st, id) * (ITEMS[id].module ? 0.5 : 1));
-    for (const id of Object.keys(MODULES)) buy[id] = this.buyPriceOf(st, id);
+    for (const id of Object.keys(MODULES)) if (!MODULES[id].elite) buy[id] = this.buyPriceOf(st, id);
     const ships = {};
     for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0) ships[id] = Math.round(t.price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
     const tax = Math.max(0, BASE_TAX - 0.01 * (p.skills.trade || 0));
     const orders = this.db.orders.map(o => ({ ...o, stationName: this.U.celestials[o.station].name, sysName: this.U.byId[this.U.celestials[o.station].sys].name }));
     const drones = {};
-    for (const id of Object.keys(DRONES)) drones[id] = this.buyPriceOf(st, id);
+    for (const id of Object.keys(DRONES)) if (!DRONES[id].elite) drones[id] = this.buyPriceOf(st, id);
     s.send({ t: 'market', sell, buy, drones, ships, tax, orders });
   }
 
@@ -1124,6 +1127,7 @@ class Game {
   c_buy(s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
     const qty = Math.floor(+m.qty) || 1;
+    if (ITEMS[m.item] && ITEMS[m.item].elite) return this.notify(s, 'Этот товар продаётся только на чёрном рынке', 'warn');
     if (MODULES[m.item] || DRONES[m.item]) {
       const cost = this.buyPriceOf(st, m.item) * qty;
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
@@ -1383,6 +1387,8 @@ class Game {
   c_chat(s, m, p) {
     const text = String(m.text || '').slice(0, 300).trim();
     if (!text) return;
+    // команда разработчика: вызвать контрабандиста (только при запуске с VF_DEV=1)
+    if (text === '/dealer' && typeof process !== 'undefined' && process.env && process.env.VF_DEV) { this.spawnDealer(this.playerSys(p)); return; }
     if (s.lastChat && this.now - s.lastChat < 700) return;
     s.lastChat = this.now;
     const msg = { t: 'chat', ch: m.ch === 'global' ? 'global' : 'local', from: p.name, text };
@@ -1444,6 +1450,7 @@ class Game {
       if (o.outlaw) v.ol = 1;
       if (o.guardian) v.gd = 1;
       if (o.civ) { v.civ = 1; v.o = o.name; }
+      if (o.dealer) { v.dl = 1; v.o = o.name; v.exp = o.expires; }
       if (o.owner) {
         v.o = o.owner;
         const p = this.db.players[o.owner];

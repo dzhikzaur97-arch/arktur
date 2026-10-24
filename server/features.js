@@ -18,6 +18,16 @@ const ANOMALY_KINDS = {
   relic:  { names: ['Руины древней станции', 'Заброшенный аванпост', 'Обломки ковчега'], weight: 0.25 }
 };
 
+const ELITE_STOCK = ['laser_x', 'rail_x', 'miner_x', 'shield_x', 'dmg_x', 'speed_x', 'drone_x'];
+const CONTRABAND = ['cb_implants', 'cb_spice', 'cb_artifact', 'cb_ai'];
+const DEALER_NAMES = ['Шёпот', 'Лис', 'Барон', 'Седой', 'Мадам Ро', 'Кот', 'Ювелир', 'Старый Гас'];
+const DEALER_LINES = [
+  'Есть товар, которого не найдёте ни на одной станции. Я недолго здесь.',
+  'Элитное снаряжение, без вопросов и лицензий. Прилетайте, пока Стражи спят.',
+  'Скупаю реликвии и ядра дороже станций. И кое-что продаю.',
+  'Особые предложения для особых пилотов. Время ограничено.'
+];
+
 module.exports = function install(Game) {
   const P = Game.prototype;
 
@@ -220,7 +230,10 @@ module.exports = function install(Game) {
 
   P.sendAnoms = function (s) {
     const sysId = s.ent ? s.ent.sys : this.playerSys(s.player);
-    s.send({ t: 'anoms', list: this.knownAnoms(s.player, sysId).map(a => ({ id: a.id, kind: 'anomaly', akind: a.kind, name: a.name, pos: a.pos, radius: 0, done: !!a.done })) });
+    const list = this.knownAnoms(s.player, sysId).map(a => ({ id: a.id, kind: 'anomaly', akind: a.kind, name: a.name, pos: a.pos, radius: 0, done: !!a.done }));
+    // контрабандисты видны всем в системе как метка для варпа
+    for (const d of this.ents.values()) if (d.dealer && d.sys === sysId) list.push({ id: 'bm_' + d.id, dealer: d.id, kind: 'anomaly', akind: 'black', name: 'Чёрный рынок: ' + d.name, pos: d.pos, radius: 0 });
+    s.send({ t: 'anoms', list });
   };
   P.broadcastAnoms = function (sysId) { for (const s of this.sessions) if (this.playerSys(s.player) === sysId) this.sendAnoms(s); };
 
@@ -304,5 +317,112 @@ module.exports = function install(Game) {
       this.notify(s, `Аномалия «${a.name}» зачищена! Тайник Скверны открыт.${killerPlayer && s.player === killerPlayer ? ` Премия: ${fmt(bonus)} ISK` : ''}`, 'good');
       this.sendAnoms(s);
     }
+  };
+
+  // ======================================================================
+  // Чёрный рынок: случайные контрабандисты с элитным товаром
+  // ======================================================================
+  P.blackTick = function () {
+    if (this._bmCheck && this.now - this._bmCheck < 10000) return;
+    this._bmCheck = this.now;
+    const occupied = new Set();
+    for (const s of this.sessions) occupied.add(this.playerSys(s.player));
+    for (const d of [...this.ents.values()]) {
+      if (!d.dealer) continue;
+      if (this.now > d.expires || !occupied.has(d.sys)) {
+        if (occupied.has(d.sys)) {
+          this.broadcastSys(d.sys, { t: 'chat', ch: 'local', from: d.name, text: 'Мне пора. Ищите меня в других системах.' });
+          this.fxSys(d.sys, d.pos, { k: 'jump', pos: d.pos });
+        }
+        this.removeEntity(d); this.broadcastAnoms(d.sys);
+      }
+    }
+    for (const sysId of occupied) {
+      if ([...this.ents.values()].some(d => d.dealer && d.sys === sysId)) continue;
+      const sec = this.U.byId[sysId].sec;
+      const chance = sec >= 0.8 ? 0.012 : sec >= 0.5 ? 0.025 : sec > 0 ? 0.05 : 0.07; // за 10 с
+      if (Math.random() < chance) this.spawnDealer(sysId);
+    }
+  };
+
+  P.spawnDealer = function (sysId) {
+    const sys = this.U.systems[sysId];
+    const sec = sys.def.sec;
+    const spots = [...sys.belts, ...sys.celestials.filter(c => c.kind === 'planet')];
+    const near = pick(spots);
+    const pos = add(near.pos, [rnd(-1, 1) * 3e5, rnd(-1, 1) * 5e4, rnd(-1, 1) * 3e5]);
+    const r = Math.random;
+    // ассортимент: 2–4 элитных товара + 1–2 вида контрабанды; в опасных системах дешевле и больше
+    const disc = sec >= 0.5 ? 1.15 : sec > 0 ? 1 : 0.85;
+    const stock = [];
+    for (const id of [...ELITE_STOCK].sort(() => r() - 0.5).slice(0, 2 + Math.floor(r() * 3)))
+      stock.push({ item: id, qty: 1 + Math.floor(r() * (sec > 0.4 ? 1 : 3)), price: Math.round(ITEMS[id].base * disc * rnd(0.85, 1.25)) });
+    for (const id of [...CONTRABAND].sort(() => r() - 0.5).slice(0, 1 + Math.floor(r() * 2)))
+      stock.push({ item: id, qty: 3 + Math.floor(r() * 10), price: Math.round(ITEMS[id].base * rnd(0.6, 0.9)) });
+    // что скупает и почём
+    const buys = { salv_relic: Math.round(ITEMS.salv_relic.base * rnd(1.4, 1.9)), salv_core: Math.round(ITEMS.salv_core.base * rnd(1.3, 1.7)) };
+    for (const id of CONTRABAND) if (!stock.some(o => o.item === id)) buys[id] = Math.round(ITEMS[id].base * rnd(1.15, 1.6));
+    for (const id of ELITE_STOCK) if (r() < 0.4) buys[id] = Math.round(ITEMS[id].base * rnd(0.55, 0.75));
+    const stats = this.calcStats(null, { type: 'tyagach', fit: [] });
+    const d = {
+      id: 'bm_' + uid(), type: 'ship', dealer: true, name: pick(DEALER_NAMES), shipType: r() < 0.5 ? 'tyagach' : 'kit', sys: sysId,
+      pos, vel: [0, 0, 0], heading: [1, 0, 0], stats, shield: 1e9, armor: 1e9, hull: 1e9, cap: 1e9, invulnUntil: Infinity,
+      cmd: { type: 'stop' }, speedFrac: 0, modules: [], locks: new Set(), locking: new Map(), warp: null, scrambledUntil: 0,
+      aggressors: new Map(), radius: 110, nextThink: 0, stock, buys, expires: this.now + rnd(8, 12) * 60000
+    };
+    d.stats.shield = d.stats.armor = d.stats.hull = 1e9;
+    this.ents.set(d.id, d);
+    this.fxSys(sysId, pos, { k: 'jump', pos });
+    this.broadcastSys(sysId, { t: 'chat', ch: 'local', from: d.name, text: pick(DEALER_LINES) + ` Ищите меня у «${near.name}».` });
+    for (const s of this.sessions) if (this.playerSys(s.player) === sysId) this.notify(s, `В системе появился чёрный рынок (${d.name}). Он в обзоре на вкладке «Навигация».`, 'good');
+    this.broadcastAnoms(sysId);
+    return d;
+  };
+
+  P.dealerFor = function (s, id) {
+    const e = s.ent, d = this.ents.get(id);
+    if (!e || !d || !d.dealer || d.sys !== e.sys) { this.notify(s, 'Контрабандист уже ушёл', 'warn'); return null; }
+    if (this.surfaceDist(e, d) > 10000) {
+      if (!e.warp) e.cmd = { type: 'approach', target: d.id };
+      this.notify(s, 'Подлетите ближе 10 км, чтобы торговать');
+      return null;
+    }
+    return d;
+  };
+
+  P.sendBlack = function (s, d) {
+    const p = s.player;
+    s.send({ t: 'black', id: d.id, name: d.name, expires: d.expires, stock: d.stock, buys: d.buys, cargo: p.ship.cargo,
+      cargoFree: this.calcStats(p, p.ship).cargo - this.cargoUsed(p.ship.cargo) });
+  };
+
+  P.c_blackOpen = function (s, m) { const d = this.dealerFor(s, m.id); if (d) this.sendBlack(s, d); };
+
+  P.c_blackBuy = function (s, m, p) {
+    const d = this.dealerFor(s, m.id); if (!d) return;
+    const o = d.stock.find(x => x.item === m.item);
+    const qty = Math.max(1, Math.floor(+m.qty) || 1);
+    if (!o || o.qty < qty) return this.notify(s, 'Столько нет в наличии', 'warn');
+    const cost = o.price * qty;
+    if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+    const free = this.calcStats(p, p.ship).cargo - this.cargoUsed(p.ship.cargo);
+    if (ITEMS[o.item].vol * qty > free + 1e-9) return this.notify(s, 'Не хватает места в трюме', 'warn');
+    p.credits -= cost; o.qty -= qty;
+    if (!o.qty) d.stock.splice(d.stock.indexOf(o), 1);
+    p.ship.cargo[o.item] = (p.ship.cargo[o.item] || 0) + qty;
+    this.notify(s, `Куплено у контрабандиста: ${ITEMS[o.item].name} ×${qty} за ${fmt(cost)} ISK. Товар в трюме.`, 'good');
+    this.sendProfile(s); this.sendBlack(s, d); this.save();
+  };
+
+  P.c_blackSell = function (s, m, p) {
+    const d = this.dealerFor(s, m.id); if (!d) return;
+    const price = d.buys[m.item];
+    const have = p.ship.cargo[m.item] || 0;
+    const qty = Math.min(have, Math.max(1, Math.floor(+m.qty) || have));
+    if (!price || qty <= 0) return this.notify(s, 'Этот товар контрабандисту не нужен', 'warn');
+    p.ship.cargo[m.item] -= qty; if (!p.ship.cargo[m.item]) delete p.ship.cargo[m.item];
+    p.credits += price * qty;
+    this.notify(s, `Продано контрабандисту: ${ITEMS[m.item].name} ×${qty} за ${fmt(price * qty)} ISK`, 'good');
+    this.sendProfile(s); this.sendBlack(s, d); this.save();
   };
 };

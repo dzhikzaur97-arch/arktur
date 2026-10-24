@@ -229,6 +229,7 @@ function onMsg(m) {
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
+      R.prewarm(m.data.ships);
       addChat('local', '*', `Добро пожаловать, пилот ${m.name}! Нажмите H или «?» слева, чтобы узнать управление.`);
       break;
     case 'system':
@@ -250,12 +251,13 @@ function onMsg(m) {
       showStation(); break;
     }
     case 'undocked': S.docked = null; hideStation(); Sound.whoosh(0.8, false, 2); break;
-    case 'note': note(m.text, m.kind); if (m.text.startsWith('Продано')) markTut('sell'); break;
+    case 'note': note(m.text, m.kind); if (m.text.startsWith('Продано:')) markTut('sell'); break;
     case 'chat': addChat(m.ch, m.from, m.text); break;
     case 'local': S.members = m.members; renderMembers(); break;
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
     case 'agents': S.agents = m.offers; if (S.docked && S.stTab === 'agents') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
+    case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'destroyed':
       modal(`<h3 style="color:var(--bad)">Корабль уничтожен</h3><p>Ваш «${esc(m.ship)}» уничтожен. Нападавший: <b>${esc(m.killer)}</b>.</p>
@@ -273,12 +275,13 @@ function onState(m) {
   if (S.lastStateAt) S.interval = S.interval * 0.9 + Math.min(300, now - S.lastStateAt) * 0.1;
   S.lastStateAt = now;
   S.clockSkew = m.now - Date.now();
+  // сглаженное соответствие серверного времени локальным часам (performance.now)
+  const off = m.now - now;
+  if (S.timeOff === undefined || Math.abs(off - S.timeOff) > 1000) S.timeOff = off;
+  else S.timeOff += (off - S.timeOff) * 0.05;
   const me = m.me;
-  if (!S.meRec) S.meRec = { prev: me.p, cur: me.p, dp: me.p, t0: now };
-  else {
-    const jump = len(sub(me.p, S.meRec.cur)) > 5e5 && !me.warp && !(S.me && S.me.warp);
-    S.meRec.prev = jump ? me.p : S.meRec.dp; S.meRec.cur = me.p; S.meRec.t0 = now;
-  }
+  if (!S.meRec) S.meRec = { snaps: [], dp: me.p, dh: me.h };
+  pushSnap(S.meRec, m.now, me.p, me.v, me.h, !!me.warp);
   const prev = S.me;
   if (prev) {
     if (me.warp && !prev.warp) Sound.whoosh(1, true, 3);
@@ -291,25 +294,61 @@ function onState(m) {
   for (const e of m.ents) {
     seen.add(e.id);
     const old = S.ents.get(e.id);
-    if (old) { e.prev = old.dp; e.cur = e.p; e.dp = old.dp; e.t0 = now; }
-    else { e.prev = e.cur = e.dp = e.p; e.t0 = now; }
+    if (old) { e.snaps = old.snaps; e.dp = old.dp; e.dh = old.dh; }
+    else { e.snaps = []; e.dp = e.p; e.dh = e.h; }
+    pushSnap(e, m.now, e.p, e.v, e.h, !!e.w);
     S.ents.set(e.id, e);
   }
   for (const id of [...S.ents.keys()]) if (!seen.has(id)) S.ents.delete(id);
-  if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel])) S.sel = null;
+  if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel]) && !(S.anoms && S.anoms.some(a => a.id === S.sel))) S.sel = null;
   if (S.active && !me.locks.includes(S.active)) S.active = me.locks[0] || null;
   if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); damageNumber(fx); }
   R.setMyShip(me.st, S.data);
 }
 
-function interp(rec, now) {
-  const a = Math.min(1.25, (now - rec.t0) / S.interval);
-  rec.dp = [rec.prev[0] + (rec.cur[0] - rec.prev[0]) * a, rec.prev[1] + (rec.cur[1] - rec.prev[1]) * a, rec.prev[2] + (rec.cur[2] - rec.prev[2]) * a];
+// ---------- плавное движение: буфер снимков и интерполяция по кривой Эрмита ----------
+// Мир показывается с небольшой задержкой (~120 мс), поэтому между двумя снимками сервера всегда есть плавная кривая
+const RENDER_DELAY = 120;
+function pushSnap(rec, t, p, v, h, warp) {
+  const s = rec.snaps;
+  const last = s[s.length - 1];
+  if (last && t <= last.t) return;
+  // телепорт (прыжок через врата, возрождение) — начинаем заново, без «протягивания» через полсистемы
+  if (last && !warp && !last.w && len(sub(p, last.p)) > Math.max(5e5, len(last.v) * (t - last.t) / 1000 * 4 + 5e4)) s.length = 0;
+  s.push({ t, p, v: v || [0, 0, 0], h, w: warp });
+  if (s.length > 8) s.shift();
+}
+function sample(rec, rt) {
+  const s = rec.snaps;
+  if (!s || !s.length) return;
+  let a = s[0], b = null;
+  if (rt <= a.t) { rec.dp = a.p; if (a.h) rec.dh = a.h; return; }
+  for (let i = 0; i < s.length - 1; i++) if (s[i].t <= rt && rt <= s[i + 1].t) { a = s[i]; b = s[i + 1]; break; }
+  if (!b) {
+    // новых данных ещё нет — продолжаем движение по скорости (не дольше 0,35 с)
+    const l = s[s.length - 1], dt = Math.min(rt - l.t, 350) / 1000;
+    rec.dp = [l.p[0] + l.v[0] * dt, l.p[1] + l.v[1] * dt, l.p[2] + l.v[2] * dt];
+    if (l.h) rec.dh = l.h;
+    return;
+  }
+  const span = b.t - a.t, u = (rt - a.t) / span, d = span / 1000;
+  if (a.w || b.w) {
+    rec.dp = [a.p[0] + (b.p[0] - a.p[0]) * u, a.p[1] + (b.p[1] - a.p[1]) * u, a.p[2] + (b.p[2] - a.p[2]) * u];
+  } else {
+    const u2 = u * u, u3 = u2 * u;
+    const h00 = 2 * u3 - 3 * u2 + 1, h10 = (u3 - 2 * u2 + u) * d, h01 = -2 * u3 + 3 * u2, h11 = (u3 - u2) * d;
+    rec.dp = [0, 1, 2].map(k => h00 * a.p[k] + h10 * a.v[k] + h01 * b.p[k] + h11 * b.v[k]);
+  }
+  if (a.h && b.h) {
+    const hx = a.h[0] + (b.h[0] - a.h[0]) * u, hy = a.h[1] + (b.h[1] - a.h[1]) * u, hz = a.h[2] + (b.h[2] - a.h[2]) * u;
+    const l = Math.hypot(hx, hy, hz) || 1;
+    rec.dh = [hx / l, hy / l, hz / l];
+  }
 }
 
 function viewState() {
   return {
-    origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me, ents: S.ents, data: S.data, docked: S.docked,
+    origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ents, data: S.data, docked: S.docked,
     dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null
   };
 }
@@ -336,12 +375,14 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия']
 };
-const ANOM_TYPE = { combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины' };
+const ANOM_TYPE = { combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
 function iconOf(o) {
-  if (o.kind === 'ship') return o.gd ? '✠' : o.npc ? '▼' : '▲';
+  if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
+  if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
+  if (o.kind === 'ship' && o.dl) return 'Контрабандист';
   if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
   if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
@@ -379,11 +420,20 @@ function act(a, id) {
     case 'loot': send({ t: 'loot', id }); break;
     case 'stop': send({ t: 'stop' }); break;
     case 'info': showInfo(o); break;
+    case 'black': {
+      const did = o && o.dealer ? o.dealer : id;
+      const near = S.ents.get(did);
+      if (near && distTo(getObj(did)) <= 10000) send({ t: 'blackOpen', id: did });
+      else if (o && distTo(o) > 150000) { send({ t: 'warp', id: o.dealer ? id : did, range: 0 }); note('Варп к контрабандисту. Нажмите «Торговать» ещё раз по прибытии.'); }
+      else send({ t: 'blackOpen', id: did });
+      break;
+    }
     case 'desel': S.sel = null; break;
     case 'smart': {
       if (!o) return;
       const d = distTo(o);
-      if (o.kind === 'station') act('dock', id);
+      if (o.dl || (o.kind === 'anomaly' && o.akind === 'black' && d < 150000)) act('black', id);
+      else if (o.kind === 'station') act('dock', id);
       else if (o.kind === 'gate') act('jump', id);
       else if (d > 150000) act('warp', id);
       else if (o.kind === 'wreck') act('loot', id);
@@ -408,7 +458,8 @@ function actionsFor(o) {
       A.push(['keep', '↔', `Дистанция ${S.keepRange / 1000}км`, 'E']);
     }
   }
-  if (['ship', 'asteroid', 'wreck'].includes(o.kind)) {
+  if (o.dl || (o.kind === 'anomaly' && o.akind === 'black')) A.unshift(['black', '¤', 'Торговать', '']);
+  if (['ship', 'asteroid', 'wreck'].includes(o.kind) && !o.dl) {
     if (S.me && (S.me.locks.includes(o.id) || S.me.locking.some(l => l[0] === o.id))) A.push(['unlock', '⊗', 'Снять захват', '']);
     else A.push(['lock', '⌖', 'Захват', 'Ctrl']);
   }
@@ -657,13 +708,13 @@ function updateBrackets() {
     }
     const cls = ['br'];
     if (o.kind === 'ship') {
-      if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
+      if (o.dl) cls.push('dealer', 'lbl'); else if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
       if (o.cr) cls.push('crim'); else if (o.su) cls.push('susp');
       if (o.ol) cls.push('outlaw');
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push('anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -684,7 +735,7 @@ function updateBrackets() {
     const label = `${o.n || o.name}${o.o && o.o !== o.n ? '' : ''} · ${fmtDist(distTo(o))}`;
     if (b._i !== icon) { b.firstChild.textContent = icon; b._i = icon; }
     if (b._l !== label) { b.lastChild.textContent = label; b._l = label; }
-    b.style.left = p[0] + 'px'; b.style.top = p[1] + 'px';
+    b.style.transform = `translate3d(${p[0].toFixed(1)}px, ${p[1].toFixed(1)}px, 0) translate(-50%, -50%)`;
   }
   for (const [id, b] of brackets) if (!used.has(id)) { b.remove(); brackets.delete(id); }
 }
@@ -985,9 +1036,9 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
-function openWin(name, html) {
-  if (S.win === name && !html) return closeWin();
+const WIN_TITLES = { black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+function openWin(name, html, keep) {
+  if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
   $('#win').classList.remove('hidden');
@@ -1003,6 +1054,7 @@ function renderWin() {
   if (S.win === 'assets') return setHTML(el, assetsHTML());
   if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
   if (S.win === 'settings') return setHTML(el, settingsHTML());
+  if (S.win === 'black') return setHTML(el, blackHTML());
 }
 onTap($('#win-body'), onActionClick);
 
@@ -1203,7 +1255,7 @@ function checkTutorial() {
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
   if (p.training || Object.keys(p.skills).length) markTut('skill');
-  if (S.anoms && S.anoms.length) markTut('scan');
+  if (S.anoms && S.anoms.some(a => a.akind !== 'black')) markTut('scan');
   renderTutorial();
 }
 function renderTutorial() {
@@ -1220,6 +1272,27 @@ onTap($('#tut'), (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = tr
 // ======================================================================
 // Дроны
 // ======================================================================
+// Окно чёрного рынка
+function blackHTML() {
+  const b = S.black;
+  if (!b) return '';
+  const left = Math.max(0, (b.expires - S.serverNow()) / 1000);
+  const desc = (id) => S.data.modules[id] ? moduleDesc(S.data.modules[id]) : S.data.drones[id] ? droneDesc(S.data.drones[id]) : S.data.items[id].cat;
+  let h = `<div class="bm-head"><div class="bm-logo">¤</div><div><div class="bm-name">${esc(b.name)}</div><div class="muted">Уйдёт через <b class="bm-timer">${fmtTime(left)}</b> · место в трюме ${num(b.cargoFree)} м³ · баланс <span class="isk">${isk(S.prof.credits)}</span></div></div></div>`;
+  h += '<h3>Продаёт</h3>';
+  h += b.stock.length ? `<table class="tbl"><tr><th>Товар</th><th>Описание</th><th class="r">Есть</th><th class="r">Цена</th><th></th></tr>${b.stock.map(o => {
+    const it = S.data.items[o.item];
+    return `<tr class="${it.elite ? 'bm-elite' : 'bm-cb'}"><td>${esc(it.name)}<div class="muted">${esc(it.cat)}</div></td><td class="muted">${desc(o.item)}</td><td class="r">${o.qty}</td><td class="r isk">${num(o.price)}</td>
+      <td class="r"><input class="qty" type="number" min="1" max="${o.qty}" value="1" id="bq-bm-${o.item}"> <button class="primary" data-a="bmBuy" data-item="${o.item}">Купить</button></td></tr>`;
+  }).join('')}</table>` : '<div class="muted">Всё распродано.</div>';
+  h += '<h3>Скупает</h3><table class="tbl"><tr><th>Товар</th><th class="r">У вас</th><th class="r">Цена за ед.</th><th></th></tr>' + Object.entries(b.buys).map(([id, pr]) => {
+    const q = (S.prof.ship.cargo || {})[id] || 0;
+    return `<tr><td>${esc(S.data.items[id].name)}</td><td class="r">${q}</td><td class="r isk">${num(pr)}</td><td class="r">${q ? `<button data-a="bmSell" data-item="${id}">Продать всё</button>` : '<span class="muted">нет в трюме</span>'}</td></tr>`;
+  }).join('') + '</table>';
+  h += '<p class="muted">Покупки кладутся в трюм. Чтобы установить элитный модуль, долетите до станции, разгрузите трюм и поставьте модуль во вкладке «Оснастка». Контрабанду станции не покупают — продайте её другому контрабандисту дороже.</p>';
+  return h;
+}
+
 function settingsHTML() {
   const opt = (v, cur, label) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${label}</option>`;
   return `<div class="settings">
@@ -1238,7 +1311,7 @@ function applyCfg() {
 $('#win-body').addEventListener('input', (e) => {
   const id = e.target.id;
   if (!id.startsWith('cfg-')) return;
-  if (id === 'cfg-quality') CFG.quality = e.target.value;
+  if (id === 'cfg-quality') { CFG.quality = e.target.value; CFG.autoQ = false; }
   if (id === 'cfg-volume') { CFG.volume = +e.target.value; $('#cfg-vol-v').textContent = Math.round(CFG.volume * 100) + '%'; }
   if (id === 'cfg-ui') CFG.ui = +e.target.value;
   if (id === 'cfg-sens') { CFG.sens = +e.target.value; $('#cfg-sens-v').textContent = CFG.sens.toFixed(1); }
@@ -1432,6 +1505,8 @@ function onActionClick(e) {
     case 'sell': send({ t: 'sell', item: d.item, qty: +$('#sq-' + d.item).value }); break;
     case 'buy': send({ t: 'buy', item: d.item, qty: 1 }); break;
     case 'buyShip': send({ t: 'buy', item: d.item }); break;
+    case 'bmBuy': send({ t: 'blackBuy', id: S.black.id, item: d.item, qty: +$('#bq-bm-' + d.item).value }); break;
+    case 'bmSell': send({ t: 'blackSell', id: S.black.id, item: d.item }); break;
     case 'buyBoard': send({ t: 'buy', item: d.item, board: true }); break;
     case 'buyOrder': send({ t: 'buyOrder', id: d.id, qty: +$('#bq-' + d.id).value }); break;
     case 'cancelOrder': send({ t: 'cancelOrder', id: d.id }); break;
@@ -1540,22 +1615,37 @@ function renderMapInfo() {
 // Главный цикл отрисовки
 // ======================================================================
 let lastFrame = performance.now(), lastUi = 0;
+// Автоподстройка качества: если кадров мало, снижаем графику (только пока игрок сам не выбрал качество)
+const fps = { t0: 0, n: 0 };
+function autoQuality(now, dt) {
+  if (CFG.autoQ === false || !S.me || S.docked || document.hidden) { fps.t0 = 0; return; }
+  if (!fps.t0) { fps.t0 = now; fps.n = 0; return; }
+  fps.n++;
+  if (now - fps.t0 < 5000) return;
+  const f = fps.n * 1000 / (now - fps.t0);
+  fps.t0 = 0;
+  const next = f < 40 && CFG.quality === 'high' ? 'medium' : f < 26 && CFG.quality === 'medium' ? 'low' : null;
+  if (next) { CFG.quality = next; saveCfg(); applyCfg(); note(`Графика упрощена для плавности (${Math.round(f)} кадров/с). Изменить можно в настройках ⚙`, 'info'); }
+}
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (!S.data) return;
   if (S.me && !S.docked) {
-    interp(S.meRec, now);
-    for (const e of S.ents.values()) interp(e, now);
+    const rt = now + (S.timeOff || 0) - RENDER_DELAY;
+    sample(S.meRec, rt);
+    for (const e of S.ents.values()) sample(e, rt);
   }
   R.frame(viewState(), dt, now / 1000);
+  autoQuality(now, dt);
   updateBrackets();
   if (S.me && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;
     if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
+    if (S.win === 'black' && S.black) { const t = document.querySelector('.bm-timer'); if (t) t.textContent = fmtTime(Math.max(0, (S.black.expires - S.serverNow()) / 1000)); }
     if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }
 
   }

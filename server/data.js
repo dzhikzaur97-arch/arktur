@@ -137,15 +137,32 @@ const ITEMS = {
   salv_relic:    { name: 'Древняя реликвия', cat: 'Трофеи', vol: 5, base: 40000 },
   courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true }
 };
-for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: 'Модули', vol: m.vol, base: m.price, module: true };
+// Элитные модули — только на чёрном рынке
+Object.assign(MODULES, {
+  laser_x:  { name: 'Фазовый лазер «Сверхновая»', slot: 'high', kind: 'weapon', price: 420000, dmg: 125, cycle: 2.4, cap: 9, optimal: 17000, falloff: 7000, color: 0xff40d0, vol: 10, elite: true },
+  rail_x:   { name: 'Гаусс-орудие «Комета»', slot: 'high', kind: 'weapon', price: 650000, dmg: 270, cycle: 4.5, cap: 5, optimal: 52000, falloff: 18000, color: 0xb0f0ff, vol: 20, elite: true },
+  miner_x:  { name: 'Квантовый бур «Жила»', slot: 'high', kind: 'miner', price: 380000, yield: 260, cycle: 7, cap: 10, range: 18000, color: 0xffe060, vol: 10, elite: true },
+  shield_x: { name: 'Щит Предтеч', slot: 'mid', kind: 'shieldRep', price: 520000, amount: 480, cycle: 4, cap: 45, vol: 15, elite: true },
+  dmg_x:    { name: 'Нейроусилитель «Ярость»', slot: 'low', kind: 'passive', price: 480000, passive: { damage: 0.3 }, vol: 5, elite: true },
+  speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true }
+});
+for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite };
 
 // ---------- Дроны ----------
 const DRONES = {
   drone_light: { name: 'Боевой дрон «Оса»', kind: 'combat', price: 8000, vol: 5, dmg: 14, cycle: 2, range: 2500, speed: 2200, hp: 260, color: 0xffb040 },
   drone_heavy: { name: 'Тяжёлый дрон «Шершень»', kind: 'combat', price: 32000, vol: 10, dmg: 40, cycle: 3, range: 3000, speed: 1400, hp: 750, color: 0xff7040 },
-  drone_mine:  { name: 'Шахтёрский дрон «Крот»', kind: 'mining', price: 9000, vol: 5, yield: 20, cycle: 6, range: 1500, speed: 1200, hp: 220, color: 0x80ff90 }
+  drone_mine:  { name: 'Шахтёрский дрон «Крот»', kind: 'mining', price: 9000, vol: 5, yield: 20, cycle: 6, range: 1500, speed: 1200, hp: 220, color: 0x80ff90 },
+  drone_x:     { name: 'Дрон-призрак «Мираж»', kind: 'combat', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, color: 0xd060ff, elite: true }
 };
-for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: 'Дроны', vol: d.vol, base: d.price, drone: true };
+for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite };
+// Контрабанда: станции её не покупают, торгуют только контрабандисты
+Object.assign(ITEMS, {
+  cb_implants: { name: 'Запрещённые импланты', cat: 'Контрабанда', vol: 1, base: 18000, noSell: true, contraband: true },
+  cb_spice:    { name: 'Контрабандный спайс', cat: 'Контрабанда', vol: 2, base: 9000, noSell: true, contraband: true },
+  cb_artifact: { name: 'Артефакт Предтеч', cat: 'Контрабанда', vol: 5, base: 95000, noSell: true, contraband: true },
+  cb_ai:       { name: 'Боевой ИИ без лицензии', cat: 'Контрабанда', vol: 3, base: 45000, noSell: true, contraband: true }
+});
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
 const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
   strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5] };
