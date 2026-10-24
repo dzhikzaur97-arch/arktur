@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Void Frontier</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
 </head>
@@ -47,6 +47,17 @@
     <button id="snd" title="Звук вкл/выкл">🔊<small>Звук</small></button>
     <button data-win="settings" title="Настройки (O)">⚙<small>Настр.</small></button>
   </div>
+
+  <!-- Мобильные кнопки панелей -->
+  <div id="mbar">
+    <button data-m="menu" title="Меню">☰</button>
+    <button data-m="ov" title="Обзор">◫</button>
+    <button data-m="warp" class="sp" title="Варп">»</button>
+    <button data-m="scan" class="sp" title="Скан">◎</button>
+    <button data-m="chat" title="Чат">💬</button>
+  </div>
+  <!-- Мобильная полоса действий с выбранным объектом -->
+  <div id="mact" class="hidden"><div id="mact-name"></div><div id="mact-btns"></div></div>
 
   <!-- Захваченные цели -->
   <div id="targets"></div>
@@ -125,6 +136,7 @@
     <canvas id="map-canvas"></canvas>
     <div id="map-info" class="panel"></div>
     <button class="x big" id="map-close">×</button>
+    <div id="map-zoom"><button data-z="+">+</button><button data-z="-">−</button></div>
     <div class="map-legend">Колесо — масштаб · Перетаскивание — сдвиг · Щелчок по системе — маршрут</div>
   </div>
 

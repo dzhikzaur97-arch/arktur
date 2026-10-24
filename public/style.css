@@ -284,3 +284,124 @@ h3:first-child { margin-top: 0; }
 .login-slide.on { opacity: 0.55; transform: scale(1); }
 #login { isolation: isolate; }
 #login .login-box { box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
+
+/* ======================== Мобильный режим ======================== */
+#mbar, #mact { display: none; }
+#map-zoom { position: absolute; left: 16px; bottom: 50px; display: flex; flex-direction: column; gap: 6px; }
+#map-zoom button { width: 40px; height: 40px; font-size: 22px; }
+canvas#scene { touch-action: none; }
+body.mobile { touch-action: manipulation; -webkit-tap-highlight-color: transparent; font-size: 13px; }
+body.mobile button { min-height: 34px; }
+
+/* верхняя полоса */
+body.mobile #sysinfo { top: calc(6px + env(safe-area-inset-top, 0px)); left: 6px; min-width: 0; max-width: 46vw; padding: 4px 8px; }
+body.mobile .sys-row { font-size: 14px; }
+body.mobile #sys-route, body.mobile #flags:empty { display: none; }
+body.mobile #wallet { font-size: 11px; margin-top: 1px; }
+body.mobile #mbar { display: flex; position: fixed; top: calc(6px + env(safe-area-inset-top, 0px)); right: 6px; gap: 4px; z-index: 9; }
+body.mobile #mbar button { width: 40px; height: 40px; padding: 0; font-size: 18px; background: var(--bg); border-color: var(--line); color: var(--accent); }
+body.mobile.docked #mbar .sp { display: none; }
+body.mobile.menu-open #mbar [data-m=menu], body.mobile.ov-open #mbar [data-m=ov], body.mobile.chat-open #mbar [data-m=chat] { border-color: var(--accent); background: rgba(95,200,232,0.2); }
+
+/* меню (неоком) — выезжает слева */
+body.mobile #neocom { display: none; top: 52px; bottom: auto; padding: 6px 0; width: 66px; border: 1px solid var(--line); z-index: 30; max-height: calc(100% - 60px); overflow-y: auto; }
+body.mobile.menu-open #neocom { display: flex; }
+
+/* обзор и выбранный объект — нижняя выдвижная панель */
+body.mobile #rightcol { display: none; top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 58%; padding: 0 6px 6px; z-index: 25; background: rgba(4,8,12,0.94); border-top: 1px solid var(--line); }
+body.mobile.ov-open #rightcol { display: flex; }
+body.mobile #selected { display: none; }
+body.mobile #overview { max-height: none; }
+body.mobile .ov-head, body.mobile .ov-row { grid-template-columns: 24px 1fr 84px 66px; }
+body.mobile .ov-row { padding: 9px 6px; font-size: 13px; }
+body.mobile #ov-tabs span { padding: 6px 8px; }
+
+/* чат — нижняя выдвижная панель */
+body.mobile #chat { display: none; left: 0; right: 0; bottom: 0; width: auto; height: 46%; z-index: 25; }
+body.mobile.chat-open #chat { display: flex; }
+body.mobile #chat-members { width: 90px; }
+body.mobile #chat-in { font-size: 16px; padding: 10px; }
+
+/* полоса действий над HUD */
+body.mobile #mact:not(.hidden) { display: block; position: fixed; left: 6px; right: 6px; bottom: calc(132px + env(safe-area-inset-bottom, 0px)); z-index: 8; background: var(--bg); border: 1px solid var(--line); padding: 4px; }
+body.mobile.ov-open #mact, body.mobile.chat-open #mact, body.mobile.docked #mact { display: none !important; }
+#mact-name { font-size: 12px; color: #fff; padding: 0 4px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#mact-btns { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+#mact-btns button { flex: none; min-width: 64px; display: flex; flex-direction: column; align-items: center; font-size: 11px; padding: 4px 6px; }
+#mact-btns button b { font-size: 16px; color: var(--accent); }
+
+/* HUD внизу во всю ширину */
+body.mobile #hud { left: 0; right: 0; transform: none; bottom: calc(4px + env(safe-area-inset-bottom, 0px)); justify-content: space-between; padding: 0 6px; gap: 6px; align-items: flex-end; }
+body.mobile #hud-main { width: 116px; flex: none; }
+body.mobile #gauge { width: 104px; height: 104px; }
+body.mobile .g-text { font-size: 30px; }
+body.mobile #hp-text { display: none; }
+body.mobile #speedbar { width: 104px; height: 12px; }
+body.mobile #hud-btns button { font-size: 11px; padding: 2px 6px; min-height: 28px; }
+body.mobile #b-scan { display: none; }
+body.mobile #modules { gap: 8px; padding-bottom: 14px; flex: 1; align-items: flex-end; overflow-x: auto; }
+body.mobile .mrow { gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+body.mobile .mod { width: 46px; height: 46px; font-size: 18px; }
+body.mobile .mod.empty { display: none; }
+body.mobile .mod .k { display: none; }
+body.mobile #hud-status { bottom: calc(100% + 64px); font-size: 11px; }
+
+/* цели, уведомления, обучение */
+body.mobile #targets { top: calc(54px + env(safe-area-inset-top, 0px)); left: 6px; transform: none; gap: 4px; flex-direction: row; flex-wrap: wrap; max-width: 60vw; }
+body.mobile .tgt { width: 56px; font-size: 10px; }
+body.mobile .tgt .ring, body.mobile .tgt .ring svg { width: 44px; height: 44px; }
+body.mobile .tgt .ring .lbl { font-size: 16px; }
+body.mobile .tgt .td { display: none; }
+body.mobile #notes { top: calc(52px + env(safe-area-inset-top, 0px)); max-width: 92vw; }
+body.mobile .note { font-size: 12px; padding: 4px 10px; text-align: center; }
+body.mobile #tut { left: 6px; right: auto; top: auto; bottom: calc(238px + env(safe-area-inset-bottom, 0px)); width: min(300px, 70vw); }
+body.mobile.docked #tut { display: none; }
+body.mobile .tut-step:not(.cur) { display: none; }
+body.mobile .tut-list { padding: 4px 8px; }
+body.mobile #drones { flex: none; }
+
+/* метки объектов — крупнее для пальца */
+body.mobile .br .bi { width: 26px; height: 26px; font-size: 14px; }
+body.mobile .br .bl { font-size: 10px; }
+
+/* окна, контекстное меню */
+body.mobile #win { left: 0; right: 0; top: 0; bottom: 0; width: auto; max-height: none; z-index: 35; }
+body.mobile #win .x { font-size: 28px; padding: 0 10px; }
+body.mobile #ctx { min-width: 220px; max-width: 92vw; max-height: 70vh; overflow-y: auto; }
+body.mobile #ctx .ci { padding: 11px 16px; font-size: 14px; }
+
+/* станция */
+body.mobile #station { inset: 0; padding: calc(52px + env(safe-area-inset-top, 0px)) 6px calc(8px + env(safe-area-inset-bottom, 0px)); }
+body.mobile #st-top { margin: 0; gap: 8px; flex-wrap: wrap; }
+body.mobile #st-name { font-size: 15px; }
+body.mobile #st-undock { padding: 8px 16px; font-size: 13px; letter-spacing: 1px; }
+body.mobile #st-tabs { margin: 6px 0 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+body.mobile #st-tabs span { flex: none; padding: 8px 12px; font-size: 13px; }
+body.mobile #st-body { margin: 0; padding: 10px; }
+body.mobile .cols { grid-template-columns: 1fr; }
+body.mobile .grid-cards { grid-template-columns: 1fr; }
+body.mobile table.tbl { font-size: 11px; }
+body.mobile table.tbl td, body.mobile table.tbl th { padding: 6px 3px; }
+body.mobile .slot-row { flex-wrap: wrap; }
+body.mobile.docked #sysinfo { display: none; }
+
+/* карта */
+body.mobile #map-info { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 40%; overflow-y: auto; }
+body.mobile .map-legend { display: none; }
+body.mobile #map-zoom { bottom: auto; top: 70px; }
+
+/* вход */
+body.mobile .login-box { width: min(360px, 92vw); padding: 22px; }
+body.mobile .login-box input { font-size: 16px; padding: 10px; }
+
+/* альбомная ориентация телефона — ещё компактнее */
+@media (max-height: 500px) {
+  body.mobile #gauge { width: 84px; height: 84px; }
+  body.mobile #hud-main { width: 92px; }
+  body.mobile #speedbar { width: 84px; }
+  body.mobile .mod { width: 40px; height: 40px; font-size: 16px; }
+  body.mobile #mact:not(.hidden) { bottom: calc(108px + env(safe-area-inset-bottom, 0px)); left: 96px; right: auto; max-width: calc(100% - 240px); }
+  body.mobile #rightcol { height: 80%; left: auto; width: 60%; }
+  body.mobile #chat { height: 70%; }
+  body.mobile #tut { display: none; }
+}

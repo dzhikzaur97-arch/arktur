@@ -42,9 +42,27 @@ function send(msg) { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify
 
 
 // ======================================================================
+// Мобильный режим: телефоны и планшеты (сенсорный экран или узкое окно)
+// ======================================================================
+const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 820;
+if (MOBILE) document.body.classList.add('mobile');
+// Нажатие: мышью — сразу на pointerdown (списки перерисовываются часто), пальцем — по click (чтобы не мешать прокрутке)
+function onTap(el, fn) {
+  let pt = 'mouse';
+  el.addEventListener('pointerdown', (e) => { pt = e.pointerType; if (pt === 'mouse' && e.button === 0) fn(e); });
+  el.addEventListener('click', (e) => { if (pt !== 'mouse') fn(e); });
+}
+function togglePanel(name, force) {
+  const cls = name + '-open';
+  const on = force !== undefined ? force : !document.body.classList.contains(cls);
+  for (const n of ['menu', 'ov', 'chat']) document.body.classList.remove(n + '-open');
+  if (on) document.body.classList.add(cls);
+}
+
+// ======================================================================
 // Настройки игрока (хранятся только в этом браузере)
 // ======================================================================
-const CFG_DEFAULT = { quality: 'high', volume: 0.55, ui: 1, labels: false, sens: 1 };
+const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, ui: 1, labels: false, sens: 1 };
 let CFG = { ...CFG_DEFAULT };
 try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
 function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
@@ -347,7 +365,7 @@ function allObjects() {
 // ======================================================================
 function act(a, id) {
   id = id || S.sel;
-  if (!id && !['stop'].includes(a)) return;
+  if (!id && !['stop', 'desel'].includes(a)) return;
   const o = getObj(id);
   switch (a) {
     case 'approach': send({ t: 'approach', id }); break;
@@ -361,6 +379,7 @@ function act(a, id) {
     case 'loot': send({ t: 'loot', id }); break;
     case 'stop': send({ t: 'stop' }); break;
     case 'info': showInfo(o); break;
+    case 'desel': S.sel = null; break;
     case 'smart': {
       if (!o) return;
       const d = distTo(o);
@@ -443,6 +462,50 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: true });
 canvas.addEventListener('dblclick', (e) => { if (S.me && !S.docked) send({ t: 'dir', dir: R.screenDir(e.clientX, e.clientY) }); });
 canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!S.docked) spaceMenu(e.clientX, e.clientY); });
+
+// Сенсорное управление: палец — вращение камеры, щипок — зум, двойной тап — курс, долгое нажатие — меню варпа
+const touches = new Map();
+let pinch0 = null, tap = null, lastTap = 0, lpTimer = null;
+const touchDist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;
+  canvas.setPointerCapture(e.pointerId);
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  hideCtx();
+  if (touches.size === 1) {
+    tap = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
+    clearTimeout(lpTimer);
+    lpTimer = setTimeout(() => { if (tap && tap.moved < 10 && !S.docked) { tap.long = true; spaceMenu(tap.x, tap.y); } }, 600);
+  } else { clearTimeout(lpTimer); tap = null; pinch0 = { d: touchDist(), z: R.cam.target }; }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse' || !touches.has(e.pointerId)) return;
+  const prev = touches.get(e.pointerId);
+  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 1) {
+    if (tap) tap.moved += Math.abs(dx) + Math.abs(dy);
+    R.cam.yaw -= dx * 0.008 * CFG.sens;
+    R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + dy * 0.008 * CFG.sens));
+  } else if (touches.size === 2 && pinch0) {
+    const minD = S.me ? S.data.ships[S.me.st].radius * 4 : 200;
+    R.cam.target = Math.max(minD, Math.min(400000, pinch0.z * pinch0.d / touchDist()));
+  }
+});
+const touchEnd = (e) => {
+  if (e.pointerType === 'mouse') return;
+  touches.delete(e.pointerId);
+  clearTimeout(lpTimer);
+  const now = performance.now();
+  if (tap && tap.moved < 10 && !tap.long && now - tap.t < 300) {
+    if (now - lastTap < 350 && S.me && !S.docked) { send({ t: 'dir', dir: R.screenDir(tap.x, tap.y) }); lastTap = 0; note('Курс задан'); }
+    else lastTap = now;
+  }
+  tap = null;
+  if (touches.size < 2) pinch0 = null;
+};
+canvas.addEventListener('pointerup', touchEnd);
+canvas.addEventListener('pointercancel', touchEnd);
 
 addEventListener('keydown', (e) => {
   if (!S.data) return;
@@ -640,40 +703,58 @@ $('#ov-tabs').onclick = (e) => {
   for (const s of $('#ov-tabs').children) s.classList.toggle('on', s.dataset.f === f);
   renderOverview();
 };
-// Списки перерисовываются несколько раз в секунду, поэтому реагируем на mousedown, а не click
+// Строки обзора не пересоздаются, а обновляются на месте — поэтому обычный click надёжен и для мыши, и для пальца
 let lastPress = { id: null, t: 0 };
-$('#ov-list').addEventListener('mousedown', (e) => {
+$('#ov-list').addEventListener('click', (e) => {
   const r = e.target.closest('.ov-row'); if (!r) return;
   const id = r.dataset.id;
-  if (e.button === 2) { e.preventDefault(); objMenu(e.clientX, e.clientY, id); return; }
-  if (e.button !== 0) return;
   const now = performance.now();
-  if (lastPress.id === id && now - lastPress.t < 400) act('smart', id);
+  if (lastPress.id === id && now - lastPress.t < 400) { act('smart', id); if (MOBILE) togglePanel('ov', false); }
   lastPress = { id, t: now };
   select(id, e); renderOverview();
+  if (MOBILE) togglePanel('ov', false);
 });
-$('#ov-list').addEventListener('contextmenu', (e) => e.preventDefault());
+$('#ov-list').addEventListener('contextmenu', (e) => { const r = e.target.closest('.ov-row'); e.preventDefault(); if (r) objMenu(e.clientX, e.clientY, r.dataset.id); });
 
+const ovRows = new Map();
 function renderOverview() {
   if (!S.me) return;
-  const list = allObjects().filter(OV_FILTERS[S.ovFilter]).map(o => ({ o, d: distTo(o) })).sort((a, b) => a.d - b.d);
-  const html = list.slice(0, 120).map(({ o, d }) => {
-    const cls = ['ov-row'];
-    if (S.sel === o.id) cls.push('sel');
-    if (isHostile(o)) cls.push('hostile');
-    if (S.me.locks.includes(o.id)) cls.push('locked');
+  const box = $('#ov-list');
+  const list = allObjects().filter(OV_FILTERS[S.ovFilter]).map(o => ({ o, d: distTo(o) })).sort((a, b) => a.d - b.d).slice(0, 120);
+  const keep = new Set();
+  let prev = null;
+  for (const { o, d } of list) {
+    keep.add(o.id);
+    let r = ovRows.get(o.id);
+    if (!r) {
+      r = document.createElement('div'); r.dataset.id = o.id;
+      r.innerHTML = '<span class="ic"></span><span></span><span class="muted"></span><span class="d"></span>';
+      ovRows.set(o.id, r);
+    }
+    const cls = 'ov-row' + (S.sel === o.id ? ' sel' : '') + (isHostile(o) ? ' hostile' : '') + (S.me.locks.includes(o.id) ? ' locked' : '');
+    if (r.className !== cls) r.className = cls;
     let name = o.n || o.name;
     if (o.kind === 'asteroid') name = `${S.data.items[o.ore].name} (${num(o.am)})`;
-    return `<div class="${cls.join(' ')}" data-id="${esc(o.id)}"><span class="ic">${iconOf(o)}</span><span>${esc(name)}</span><span class="muted">${esc(typeOf(o))}</span><span class="d">${fmtDist(d)}</span></div>`;
-  }).join('');
-  setHTML($('#ov-list'), html);
+    const cells = [iconOf(o), name, typeOf(o), fmtDist(d)];
+    cells.forEach((t, i) => { const c = r.children[i]; if (c.textContent !== t) c.textContent = t; });
+    const expected = prev ? prev.nextSibling : box.firstChild;
+    if (expected !== r) box.insertBefore(r, expected);
+    prev = r;
+  }
+  for (const [id, r] of ovRows) if (!keep.has(id)) { r.remove(); ovRows.delete(id); }
 }
 
-$('#sel-body').addEventListener('mousedown', (e) => { const b = e.target.closest('[data-act]'); if (b && e.button === 0) act(b.dataset.act); });
+$('#sel-body').innerHTML = '<div id="sel-info"></div><div class="sel-actions" id="sel-acts"></div>';
+onTap($('#sel-acts'), (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
+onTap($('#mact-btns'), (e) => { const b = e.target.closest('[data-act]'); if (b) { act(b.dataset.act); Sound.click(); } });
 
 function renderSelected() {
   const o = S.sel && getObj(S.sel);
-  if (!o) { setHTML($('#sel-body'), '<div class="muted">Ничего не выбрано. Щёлкните объект в космосе или в обзоре.</div>'); return; }
+  if (!o) {
+    setHTML($('#sel-info'), '<div class="muted">Ничего не выбрано. Щёлкните объект в космосе или в обзоре.</div>'); setHTML($('#sel-acts'), '');
+    $('#mact').classList.add('hidden');
+    return;
+  }
   let extra = '';
   if (o.kind === 'ship') {
     extra = `<div class="bars"><div class="bar sh"><i style="width:${o.sh * 100}%"></i></div><div class="bar ar"><i style="width:${o.ar * 100}%"></i></div><div class="bar hu"><i style="width:${o.hu * 100}%"></i></div></div>`;
@@ -683,18 +764,20 @@ function renderSelected() {
   if (o.kind === 'asteroid') extra = `<div class="muted">Осталось: ${num(o.am)} ед. руды «${esc(S.data.items[o.ore].name)}»</div>`;
   if (o.kind === 'wreck' && o.items) extra = `<div class="muted">${Object.entries(o.items).map(([k, q]) => `${esc(S.data.items[k].name)} ×${q}`).join(', ')}</div>`;
   const acts = actionsFor(o).map(([a, ic, label, key]) => `<button data-act="${a}" title="${key}"><b>${ic}</b>${esc(label)}</button>`).join('');
-  setHTML($('#sel-body'), `<div class="sel-name">${esc(o.n || o.name)}</div><div class="sel-sub">${esc(typeOf(o))} · ${fmtDist(distTo(o))}</div>${extra}<div class="sel-actions">${acts}</div>`);
+  setHTML($('#sel-info'), `<div class="sel-name">${esc(o.n || o.name)}</div><div class="sel-sub">${esc(typeOf(o))} · ${fmtDist(distTo(o))}</div>${extra}`);
+  setHTML($('#sel-acts'), acts);
+  // мобильная полоса действий у нижнего края
+  $('#mact').classList.remove('hidden');
+  const nm = `${o.n || o.name} · ${fmtDist(distTo(o))}`;
+  if ($('#mact-name').textContent !== nm) $('#mact-name').textContent = nm;
+  setHTML($('#mact-btns'), actionsFor(o).filter(([a]) => a !== 'info').map(([a, ic, label]) => `<button data-act="${a}"><b>${ic}</b>${esc(label)}</button>`).join('') + '<button data-act="desel"><b>×</b>Снять</button>');
 }
 
 // ======================================================================
 // Цели, HUD, модули
 // ======================================================================
-$('#targets').addEventListener('mousedown', (e) => {
-  const t = e.target.closest('.tgt'); if (!t) return;
-  if (e.button === 2) { e.preventDefault(); objMenu(e.clientX, e.clientY, t.dataset.id); }
-  else if (e.button === 0) { S.active = t.dataset.id; S.sel = t.dataset.id; renderTargets(); }
-});
-$('#targets').addEventListener('contextmenu', (e) => e.preventDefault());
+onTap($('#targets'), (e) => { const t = e.target.closest('.tgt'); if (t) { S.active = t.dataset.id; S.sel = t.dataset.id; renderTargets(); } });
+$('#targets').addEventListener('contextmenu', (e) => { e.preventDefault(); const t = e.target.closest('.tgt'); if (t) objMenu(e.clientX, e.clientY, t.dataset.id); });
 
 function arcPath(r, a0, a1, cx = 32, cy = 32) {
   const p = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy - r * Math.sin(a * Math.PI / 180)];
@@ -782,7 +865,7 @@ function renderHud(now) {
   setHTML($('#modules'), html);
 }
 S.serverNow = () => Date.now() + (S.clockSkew || 0);
-$('#modules').addEventListener('mousedown', (e) => { const m = e.target.closest('.mod'); if (m && m.dataset.slot && e.button === 0) toggleModule(+m.dataset.slot); });
+$('#modules').addEventListener('pointerdown', (e) => { const m = e.target.closest('.mod'); if (m && m.dataset.slot && e.button === 0) toggleModule(+m.dataset.slot); });
 $('#speedbar').addEventListener('click', (e) => { const r = e.currentTarget.getBoundingClientRect(); send({ t: 'speed', v: (e.clientX - r.left) / r.width }); });
 $('#b-stop').onclick = () => act('stop');
 $('#b-full').onclick = () => send({ t: 'speed', v: 1 });
@@ -885,8 +968,17 @@ function showInfo(o) {
 // ======================================================================
 $('#neocom').onclick = (e) => {
   const b = e.target.closest('button'); if (!b) return;
+  if (MOBILE) togglePanel('menu', false);
   if (b.id === 'snd') { updateSoundBtn(Sound.toggle()); return; }
   if (b.dataset.win === 'map') toggleMap(); else openWin(b.dataset.win);
+};
+$('#mbar').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  Sound.click();
+  const k = b.dataset.m;
+  if (k === 'warp') { togglePanel('x', false); spaceMenu(innerWidth / 2 - 100, 70); }
+  else if (k === 'scan') send({ t: 'scan' });
+  else togglePanel(k);
 };
 function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊') + '<small>Звук</small>'; }
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
@@ -908,11 +1000,20 @@ function renderWin() {
   if (S.win === 'skills') return setHTML(el, skillsHTML());
   if (S.win === 'missions') return setHTML(el, missionsHTML(false));
   if (S.win === 'assets') return setHTML(el, assetsHTML());
-  if (S.win === 'help') return setHTML(el, HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
+  if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
   if (S.win === 'settings') return setHTML(el, settingsHTML());
 }
-$('#win-body').addEventListener('mousedown', onActionClick);
+onTap($('#win-body'), onActionClick);
 
+const HELP_MOBILE = `<h3>Управление на телефоне</h3><div class="kv">
+<span>Палец по экрану</span><span>вращать камеру</span>
+<span>Два пальца (щипок)</span><span>приблизить / отдалить</span>
+<span>Двойной тап по космосу</span><span>лететь в этом направлении</span>
+<span>Долгое нажатие на космос</span><span>меню варпа</span>
+<span>Тап по объекту</span><span>выбрать — внизу появятся кнопки действий</span>
+<span>☰</span><span>меню: карта, трюм, навыки, задания, настройки</span>
+<span>◫ / » / ◎ / 💬</span><span>обзор / варп / скан / чат</span>
+<span>Круглые кнопки справа внизу</span><span>модули: орудия, бур, щит</span></div>`;
 const HELP = `<h3>Полёт</h3><div class="kv">
 <span>Двойной щелчок в космосе</span><span>лететь в этом направлении</span>
 <span>Перетаскивание ЛКМ</span><span>вращение камеры, колесо — приближение</span>
@@ -1039,13 +1140,13 @@ function moduleDesc(d) {
 // ======================================================================
 const TUT = [
   ['undock', 'Отстыкуйтесь от станции', 'Кнопка «Отстыковка» справа вверху.'],
-  ['belt', 'Варп к поясу астероидов', 'Правый щелчок по космосу → «Пояса астероидов» → любой пояс.'],
-  ['lock', 'Захватите астероид', 'Ctrl+щелчок по астероиду в космосе или в обзоре (вкладка «Добыча»).'],
-  ['mine', 'Добудьте руду', 'Включите буровой лазер — F2 или кнопка с киркой внизу. Подлетите ближе, если цель далеко.'],
-  ['dock', 'Вернитесь на станцию', 'Правый щелчок по космосу → «Станции» — корабль сам долетит и пристыкуется.'],
+  ['belt', 'Варп к поясу астероидов', 'Правый щелчок по космосу → «Пояса астероидов» → любой пояс.', 'Кнопка » вверху → «Пояса астероидов» → любой пояс.'],
+  ['lock', 'Захватите астероид', 'Ctrl+щелчок по астероиду в космосе или в обзоре (вкладка «Добыча»).', 'Откройте обзор ◫ → «Добыча», выберите астероид и нажмите «Захват» внизу.'],
+  ['mine', 'Добудьте руду', 'Включите буровой лазер — F2 или кнопка с киркой внизу. Подлетите ближе, если цель далеко.', 'Нажмите кнопку с киркой справа внизу. Если цель далеко — «Подлететь».'],
+  ['dock', 'Вернитесь на станцию', 'Правый щелчок по космосу → «Станции» — корабль сам долетит и пристыкуется.', 'Кнопка » → «Станции» — корабль сам долетит и пристыкуется.'],
   ['sell', 'Продайте руду', 'Ангар → «Разгрузить всё в ангар», затем вкладка «Рынок» → «Продать».'],
   ['skill', 'Начните изучать навык', 'Вкладка «Навыки» на станции. Навыки учатся даже без вас в игре.'],
-  ['scan', 'Найдите аномалию', 'В космосе нажмите V (или «◎ Скан») — найденное появится в обзоре на вкладке «Навигация».']
+  ['scan', 'Найдите аномалию', 'В космосе нажмите V (или «◎ Скан») — найденное появится в обзоре на вкладке «Навигация».', 'Кнопка ◎ вверху — найденное появится в обзоре ◫ на вкладке «Навигация».']
 ];
 const tut = { done: {}, hidden: false };
 try { Object.assign(tut, JSON.parse(localStorage.getItem('vf-tut') || '{}')); } catch {}
@@ -1070,9 +1171,9 @@ function renderTutorial() {
   el.classList.remove('hidden');
   const cur = left[0][0];
   setHTML(el, `<div class="ph">Первые шаги <span>${TUT.length - left.length} / ${TUT.length}</span><button class="x" data-tut="hide" title="Скрыть (вернуть можно в «Помощи»)">×</button></div>
-    <div class="tut-list">${TUT.map(([id, title, hint]) => `<div class="tut-step ${tut.done[id] ? 'done' : id === cur ? 'cur' : ''}"><b>${tut.done[id] ? '✓' : id === cur ? '›' : '·'}</b><div>${esc(title)}${id === cur ? `<div class="tut-hint">${esc(hint)}</div>` : ''}</div></div>`).join('')}</div>`);
+    <div class="tut-list">${TUT.map(([id, title, pcHint, mobHint]) => { const hint = MOBILE && mobHint ? mobHint : pcHint; return `<div class="tut-step ${tut.done[id] ? 'done' : id === cur ? 'cur' : ''}"><b>${tut.done[id] ? '✓' : id === cur ? '›' : '·'}</b><div>${esc(title)}${id === cur ? `<div class="tut-hint">${esc(hint)}</div>` : ''}</div></div>`; }).join('')}</div>`);
 }
-$('#tut').addEventListener('mousedown', (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = true; saveTut(); renderTutorial(); } });
+onTap($('#tut'), (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = true; saveTut(); renderTutorial(); } });
 
 // ======================================================================
 // Дроны
@@ -1120,8 +1221,8 @@ function droneEngage() {
   if (!target) return note('Сначала захватите цель (Ctrl+щелчок)', 'warn');
   send({ t: 'droneEngage', target });
 }
-$('#drones').addEventListener('mousedown', (e) => {
-  const b = e.target.closest('[data-dr]'); if (!b || e.button !== 0) return;
+onTap($('#drones'), (e) => {
+  const b = e.target.closest('[data-dr]'); if (!b) return;
   Sound.click();
   if (b.dataset.dr === 'launch') { send({ t: 'droneLaunch' }); Sound.whoosh(0.3, true, 0.8); }
   else if (b.dataset.dr === 'engage') droneEngage();
@@ -1147,6 +1248,7 @@ function renderDrones() {
 // Станция
 // ======================================================================
 function showStation() {
+  document.body.classList.add('docked'); togglePanel('x', false);
   $('#station').classList.remove('hidden');
   for (const id of ['#rightcol', '#targets', '#hud']) $(id).classList.add('hidden');
   $('#st-name').textContent = S.docked.name;
@@ -1156,6 +1258,7 @@ function showStation() {
   renderStation();
 }
 function hideStation() {
+  document.body.classList.remove('docked');
   $('#station').classList.add('hidden');
   for (const id of ['#rightcol', '#targets', '#hud']) $(id).classList.remove('hidden');
 }
@@ -1168,7 +1271,7 @@ $('#st-tabs').onclick = (e) => {
   if (t === 'agents') send({ t: 'agents' });
   renderStation();
 };
-$('#st-body').addEventListener('mousedown', onActionClick);
+onTap($('#st-body'), onActionClick);
 
 function renderStation() {
   if (!S.docked || !S.prof) return;
@@ -1240,7 +1343,7 @@ function renderStation() {
 // Единый обработчик кнопок с data-a
 function onActionClick(e) {
   const b = e.target.closest('[data-a]');
-  if (!b || e.button !== 0) return;
+  if (!b) return;
   const d = b.dataset;
   switch (d.a) {
     case 'jettison': send({ t: 'jettison', item: d.item }); break;
@@ -1291,7 +1394,7 @@ function toggleMap() {
     if (!map.init) {
       const xs = S.data.systems.map(s => s.x), ys = S.data.systems.map(s => s.y);
       map.x = (Math.min(...xs) + Math.max(...xs)) / 2; map.y = (Math.min(...ys) + Math.max(...ys)) / 2;
-      map.z = Math.min((innerWidth - 420) / (Math.max(...xs) - Math.min(...xs) + 120), (innerHeight - 120) / (Math.max(...ys) - Math.min(...ys) + 120));
+      map.z = Math.min((MOBILE ? innerWidth - 30 : innerWidth - 420) / (Math.max(...xs) - Math.min(...xs) + 120), (MOBILE ? innerHeight * 0.62 : innerHeight - 120) / (Math.max(...ys) - Math.min(...ys) + 120));
       map.init = true;
     }
     map.sel = map.sel || (S.sys && S.sys.id); drawMap(); renderMapInfo();
@@ -1299,8 +1402,8 @@ function toggleMap() {
 }
 $('#map-close').onclick = toggleMap;
 const mc = $('#map-canvas');
-mc.addEventListener('mousedown', (e) => { map.drag = { x: e.clientX, y: e.clientY, moved: 0 }; });
-mc.addEventListener('mousemove', (e) => {
+mc.addEventListener('pointerdown', (e) => { mc.setPointerCapture(e.pointerId); map.drag = { x: e.clientX, y: e.clientY, moved: 0 }; });
+mc.addEventListener('pointermove', (e) => {
   if (!map.drag) return;
   const dx = e.clientX - map.drag.x, dy = e.clientY - map.drag.y;
   map.drag.moved += Math.abs(dx) + Math.abs(dy);
@@ -1308,15 +1411,16 @@ mc.addEventListener('mousemove', (e) => {
   map.drag.x = e.clientX; map.drag.y = e.clientY;
   drawMap();
 });
-mc.addEventListener('mouseup', (e) => {
-  if (map.drag && map.drag.moved < 5) {
-    const hit = S.data.systems.find(s => Math.hypot(...mapPt(s).map((v, i) => v - [e.clientX, e.clientY][i])) < 14);
+mc.addEventListener('pointerup', (e) => {
+  if (map.drag && map.drag.moved < 8) {
+    const hit = S.data.systems.find(s => Math.hypot(...mapPt(s).map((v, i) => v - [e.clientX, e.clientY][i])) < (MOBILE ? 26 : 14));
     if (hit) { map.sel = hit.id; renderMapInfo(); drawMap(); }
   }
   map.drag = null;
 });
 mc.addEventListener('wheel', (e) => { map.z = Math.max(0.5, Math.min(6, map.z * Math.pow(0.999, e.deltaY))); drawMap(); }, { passive: true });
-function mapPt(s) { return [(s.x - map.x) * map.z + (innerWidth - 340) / 2, (s.y - map.y) * map.z + innerHeight / 2]; }
+function mapPt(s) { return [(s.x - map.x) * map.z + (MOBILE ? innerWidth : innerWidth - 340) / 2, (s.y - map.y) * map.z + (MOBILE ? innerHeight * 0.38 : innerHeight / 2)]; }
+$('#map-zoom').onclick = (e) => { const d = e.target.dataset.z; if (!d) return; map.z = Math.max(0.5, Math.min(6, map.z * (d === '+' ? 1.3 : 1 / 1.3))); drawMap(); };
 
 function drawMap() {
   const dpr = devicePixelRatio || 1;
