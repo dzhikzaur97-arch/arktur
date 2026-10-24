@@ -265,6 +265,7 @@ function onMsg(m) {
       if (S.docked && S.stTab === 'factory') renderStation();
       break;
     case 'stationAdd': if (!S.stationById[m.station.id]) { S.data.stations.push(m.station); S.stationById[m.station.id] = m.station; } break;
+    case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'destroyed':
@@ -392,7 +393,7 @@ function iconOf(o) {
 }
 function typeOf(o) {
   if (o.kind === 'ship' && o.dl) return 'Контрабандист';
-  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
+  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.ai ? 'ИИ-пилот · ' : '') + (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
   if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
   if (o.kind === 'drone') return o.o === S.name ? 'Ваш дрон' : 'Дрон: ' + o.o;
@@ -591,6 +592,7 @@ addEventListener('keydown', (e) => {
   if (k === 'KeyM') return toggleMap();
   if (k === 'KeyC') return openWin('cargo');
   if (k === 'KeyK') return openWin('skills');
+  if (k === 'KeyP') return openWin('pilots');
   if (k === 'KeyJ') return openWin('missions');
   if (k === 'KeyA' && !e.ctrlKey) return openWin('assets');
   if (k === 'KeyH') return openWin('help');
@@ -1073,9 +1075,10 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { pilots: 'Пилоты галактики', build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') send({ t: 'structInfo' });
+  if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1094,6 +1097,7 @@ function renderWin() {
   if (S.win === 'settings') return setHTML(el, settingsHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
   if (S.win === 'build') return setHTML(el, buildHTML());
+  if (S.win === 'pilots') return setHTML(el, pilotsHTML());
 }
 onTap($('#win-body'), onActionClick);
 
@@ -1312,6 +1316,24 @@ onTap($('#tut'), (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = tr
 // Дроны
 // ======================================================================
 // ---------- Своя перерабатывающая станция ----------
+// Рейтинг пилотов: ИИ-капитаны (зарабатывают и строят себе корабли) и игроки онлайн
+const ROLE_ICON = { miner: '⛏', hunter: '✠', trader: '⚖', pirate: '☠' };
+function pilotsHTML() {
+  if (!S.aiList) return '<div class="muted">Загрузка…</div>';
+  const ago = (performance.now() - (S.aiListAt || 0));
+  const rows = S.aiList.map((p, i) => {
+    const sys = S.sysById[p.sys], sh = S.data.ships[p.ship];
+    const bld = p.building ? `<div class="pl-bld">⚒ строит «${esc(S.data.ships[p.building.ship].name)}» — ${fmtTime(Math.max(0, p.building.left - ago) / 1000)}</div>`
+      : p.next ? `<div class="muted small">копит на «${esc(S.data.ships[p.next].name)}»</div>` : '';
+    return `<tr class="${p.player ? 'pl-me' : 'pl-' + p.role}"><td>${i + 1}</td>
+      <td><b>${p.player ? '👤' : ROLE_ICON[p.role] || '•'} ${esc(p.name)}</b><div class="muted small">${esc(p.roleName)}${p.live ? ' · в космосе' : ''}</div>${bld}</td>
+      <td>${sh ? esc(sh.name) : '—'}</td><td>${sys ? `<span style="color:${secColor(sys.sec)}">${esc(sys.name)}</span>` : '—'}</td>
+      <td class="r">${num(Math.round(p.worth))}</td><td class="r">${p.kills || 0} / ${p.deaths || 0}</td></tr>`;
+  }).join('');
+  return `<p class="muted">ИИ-пилоты живут своей жизнью: шахтёры копают, торговцы возят грузы, охотники ловят пиратов, а пираты грабят. На заработанное они строят себе новые корабли.</p>
+    <table class="tbl pl-tbl"><tr><th>#</th><th>Пилот</th><th>Корабль</th><th>Система</th><th class="r">Состояние, ¢</th><th class="r">Убил / погиб</th></tr>${rows}</table>
+    <p><button data-a="pilotsRefresh">Обновить</button></p>`;
+}
 function buildHTML() {
   const st = S.struct;
   if (!st) return '<div class="muted">Загрузка…</div>';
@@ -1636,6 +1658,7 @@ function onActionClick(e) {
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
+    case 'pilotsRefresh': send({ t: 'aiList' }); break;
     case 'route': send({ t: 'autopilot', dest: d.sys }); note('Маршрут проложен. Откройте карту (M), чтобы включить автопилот.'); break;
   }
 }

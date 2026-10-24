@@ -459,3 +459,13 @@ body.mobile #sys-region { display: none; }
 /* отметка курса при щелчке по космосу */
 .fly-mark { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 2px solid var(--accent); border-radius: 50%; pointer-events: none; z-index: 3; animation: flymark 0.7s ease-out forwards; }
 @keyframes flymark { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+
+/* Пилоты галактики */
+.pl-tbl td { vertical-align: top; }
+.pl-tbl .small { font-size: 11px; }
+.pl-bld { color: #ffb050; font-size: 11px; margin-top: 2px; }
+.pl-me td { background: rgba(80, 180, 255, .10); }
+.pl-pirate b { color: #ff7060; }
+.pl-hunter b { color: #ffc060; }
+.pl-trader b { color: #80d0ff; }
+.pl-miner b { color: #a0e090; }
