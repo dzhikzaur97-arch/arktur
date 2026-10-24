@@ -469,12 +469,14 @@ class Game {
     const d = this.surfaceDist(e, t);
     const q = d <= def.optimal ? 1 : Math.pow(0.5, Math.pow((d - def.optimal) / def.falloff, 2));
     const hit = Math.random() < q;
-    this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: t.id, color: def.color, hit, dur: Math.min(1.2, def.cycle * 0.5) });
+    const fx = { k: 'beam', from: e.id, to: t.id, color: def.color, hit, dur: Math.min(1.2, def.cycle * 0.5) };
+    this.fxSys(e.sys, null, fx);
     if (!hit) return;
     let dmg = def.dmg * e.stats.dmgMul * (e.npcDmgMul || 1) * rnd(0.7, 1.3) * (0.5 + 0.5 * q);
     // крупные орудия плохо попадают по маленьким целям
     const sigRes = def.dmg > 100 ? 160 : def.dmg > 60 ? 80 : 40;
     dmg *= clamp(t.stats.sig / sigRes, 0.25, 1);
+    fx.dmg = Math.round(dmg); // для всплывающих цифр урона
     this.applyDamage(t, dmg, e);
   }
 

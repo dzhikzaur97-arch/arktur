@@ -131,8 +131,9 @@ module.exports = function install(Game) {
     if (this.now < d.nextCycle || this.surfaceDist(d, t) > def.range) return;
     d.nextCycle = this.now + def.cycle * 1000;
     if (def.kind === 'combat') {
-      this.fxSys(d.sys, null, { k: 'beam', from: d.id, to: t.id, color: def.color, hit: true, dur: 0.5 });
-      this.applyDamage(t, def.dmg * d.mul * rnd(0.8, 1.2), d);
+      const dmg = def.dmg * d.mul * rnd(0.8, 1.2);
+      this.fxSys(d.sys, null, { k: 'beam', from: d.id, to: t.id, color: def.color, hit: true, dur: 0.5, dmg: Math.round(dmg) });
+      this.applyDamage(t, dmg, d);
     } else {
       const p = this.db.players[d.owner];
       const item = ITEMS[t.ore];

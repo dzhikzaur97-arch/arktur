@@ -8,6 +8,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 
 const FAR_START = 1.5e6; // дальше этого расстояния объекты «сжимаются» с сохранением углового размера
 
@@ -18,6 +20,19 @@ const entMeshes = new Map();   // id -> { obj, kind, seen }
 const fxList = [];
 let stationView = null;
 const GU = { time: { value: 0 } }; // общие uniform-переменные шейдеров
+
+let quality = 'high';
+// Качество графики: high — всё; medium — без теней и с меньшим разрешением; low — без свечения, следов и постэффектов
+export function setQuality(q) {
+  quality = q;
+  if (!renderer) return;
+  renderer.setPixelRatio(Math.min(q === 'high' ? 1.75 : q === 'medium' ? 1.25 : 1, devicePixelRatio));
+  sunLight.castShadow = q === 'high';
+  bloom.enabled = q !== 'low';
+  grade.enabled = q !== 'low';
+  if (q === 'low') { for (const [id, tr] of trails) { fxGroup.remove(tr.mesh); trails.delete(id); } }
+  resize();
+}
 
 export const cam = { yaw: 0.6, pitch: 0.3, dist: 600, target: 600 };
 
@@ -658,6 +673,9 @@ function greebles(g, R, count, mat, region) {
   }
 }
 
+// Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
+const rbox = (w, h, d) => new RoundedBoxGeometry(w, h, d, 3, Math.min(w, h, d) * 0.22);
+
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
   const M = hullMat(color, faction), D = darkMetal();
@@ -670,7 +688,7 @@ function buildShip(type, color, faction) {
       add(new THREE.SphereGeometry(R * 0.16, 20, 12), glassMat(), 0, R * 0.17, R * 0.42, 1, 0.6, 1.8);
       const w = wingGeo(R * 0.75, R * 0.6, R * 0.25, R * 0.04);
       add(w, M, R * 0.2, -R * 0.03, -R * 0.25); const w2 = add(w, M, -R * 0.2, -R * 0.03, -R * 0.25); w2.scale.x = -1;
-      add(new THREE.BoxGeometry(R * 0.04, R * 0.35, R * 0.4), D, 0, R * 0.25, -R * 0.55);
+      add(rbox(R * 0.04, R * 0.35, R * 0.4), D, 0, R * 0.25, -R * 0.55);
       addEngine(g, 0, 0, -R * 0.95, R * 0.17, eng);
       addLights(g, [[R * 0.95, -R * 0.03, -R * 0.45, R * 0.025], [-R * 0.95, -R * 0.03, -R * 0.45, R * 0.025]], 0xff2020);
       break;
@@ -683,7 +701,7 @@ function buildShip(type, color, faction) {
       for (const s of [1, -1]) {
         const pod = add(lathe(R * 0.9, R * 0.08, [[0, 0.6], [0.2, 1], [0.8, 1], [1, 0.3]], 10), D, s * R * 1.05, 0, -R * 0.05);
         pod.userData = {};
-        add(new THREE.BoxGeometry(R * 0.04, R * 0.3, R * 0.35), M, s * R * 0.35, R * 0.15, -R * 0.65).rotation.z = -s * 0.4;
+        add(rbox(R * 0.04, R * 0.3, R * 0.35), M, s * R * 0.35, R * 0.15, -R * 0.65).rotation.z = -s * 0.4;
       }
       addEngine(g, R * 0.22, 0, -R * 1.1, R * 0.14, eng); addEngine(g, -R * 0.22, 0, -R * 1.1, R * 0.14, eng);
       addLights(g, [[R * 1.05, 0, R * 0.42, R * 0.03], [-R * 1.05, 0, R * 0.42, R * 0.03]], faction === 'pirate' ? 0xff2020 : 0x40ff60);
@@ -691,8 +709,8 @@ function buildShip(type, color, faction) {
     }
     case 'burlak': {
       add(lathe(R * 1.6, R * 0.5, [[0, 0.7], [0.1, 0.95], [0.6, 1], [0.85, 0.85], [1, 0.45]], 8), M, 0, 0, -R * 0.1, 1.1, 0.75, 1);
-      add(new THREE.BoxGeometry(R * 0.5, R * 0.25, R * 0.5), D, 0, R * 0.42, R * 0.15);
-      add(new THREE.BoxGeometry(R * 0.35, R * 0.1, R * 0.06), glowMat(0xffd9a0, 1.6), 0, R * 0.45, R * 0.41);
+      add(rbox(R * 0.5, R * 0.25, R * 0.5), D, 0, R * 0.42, R * 0.15);
+      add(rbox(R * 0.35, R * 0.1, R * 0.06), glowMat(0xffd9a0, 1.6), 0, R * 0.45, R * 0.41);
       for (const a of [-0.5, 0, 0.5]) { // шахтёрские манипуляторы
         const arm = new THREE.Group();
         const boom = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.04, R * 0.06, R * 0.9, 10), D); boom.rotation.x = Math.PI / 2; boom.position.z = R * 0.45; arm.add(boom);
@@ -708,14 +726,14 @@ function buildShip(type, color, faction) {
       break;
     }
     case 'tyagach': {
-      add(new THREE.BoxGeometry(R * 0.18, R * 0.18, R * 1.8), D);
+      add(rbox(R * 0.18, R * 0.18, R * 1.8), D);
       add(lathe(R * 0.5, R * 0.22, [[0, 0.8], [0.4, 1], [0.8, 0.8], [1, 0.3]], 12), M, 0, 0, R * 1.05);
       add(new THREE.SphereGeometry(R * 0.08, 12, 8), glassMat(), 0, R * 0.12, R * 1.2, 1.4, 0.6, 1);
       const r = seeded(4);
       const cols = [0x8a3a2a, 0x3a5a7a, 0x9a8a50, 0x5a6a5a, 0xa06030];
       for (let i = 0; i < 4; i++) for (let a = 0; a < 4; a++) {
         const ang = a * Math.PI / 2 + Math.PI / 4;
-        const box = add(new THREE.BoxGeometry(R * 0.26, R * 0.26, R * 0.36), new THREE.MeshStandardMaterial({ color: cols[Math.floor(r() * cols.length)], map: sharedTextures().hull, metalness: 0.4, roughness: 0.7 }),
+        const box = add(rbox(R * 0.26, R * 0.26, R * 0.36), new THREE.MeshStandardMaterial({ color: cols[Math.floor(r() * cols.length)], map: sharedTextures().hull, metalness: 0.4, roughness: 0.7 }),
           Math.cos(ang) * R * 0.22, Math.sin(ang) * R * 0.22, R * (0.55 - i * 0.4));
         box.rotation.z = ang;
       }
@@ -727,13 +745,13 @@ function buildShip(type, color, faction) {
     case 'strazh': case 'molot': {
       const big = type === 'molot';
       add(lathe(R * 2, R * 0.35, [[0, 0.75], [0.12, 1], [0.55, 0.95], [0.85, 0.6], [1, 0.08]], 8), M, 0, 0, 0, 1.6, 0.55, 1);
-      add(new THREE.BoxGeometry(R * 0.5, R * 0.22, R * 0.9), M, 0, R * 0.2, -R * 0.25);
+      add(rbox(R * 0.5, R * 0.22, R * 0.9), M, 0, R * 0.2, -R * 0.25);
       if (big) {
-        add(new THREE.BoxGeometry(R * 0.25, R * 0.35, R * 0.35), D, 0, R * 0.45, -R * 0.35);
-        add(new THREE.BoxGeometry(R * 0.4, R * 0.04, R * 0.12), glowMat(0xffd9a0, 1.4), 0, R * 0.5, -R * 0.17);
-        for (const s of [1, -1]) add(new THREE.BoxGeometry(R * 0.08, R * 0.5, R * 1.2), M, s * R * 0.75, 0, -R * 0.1);
+        add(rbox(R * 0.25, R * 0.35, R * 0.35), D, 0, R * 0.45, -R * 0.35);
+        add(rbox(R * 0.4, R * 0.04, R * 0.12), glowMat(0xffd9a0, 1.4), 0, R * 0.5, -R * 0.17);
+        for (const s of [1, -1]) add(rbox(R * 0.08, R * 0.5, R * 1.2), M, s * R * 0.75, 0, -R * 0.1);
       }
-      const win = new THREE.Mesh(new THREE.BoxGeometry(R * 0.52, R * 0.05, R * 0.7), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.6, metalness: 0.5 }));
+      const win = new THREE.Mesh(rbox(R * 0.52, R * 0.05, R * 0.7), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.6, metalness: 0.5 }));
       win.position.set(0, R * 0.29, -R * 0.25); g.add(win);
       for (const s of [1, -1]) {
         add(lathe(R * 1.1, R * 0.16, [[0, 0.7], [0.15, 1], [0.8, 1], [1, 0.4]], 14), M, s * R * 0.6, -R * 0.05, -R * 0.35);
@@ -1112,6 +1130,28 @@ function sunModel() {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(c).multiplyScalar(k), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
     sp.scale.setScalar(s); g.add(sp);
   }
+  // блики в объективе
+  if (!TEX.flareRing) {
+    TEX.flareRing = canvasTex(128, 128, (c, W) => {
+      const grd = c.createRadialGradient(64, 64, 40, 64, 64, 62);
+      grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.7, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = grd; c.fillRect(0, 0, W, W);
+    });
+    TEX.flareHex = canvasTex(128, 128, (c) => {
+      c.fillStyle = 'rgba(255,255,255,0.22)'; c.beginPath();
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c[i ? 'lineTo' : 'moveTo'](64 + Math.cos(a) * 58, 64 + Math.sin(a) * 58); }
+      c.fill();
+    });
+  }
+  const flare = new Lensflare();
+  flare.addElement(new LensflareElement(TEX.glow, 380, 0, new THREE.Color(1, 0.9, 0.75)));
+  flare.addElement(new LensflareElement(TEX.flareHex, 50, 0.35, new THREE.Color(0.12, 0.18, 0.3)));
+  flare.addElement(new LensflareElement(TEX.flareHex, 80, 0.55, new THREE.Color(0.25, 0.15, 0.1)));
+  flare.addElement(new LensflareElement(TEX.flareRing, 110, 0.75, new THREE.Color(0.12, 0.25, 0.18)));
+  flare.addElement(new LensflareElement(TEX.flareHex, 36, 0.9, new THREE.Color(0.2, 0.14, 0.3)));
+  flare.addElement(new LensflareElement(TEX.flareRing, 180, 1.1, new THREE.Color(0.1, 0.15, 0.3)));
+  g.add(flare);
+  g.userData.flare = flare;
   g.userData.unit = true;
   return g;
 }
@@ -1319,7 +1359,9 @@ export function frame(view, dt, time) {
     const h = view.me.h;
     tmpV.set(h[0], h[1], h[2]);
     if (tmpV.lengthSq() > 0.01) myShip.lookAt(tmpV);
-    setEngines(myShip, Math.hypot(...view.me.v) / (view.me.max.spd || 1), time);
+    const sf = Math.hypot(...view.me.v) / (view.me.max.spd || 1);
+    setEngines(myShip, sf, time);
+    if (quality !== 'low') updateTrail('me', origin, view.me.h, view.data.ships[view.me.st].radius, sf, 0x3aa8ff, origin, time, !!view.me.warp);
   }
 
   for (const rec of entMeshes.values()) rec.seen = 0;
@@ -1333,7 +1375,9 @@ export function frame(view, dt, time) {
       if (e.h) { tmpV.set(rel[0] + e.h[0], rel[1] + e.h[1], rel[2] + e.h[2]); rec.obj.lookAt(tmpV); }
       rec.obj.visible = !e.w || Math.hypot(...rel) < 2e6;
       const t = view.data.ships[e.st];
-      setEngines(rec.obj, e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0, time);
+      const sf = e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0;
+      setEngines(rec.obj, sf, time);
+      if (quality !== 'low' && e.h && Math.hypot(...rel) < 60000) updateTrail(e.id, e.dp, e.h, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1, time);
@@ -1342,10 +1386,70 @@ export function frame(view, dt, time) {
   }
   for (const [id, rec] of [...entMeshes]) if (!rec.seen) removeEnt(id);
 
+  sweepTrails();
   updateDust(origin, view.me);
   updateFx(view, dt, origin);
   updateWarp(view, dt);
   composer.render();
+}
+
+// ---------- инверсионные следы двигателей ----------
+const trails = new Map(); // id -> { pts: [{p, t}], mesh }
+const TRAIL_LIFE = 1.0, TRAIL_N = 40;
+function trailFor(id, color) {
+  let tr = trails.get(id);
+  if (tr) return tr;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
+  const idx = [];
+  for (let i = 0; i < TRAIL_N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  geo.setIndex(idx);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+  mesh.frustumCulled = false;
+  fxGroup.add(mesh);
+  tr = { pts: [], mesh, color: new THREE.Color(color), seen: 0 };
+  trails.set(id, tr);
+  return tr;
+}
+function updateTrail(id, abs, heading, radius, speedFrac, color, origin, time, warping) {
+  const tr = trailFor(id, color);
+  tr.seen = 1;
+  if (warping) { tr.pts.length = 0; }
+  const tail = [abs[0] - heading[0] * radius * 0.95, abs[1] - heading[1] * radius * 0.95, abs[2] - heading[2] * radius * 0.95];
+  const last = tr.pts[tr.pts.length - 1];
+  if (!warping && speedFrac > 0.08 && (!last || Math.hypot(tail[0] - last.p[0], tail[1] - last.p[1], tail[2] - last.p[2]) > radius * 0.15)) {
+    tr.pts.push({ p: tail, t: time });
+    if (tr.pts.length > TRAIL_N) tr.pts.shift();
+  }
+  while (tr.pts.length && time - tr.pts[0].t > TRAIL_LIFE) tr.pts.shift();
+  const pos = tr.mesh.geometry.attributes.position.array, col = tr.mesh.geometry.attributes.color.array;
+  pos.fill(0); col.fill(0);
+  const n = tr.pts.length;
+  const w = radius * 0.14;
+  const v = new THREE.Vector3(), dir = new THREE.Vector3(), side = new THREE.Vector3(), view = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const p = tr.pts[i].p, q = tr.pts[Math.min(n - 1, i + 1)].p, o = tr.pts[Math.max(0, i - 1)].p;
+    v.set(p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]);
+    dir.set(q[0] - o[0], q[1] - o[1], q[2] - o[2]).normalize();
+    view.copy(camera.position).sub(v);
+    side.crossVectors(dir, view).normalize();
+    const age = (time - tr.pts[i].t) / TRAIL_LIFE;
+    const k = (1 - age) * (i / Math.max(1, n - 1));
+    const ww = w * (0.3 + 0.7 * (1 - age));
+    pos.set([v.x + side.x * ww, v.y + side.y * ww, v.z + side.z * ww, v.x - side.x * ww, v.y - side.y * ww, v.z - side.z * ww], i * 6);
+    const c = tr.color, b = k * k * k * 0.25;
+    col.set([c.r * b, c.g * b, c.b * b, c.r * b, c.g * b, c.b * b], i * 6);
+  }
+  tr.mesh.geometry.setDrawRange(0, Math.max(0, n - 1) * 6);
+  tr.mesh.geometry.attributes.position.needsUpdate = true;
+  tr.mesh.geometry.attributes.color.needsUpdate = true;
+}
+function sweepTrails() {
+  for (const [id, tr] of trails) {
+    if (!tr.seen) { fxGroup.remove(tr.mesh); tr.mesh.geometry.dispose(); trails.delete(id); }
+    else tr.seen = 0;
+  }
 }
 
 function updateDust(origin, me) {
@@ -1451,7 +1555,7 @@ function shieldFlash(id, r) {
   if (now - (lastShield.get(id) || 0) < 400) return;
   lastShield.set(id, now);
   if (lastShield.size > 200) lastShield.clear();
-  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.4, 5), fresnelMaterial(0x4a90ff, 3, 0.9, false));
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.4, 5), fresnelMaterial(0x3a7cff, 3.5, 0.45, false));
   fxGroup.add(m);
   fxList.push({ shield: m, follow: id, t: 0, dur: 0.6, kind: 'shield' });
 }

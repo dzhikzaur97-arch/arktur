@@ -42,6 +42,14 @@ function send(msg) { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify
 
 
 // ======================================================================
+// Настройки игрока (хранятся только в этом браузере)
+// ======================================================================
+const CFG_DEFAULT = { quality: 'high', volume: 0.55, ui: 1, labels: false, sens: 1 };
+let CFG = { ...CFG_DEFAULT };
+try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
+function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
+
+// ======================================================================
 // Звук: всё синтезируется на лету через Web Audio, без файлов
 // ======================================================================
 const Sound = {
@@ -53,7 +61,7 @@ const Sound = {
     this.ctx = new AC();
     this.master = this.ctx.createGain();
     try { this.muted = localStorage.getItem('vf-mute') === '1'; } catch {}
-    this.master.gain.value = this.muted ? 0 : 0.55;
+    this.master.gain.value = this.muted ? 0 : CFG.volume;
     const comp = this.ctx.createDynamicsCompressor();
     this.master.connect(comp); comp.connect(this.ctx.destination);
     const len = this.ctx.sampleRate * 2;
@@ -62,11 +70,12 @@ const Sound = {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.startAmbient();
   },
+  setVolume(v) { if (this.master && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
   toggle() {
     this.init();
     this.muted = !this.muted;
     try { localStorage.setItem('vf-mute', this.muted ? '1' : '0'); } catch {}
-    if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.55, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : CFG.volume, this.ctx.currentTime, 0.05);
     return this.muted;
   },
   ok() { return this.ctx && !this.muted && this.ctx.state === 'running'; },
@@ -207,7 +216,7 @@ function onMsg(m) {
       showStation(); break;
     }
     case 'undocked': S.docked = null; hideStation(); Sound.whoosh(0.8, false, 2); break;
-    case 'note': note(m.text, m.kind); break;
+    case 'note': note(m.text, m.kind); if (m.text.startsWith('Продано')) markTut('sell'); break;
     case 'chat': addChat(m.ch, m.from, m.text); break;
     case 'local': S.members = m.members; renderMembers(); break;
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
@@ -255,7 +264,7 @@ function onState(m) {
   for (const id of [...S.ents.keys()]) if (!seen.has(id)) S.ents.delete(id);
   if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel])) S.sel = null;
   if (S.active && !me.locks.includes(S.active)) S.active = me.locks[0] || null;
-  if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); }
+  if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); damageNumber(fx); }
   R.setMyShip(me.st, S.data);
 }
 
@@ -400,6 +409,7 @@ function toggleModule(slot) {
 // ======================================================================
 const canvas = $('#scene');
 R.init(canvas);
+applyCfg();
 let drag = null;
 canvas.addEventListener('mousedown', (e) => { if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: 0 }; hideCtx(); });
 addEventListener('mousemove', (e) => {
@@ -407,8 +417,8 @@ addEventListener('mousemove', (e) => {
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   drag.moved += Math.abs(dx) + Math.abs(dy);
   drag.x = e.clientX; drag.y = e.clientY;
-  R.cam.yaw -= dx * 0.006;
-  R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + dy * 0.006));
+  R.cam.yaw -= dx * 0.006 * CFG.sens;
+  R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + dy * 0.006 * CFG.sens));
 });
 addEventListener('mouseup', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => {
@@ -434,6 +444,7 @@ addEventListener('keydown', (e) => {
   if (k === 'KeyJ') return openWin('missions');
   if (k === 'KeyA' && !e.ctrlKey) return openWin('assets');
   if (k === 'KeyH') return openWin('help');
+  if (k === 'KeyO') return openWin('settings');
   if (S.docked) return;
   if (k === 'Space' && e.ctrlKey) { e.preventDefault(); return act('stop'); }
   if (k === 'KeyQ') act('approach');
@@ -473,8 +484,9 @@ function showCtx(x, y, title, items) {
   const el = $('#ctx');
   el.innerHTML = (title ? `<div class="ch">${esc(title)}</div>` : '') + items.map((it, i) => `<div class="ci" data-i="${i}">${esc(it[0])}</div>`).join('');
   el.classList.remove('hidden');
-  el.style.left = Math.min(x, innerWidth - 220) + 'px';
-  el.style.top = Math.min(y, innerHeight - el.offsetHeight - 10) + 'px';
+  const z = CFG.ui || 1;
+  el.style.left = Math.min(x / z, innerWidth / z - 220) + 'px';
+  el.style.top = Math.min(y / z, innerHeight / z - el.offsetHeight - 10) + 'px';
   el.onclick = (e) => { const i = e.target.dataset.i; if (i != null) { hideCtx(); items[i][1](); } };
 }
 function hideCtx() { $('#ctx').classList.add('hidden'); }
@@ -519,6 +531,33 @@ brRoot.addEventListener('click', (e) => { const b = e.target.closest('.br'); if 
 brRoot.addEventListener('dblclick', (e) => { const b = e.target.closest('.br'); if (b) act('smart', b.dataset.id); });
 brRoot.addEventListener('contextmenu', (e) => { const b = e.target.closest('.br'); if (b) { e.preventDefault(); objMenu(e.clientX, e.clientY, b.dataset.id); } });
 
+// ---------- всплывающие цифры урона ----------
+const dmgNums = [];
+function damageNumber(fx) {
+  if (fx.k !== 'beam' || !fx.hit || !fx.dmg || !S.me) return;
+  const fromEnt = S.ents.get(fx.from);
+  const mine = fx.from === S.me.id || (fromEnt && fromEnt.k === 'd' && fromEnt.o === S.name);
+  const onMe = fx.to === S.me.id;
+  if (!mine && !onMe) return;
+  const el = document.createElement('div');
+  el.className = 'dmg ' + (onMe ? 'in' : 'out');
+  el.textContent = fx.dmg;
+  brRoot.appendChild(el);
+  dmgNums.push({ el, id: fx.to, t0: performance.now(), dx: (Math.random() - 0.5) * 110, dy: (Math.random() - 0.5) * 50 });
+  if (dmgNums.length > 40) dmgNums.shift().el.remove();
+}
+function updateDamageNumbers(now) {
+  for (let i = dmgNums.length - 1; i >= 0; i--) {
+    const d = dmgNums[i], k = (now - d.t0) / 1100;
+    let pos = null;
+    if (d.id === S.me.id) pos = S.meRec.dp; else { const e = S.ents.get(d.id); if (e) pos = e.dp; }
+    const p = pos && R.project(sub(pos, S.meRec.dp));
+    if (k >= 1 || !p) { d.el.remove(); dmgNums.splice(i, 1); continue; }
+    d.el.style.transform = `translate(${p[0] + d.dx}px, ${p[1] - 30 + d.dy - k * 50}px) scale(${1.15 - k * 0.35})`;
+    d.el.style.opacity = 1 - k * k;
+  }
+}
+
 function updateBrackets() {
   if (!S.me || S.docked) { if (brackets.size) clearBrackets(); return; }
   const origin = S.meRec.dp;
@@ -534,7 +573,7 @@ function updateBrackets() {
     let b = brackets.get(o.id);
     if (!b) {
       b = document.createElement('div'); b.className = 'br'; b.dataset.id = o.id;
-      b.innerHTML = '<div class="bi"></div><div class="bl"></div>';
+      b.innerHTML = '<div class="bi"></div><div class="bh"><i></i><i></i><i></i></div><div class="bl"></div>';
       brRoot.appendChild(b); brackets.set(o.id, b);
     }
     const cls = ['br'];
@@ -548,7 +587,17 @@ function updateBrackets() {
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
-    if (o.kind === 'ship' || o.kind === 'station' || o.kind === 'gate') cls.push('lbl');
+    if (o.kind === 'ship' || o.kind === 'station' || o.kind === 'gate' || (CFG.labels && o.kind !== 'asteroid')) cls.push('lbl');
+    const showHp = (o.kind === 'ship' || o.kind === 'drone') && d < 150000 && (S.sel === o.id || S.me.locks.includes(o.id) || isHostile(o));
+    if (showHp) {
+      cls.push('hp');
+      const hp = o.kind === 'drone' ? `0,0,${o.hu}` : `${o.sh},${o.ar},${o.hu}`;
+      if (b._hp !== hp) {
+        const [sh, ar, hu] = hp.split(',').map(Number), bars = b.children[1].children;
+        bars[0].style.width = sh * 100 + '%'; bars[1].style.width = ar * 100 + '%'; bars[2].style.width = hu * 100 + '%';
+        b._hp = hp;
+      }
+    }
     const c = cls.join(' ');
     if (b._c !== c) { b.className = c; b._c = c; }
     const icon = iconOf(o);
@@ -826,7 +875,7 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html) {
   if (S.win === name && !html) return closeWin();
   S.win = name; S.winHtml = html;
@@ -842,7 +891,8 @@ function renderWin() {
   if (S.win === 'skills') return setHTML(el, skillsHTML());
   if (S.win === 'missions') return setHTML(el, missionsHTML(false));
   if (S.win === 'assets') return setHTML(el, assetsHTML());
-  if (S.win === 'help') return setHTML(el, HELP);
+  if (S.win === 'help') return setHTML(el, HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
+  if (S.win === 'settings') return setHTML(el, settingsHTML());
 }
 $('#win-body').addEventListener('mousedown', onActionClick);
 
@@ -957,8 +1007,74 @@ function moduleDesc(d) {
 }
 
 // ======================================================================
+// Обучение «Первые шаги»
+// ======================================================================
+const TUT = [
+  ['undock', 'Отстыкуйтесь от станции', 'Кнопка «Отстыковка» справа вверху.'],
+  ['belt', 'Варп к поясу астероидов', 'Правый щелчок по космосу → «Пояса астероидов» → любой пояс.'],
+  ['lock', 'Захватите астероид', 'Ctrl+щелчок по астероиду в космосе или в обзоре (вкладка «Добыча»).'],
+  ['mine', 'Добудьте руду', 'Включите буровой лазер — F2 или кнопка с киркой внизу. Подлетите ближе, если цель далеко.'],
+  ['dock', 'Вернитесь на станцию', 'Правый щелчок по космосу → «Станции» — корабль сам долетит и пристыкуется.'],
+  ['sell', 'Продайте руду', 'Ангар → «Разгрузить всё в ангар», затем вкладка «Рынок» → «Продать».'],
+  ['skill', 'Начните изучать навык', 'Вкладка «Навыки» на станции. Навыки учатся даже без вас в игре.'],
+  ['scan', 'Найдите аномалию', 'В космосе нажмите V (или «◎ Скан») — найденное появится в обзоре на вкладке «Навигация».']
+];
+const tut = { done: {}, hidden: false };
+try { Object.assign(tut, JSON.parse(localStorage.getItem('vf-tut') || '{}')); } catch {}
+function saveTut() { try { localStorage.setItem('vf-tut', JSON.stringify(tut)); } catch {} }
+function markTut(id) { if (!tut.done[id]) { tut.done[id] = true; saveTut(); if (!tut.hidden) { Sound.beep(660, 990, 0.08); note('Шаг выполнен: ' + TUT.find(t => t[0] === id)[1], 'good'); } } }
+function checkTutorial() {
+  const p = S.prof;
+  if (!p) return;
+  if (S.me && !S.docked) markTut('undock');
+  if (S.me && S.sys && S.sys.celestials.some(c => c.kind === 'belt' && len(sub(c.pos, S.meRec.dp)) < 60000)) markTut('belt');
+  if (S.me && S.me.locks.some(id => { const e = S.ents.get(id); return e && e.k === 'a'; })) markTut('lock');
+  if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
+  if (S.docked && tut.done.mine) markTut('dock');
+  if (p.training || Object.keys(p.skills).length) markTut('skill');
+  if (S.anoms && S.anoms.length) markTut('scan');
+  renderTutorial();
+}
+function renderTutorial() {
+  const el = $('#tut');
+  const left = TUT.filter(t => !tut.done[t[0]]);
+  if (tut.hidden || !left.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const cur = left[0][0];
+  setHTML(el, `<div class="ph">Первые шаги <span>${TUT.length - left.length} / ${TUT.length}</span><button class="x" data-tut="hide" title="Скрыть (вернуть можно в «Помощи»)">×</button></div>
+    <div class="tut-list">${TUT.map(([id, title, hint]) => `<div class="tut-step ${tut.done[id] ? 'done' : id === cur ? 'cur' : ''}"><b>${tut.done[id] ? '✓' : id === cur ? '›' : '·'}</b><div>${esc(title)}${id === cur ? `<div class="tut-hint">${esc(hint)}</div>` : ''}</div></div>`).join('')}</div>`);
+}
+$('#tut').addEventListener('mousedown', (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = true; saveTut(); renderTutorial(); } });
+
+// ======================================================================
 // Дроны
 // ======================================================================
+function settingsHTML() {
+  const opt = (v, cur, label) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${label}</option>`;
+  return `<div class="settings">
+    <label>Качество графики<select id="cfg-quality">${opt('high', CFG.quality, 'Высокое — тени, свечение, следы')}${opt('medium', CFG.quality, 'Среднее — без теней')}${opt('low', CFG.quality, 'Низкое — для слабых компьютеров')}</select></label>
+    <label>Громкость <span id="cfg-vol-v">${Math.round(CFG.volume * 100)}%</span><input type="range" id="cfg-volume" min="0" max="1" step="0.05" value="${CFG.volume}"></label>
+    <label>Масштаб интерфейса<select id="cfg-ui">${[0.85, 1, 1.15, 1.3].map(v => opt(v, CFG.ui, Math.round(v * 100) + '%')).join('')}</select></label>
+    <label>Чувствительность камеры <span id="cfg-sens-v">${CFG.sens.toFixed(1)}</span><input type="range" id="cfg-sens" min="0.3" max="2.5" step="0.1" value="${CFG.sens}"></label>
+    <label class="chk"><input type="checkbox" id="cfg-labels" ${CFG.labels ? 'checked' : ''}> Подписи у всех объектов в космосе</label>
+  </div>`;
+}
+function applyCfg() {
+  R.setQuality(CFG.quality);
+  $('#ui').style.zoom = CFG.ui;
+  Sound.setVolume(CFG.volume);
+}
+$('#win-body').addEventListener('input', (e) => {
+  const id = e.target.id;
+  if (!id.startsWith('cfg-')) return;
+  if (id === 'cfg-quality') CFG.quality = e.target.value;
+  if (id === 'cfg-volume') { CFG.volume = +e.target.value; $('#cfg-vol-v').textContent = Math.round(CFG.volume * 100) + '%'; }
+  if (id === 'cfg-ui') CFG.ui = +e.target.value;
+  if (id === 'cfg-sens') { CFG.sens = +e.target.value; $('#cfg-sens-v').textContent = CFG.sens.toFixed(1); }
+  if (id === 'cfg-labels') CFG.labels = e.target.checked;
+  saveCfg(); applyCfg();
+});
+
 function droneDesc(d) {
   return d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, ${d.vol} м³, прочность ${d.hp}` : `${d.yield} м³ руды / ${d.cycle}с, ${d.vol} м³`;
 }
@@ -1124,6 +1240,7 @@ function onActionClick(e) {
     case 'train': send({ t: 'train', skill: d.skill }); break;
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
+    case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
     case 'route': send({ t: 'autopilot', dest: d.sys }); note('Маршрут проложен. Откройте карту (M), чтобы включить автопилот.'); break;
   }
 }
@@ -1234,10 +1351,12 @@ function loop(now) {
   }
   R.frame(viewState(), dt, now / 1000);
   updateBrackets();
+  if (S.me && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;
     if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills') renderWin();
+    if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }
     if (S.docked && S.stTab === 'skills') renderStation();
   }
 }

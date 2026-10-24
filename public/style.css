@@ -245,3 +245,29 @@ h3:first-child { margin-top: 0; }
 .dr-btns button { flex: 1; font-size: 11px; padding: 3px 4px; }
 .br.mydrone .bi { color: #9fe0a0; font-size: 10px; }
 .br.anom .bi { color: #e8a0ff; text-shadow: 0 0 6px #b060ff; }
+
+/* Полоски здоровья у меток и цифры урона */
+.br .bh { display: none; flex-direction: column; gap: 1px; width: 34px; margin-top: 3px; }
+.br.hp .bh { display: flex; }
+.br .bh i { display: block; height: 2px; background: var(--shield); box-shadow: 0 0 2px #000; }
+.br .bh i:nth-child(2) { background: var(--armor); }
+.br .bh i:nth-child(3) { background: var(--hull); }
+.dmg { position: absolute; left: 0; top: 0; font-weight: 700; font-size: 15px; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 6px #000; will-change: transform; }
+.dmg.out { color: #ffd27a; }
+.dmg.in { color: #ff5a4a; }
+
+/* Обучение */
+#tut { position: fixed; left: 70px; top: 120px; width: 262px; z-index: 6; }
+.tut-list { padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.tut-step { display: flex; gap: 8px; color: var(--muted); }
+.tut-step b { width: 12px; color: var(--accent); }
+.tut-step.done { color: #6c8; }
+.tut-step.done b { color: var(--good); }
+.tut-step.cur { color: #fff; }
+.tut-hint { color: var(--accent2); font-size: 11px; margin-top: 2px; }
+
+/* Настройки */
+.settings { display: flex; flex-direction: column; gap: 12px; }
+.settings label { display: flex; flex-direction: column; gap: 4px; }
+.settings label.chk { flex-direction: row; align-items: center; gap: 8px; }
+.settings input[type=range] { width: 100%; }
