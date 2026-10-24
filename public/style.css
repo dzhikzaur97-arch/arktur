@@ -170,6 +170,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .br.crim .bi { color: #ff3020; animation: blink 0.8s infinite; }
 .br.susp .bi { color: var(--warn); }
 .br.guard .bi { color: #80e0ff; }
+.br.civ .bi { color: #a9b8c8; }
 .br.cel .bi { color: #e8d8a8; }
 .br.ast .bi { color: #a0a0a0; font-size: 10px; }
 .br.aggro .bi { text-shadow: 0 0 6px #f00; }

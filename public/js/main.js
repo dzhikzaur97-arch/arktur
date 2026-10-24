@@ -40,6 +40,124 @@ const S = {
 
 function send(msg) { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(msg)); }
 
+
+// ======================================================================
+// Звук: всё синтезируется на лету через Web Audio, без файлов
+// ======================================================================
+const Sound = {
+  ctx: null, master: null, muted: false, noiseBuf: null, ambient: null,
+  init() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    try { this.muted = localStorage.getItem('vf-mute') === '1'; } catch {}
+    this.master.gain.value = this.muted ? 0 : 0.55;
+    const comp = this.ctx.createDynamicsCompressor();
+    this.master.connect(comp); comp.connect(this.ctx.destination);
+    const len = this.ctx.sampleRate * 2;
+    this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.startAmbient();
+  },
+  toggle() {
+    this.init();
+    this.muted = !this.muted;
+    try { localStorage.setItem('vf-mute', this.muted ? '1' : '0'); } catch {}
+    if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.55, this.ctx.currentTime, 0.05);
+    return this.muted;
+  },
+  ok() { return this.ctx && !this.muted && this.ctx.state === 'running'; },
+  env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); },
+  noise(t, dur) { const n = this.ctx.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true; n.start(t, Math.random()); n.stop(t + dur); return n; },
+  startAmbient() {
+    // низкий гул корабля и космоса
+    const c = this.ctx, g = c.createGain(); g.gain.value = 0.06; g.connect(this.master);
+    for (const f of [41, 55.3, 82.1]) { const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.5; o.connect(og); og.connect(g); o.start(); }
+    const n = this.noise(c.currentTime, 1e6); const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+    const ng = c.createGain(); ng.gain.value = 0.6; n.connect(lp); lp.connect(ng); ng.connect(g);
+    this.ambient = g;
+  },
+  laser(vol) {
+    if (!this.ok() || vol <= 0) return;
+    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(1400 + Math.random() * 300, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.28);
+    f.type = 'lowpass'; f.frequency.value = 3500;
+    this.env(g, t, 0.005, 0.25 * vol, 0.3);
+    o.connect(f); f.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.4);
+  },
+  rail(vol) {
+    if (!this.ok() || vol <= 0) return;
+    const c = this.ctx, t = c.currentTime;
+    const n = this.noise(t, 0.5), bp = c.createBiquadFilter(), g = c.createGain();
+    bp.type = 'bandpass'; bp.frequency.setValueAtTime(2500, t); bp.frequency.exponentialRampToValueAtTime(300, t + 0.4); bp.Q.value = 0.8;
+    this.env(g, t, 0.003, 0.5 * vol, 0.4); n.connect(bp); bp.connect(g); g.connect(this.master);
+    const o = c.createOscillator(), og = c.createGain(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.3);
+    this.env(og, t, 0.003, 0.5 * vol, 0.35); o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.45);
+  },
+  mine(vol, dur) {
+    if (!this.ok() || vol <= 0) return;
+    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain(), g = c.createGain();
+    o.type = 'triangle'; o.frequency.value = 190; lfo.frequency.value = 7; lg.gain.value = 25;
+    lfo.connect(lg); lg.connect(o.frequency);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09 * vol, t + 0.3);
+    g.gain.setValueAtTime(0.09 * vol, t + dur - 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master); o.start(t); lfo.start(t); o.stop(t + dur); lfo.stop(t + dur);
+  },
+  boom(vol, big) {
+    if (!this.ok() || vol <= 0) return;
+    const c = this.ctx, t = c.currentTime, dur = big ? 3 : 1.8;
+    const n = this.noise(t, dur), lp = c.createBiquadFilter(), g = c.createGain();
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(3000, t); lp.frequency.exponentialRampToValueAtTime(80, t + dur);
+    this.env(g, t, 0.01, 0.9 * vol, dur); n.connect(lp); lp.connect(g); g.connect(this.master);
+    const o = c.createOscillator(), og = c.createGain(); o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(25, t + dur);
+    this.env(og, t, 0.01, 0.8 * vol, dur * 0.8); o.connect(og); og.connect(this.master); o.start(t); o.stop(t + dur);
+  },
+  whoosh(vol, up = true, dur = 2.5) {
+    if (!this.ok() || vol <= 0) return;
+    const c = this.ctx, t = c.currentTime, n = this.noise(t, dur), bp = c.createBiquadFilter(), g = c.createGain();
+    bp.type = 'bandpass'; bp.Q.value = 1.5;
+    bp.frequency.setValueAtTime(up ? 150 : 2500, t); bp.frequency.exponentialRampToValueAtTime(up ? 2800 : 120, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35 * vol, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(bp); bp.connect(g); g.connect(this.master);
+  },
+  beep(f1 = 880, f2 = 1320, vol = 0.12) {
+    if (!this.ok()) return;
+    const c = this.ctx, t = c.currentTime;
+    [[f1, 0], [f2, 0.09]].forEach(([f, dt]) => {
+      const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = f;
+      this.env(g, t + dt, 0.005, vol, 0.07); o.connect(g); g.connect(this.master); o.start(t + dt); o.stop(t + dt + 0.1);
+    });
+  },
+  click() { this.beep(1600, 1600, 0.04); },
+  alarm() { this.beep(520, 390, 0.14); }
+};
+
+// громкость эффекта по расстоянию от корабля игрока
+function fxVolume(fx) {
+  if (!S.meRec) return 0;
+  let pos = fx.pos;
+  if (!pos) {
+    const id = fx.from === S.me.id || fx.to === S.me.id ? null : fx.from;
+    if (!id) return 1;
+    const e = S.ents.get(id); if (!e) return 0;
+    pos = e.dp;
+  }
+  const d = len(sub(pos, S.meRec.dp));
+  return Math.max(0, 1 - d / 80000) ** 1.5;
+}
+function playFx(fx) {
+  const v = fxVolume(fx);
+  if (fx.k === 'beam') { const c = fx.color || 0; ((c >> 16) & 255) > ((c & 255)) ? Sound.laser(v) : Sound.rail(v); }
+  else if (fx.k === 'mine') Sound.mine(v * 0.8, Math.min(6, fx.dur || 5));
+  else if (fx.k === 'boom') Sound.boom(v, (fx.size || 0) > 500);
+  else if (fx.k === 'jump') Sound.whoosh(v * 0.7, false, 1.5);
+}
+addEventListener('mousedown', () => Sound.init(), { capture: true });
+addEventListener('keydown', () => Sound.init(), { capture: true });
+
 // ======================================================================
 // Вход и сеть
 // ======================================================================
@@ -56,7 +174,7 @@ function connect() {
     S.ws = null;
   };
 }
-$('#lg-go').onclick = () => { localStorage.setItem('vf-name', $('#lg-name').value); if (S.ws) S.ws.close(); connect(); };
+$('#lg-go').onclick = () => { Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {} if (S.ws) S.ws.close(); connect(); };
 $('#lg-pass').onkeydown = (e) => { if (e.key === 'Enter') $('#lg-go').click(); };
 try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 
@@ -85,9 +203,10 @@ function onMsg(m) {
       const c = S.celById && S.celById[m.station];
       S.docked = { id: m.station, name: m.name, sys: m.sys, style: c ? c.style : 0 };
       S.me = null; S.meRec = null; S.ents.clear(); clearBrackets();
+      Sound.whoosh(0.6, true, 1.5);
       showStation(); break;
     }
-    case 'undocked': S.docked = null; hideStation(); break;
+    case 'undocked': S.docked = null; hideStation(); Sound.whoosh(0.8, false, 2); break;
     case 'note': note(m.text, m.kind); break;
     case 'chat': addChat(m.ch, m.from, m.text); break;
     case 'local': S.members = m.members; renderMembers(); break;
@@ -116,6 +235,13 @@ function onState(m) {
     const jump = len(sub(me.p, S.meRec.cur)) > 5e5 && !me.warp && !(S.me && S.me.warp);
     S.meRec.prev = jump ? me.p : S.meRec.dp; S.meRec.cur = me.p; S.meRec.t0 = now;
   }
+  const prev = S.me;
+  if (prev) {
+    if (me.warp && !prev.warp) Sound.whoosh(1, true, 3);
+    if (!me.warp && prev.warp) Sound.whoosh(0.8, false, 1.8);
+    if (me.locks.length > prev.locks.length) Sound.beep();
+    if (me.hu < prev.hu && me.hu / me.max.hu < 0.5 && (!S.lastAlarm || performance.now() - S.lastAlarm > 4000)) { S.lastAlarm = performance.now(); Sound.alarm(); }
+  }
   S.me = me;
   const seen = new Set();
   for (const e of m.ents) {
@@ -128,7 +254,7 @@ function onState(m) {
   for (const id of [...S.ents.keys()]) if (!seen.has(id)) S.ents.delete(id);
   if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel])) S.sel = null;
   if (S.active && !me.locks.includes(S.active)) S.active = me.locks[0] || null;
-  if (m.fx) for (const fx of m.fx) R.addFx(fx, viewState());
+  if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); }
   R.setMyShip(me.st, S.data);
 }
 
@@ -258,6 +384,7 @@ function toggleModule(slot) {
     }
   }
   S.pendingModule = { t: 'module', slot, target };
+  Sound.click();
   send(S.pendingModule);
 }
 
@@ -401,7 +528,7 @@ function updateBrackets() {
     }
     const cls = ['br'];
     if (o.kind === 'ship') {
-      if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else cls.push('player');
+      if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
       if (o.cr) cls.push('crim'); else if (o.su) cls.push('susp');
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast'); else cls.push('cel');
@@ -674,7 +801,13 @@ function showInfo(o) {
 // ======================================================================
 // Окна (Неоком)
 // ======================================================================
-$('#neocom').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.win === 'map') toggleMap(); else openWin(b.dataset.win); };
+$('#neocom').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'snd') { updateSoundBtn(Sound.toggle()); return; }
+  if (b.dataset.win === 'map') toggleMap(); else openWin(b.dataset.win);
+};
+function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊') + '<small>Звук</small>'; }
+try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
 const WIN_TITLES = { cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };

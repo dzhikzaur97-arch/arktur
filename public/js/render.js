@@ -545,6 +545,25 @@ function asteroidGeo(variant) {
   return geo;
 }
 
+// Мелкий рельеф и пятна на камне считаются в шейдере — поверхность детальна на любом расстоянии
+function rockDetail(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjP; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjP = position; vNM0 = normalMatrix[0]; vNM1 = normalMatrix[1]; vNM2 = normalMatrix[2];');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vObjP; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;
+${GLSL_NOISE}`)
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse * (0.72 + 0.56 * fbm3(vObjP * 6.0)), opacity );')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  { // градиент шума в пространстве объекта → возмущение нормали (без экранных производных)
+    vec3 q = vObjP * 8.0; float e = 0.03; float h0 = fbm3(q);
+    vec3 g = vec3(fbm3(q + vec3(e, 0.0, 0.0)) - h0, fbm3(q + vec3(0.0, e, 0.0)) - h0, fbm3(q + vec3(0.0, 0.0, e)) - h0) / e;
+    normal = normalize(normal - mat3(vNM0, vNM1, vNM2) * g * 0.09); }`);
+  };
+}
+
 const ORE_LOOK = {
   ore_ferit: { rock: [0.42, 0.4, 0.38], vein: [0.75, 0.75, 0.78] },
   ore_korundit: { rock: [0.45, 0.32, 0.22], vein: [0.95, 0.5, 0.2] },
@@ -565,6 +584,7 @@ function asteroidModel(radius, seed, ore) {
       c.setXYZ(i, lerp(look.rock[0] * s, look.vein[0], vein), lerp(look.rock[1] * s, look.vein[1], vein), lerp(look.rock[2] * s, look.vein[2], vein));
     }
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.08, flatShading: false, envMapIntensity: 0.4 });
+    rockDetail(mat);
     astMatCache.set(key, { geo, mat });
   }
   const { geo, mat } = astMatCache.get(key);
@@ -773,7 +793,7 @@ function planetModel(c) {
     }));
     g.add(clouds);
   }
-  const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 48), fresnelMaterial(look.atmo, 2.6, look.atmoK, true));
+  const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.02, 96, 48), fresnelMaterial(look.atmo, 4.5, look.atmoK * 1.3, true));
   atmo.material.uniforms.sunDir = sunDir;
   g.add(atmo);
   g.userData = { unit: true, body, clouds, atmo, sunDir };

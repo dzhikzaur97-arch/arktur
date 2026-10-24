@@ -380,6 +380,7 @@ class Game {
     if (!e || e.warp) return;
     const t = this.ents.get(m.id);
     if (!t || t.sys !== e.sys || t === e || (t.type !== 'ship' && t.type !== 'asteroid' && t.type !== 'wreck')) return;
+    if (t.civ) return this.notify(s, 'Гражданское судно под защитой Стражей — захват невозможен', 'warn');
     if (e.locks.has(t.id) || e.locking.has(t.id)) return;
     if (e.locks.size + e.locking.size >= e.stats.maxLocks) return this.notify(s, `Максимум целей: ${e.stats.maxLocks}`, 'warn');
     if (this.surfaceDist(e, t) > e.stats.lockRange) return this.notify(s, `Цель вне дальности захвата (${(e.stats.lockRange / 1000).toFixed(0)} км)`, 'warn');
@@ -614,6 +615,7 @@ class Game {
       }
       if (e.logoffAt && e.logoffAt < now && !e.session) { this.ents.delete(e.id); continue; }
       if (e.npc || e.guardian) this.aiTick(e, dt);
+      else if (e.civ) this.civTick(e);
       this.physics(e, dt);
       // накопитель и щит
       const capFrac = e.cap / e.stats.cap;
@@ -685,7 +687,11 @@ class Game {
         speed = Math.min(speed, Math.max(20, d * 0.8));
         if (c.type === 'approach' && d < 50) speed = 0;
         if (c.type === 'dock' && d <= DOCK_RANGE && e.session) { this.enterStation(e.session, tgt.id); return; }
-        if (c.type === 'jump' && d <= JUMP_RANGE) { this.jump(e, tgt); return; }
+        if (c.type === 'dock' && d <= DOCK_RANGE && e.civ) { const sysId = e.sys; this.removeEntity(e); this.sendLocalMembers(sysId); return; }
+        if (c.type === 'jump' && d <= JUMP_RANGE) {
+          if (e.civ) { const sysId = e.sys; this.fxSys(sysId, tgt.pos, { k: 'jump', pos: tgt.pos }); this.removeEntity(e); this.sendLocalMembers(sysId); return; }
+          this.jump(e, tgt); return;
+        }
         break;
       }
       case 'orbit': {
@@ -737,6 +743,7 @@ class Game {
     this._spawnCheck = this.now;
     const occupied = new Set();
     for (const s of this.sessions) if (s.ent) occupied.add(s.ent.sys);
+    this.civTraffic(occupied);
     for (const sysId of occupied) {
       const sys = this.U.systems[sysId];
       const sec = sys.def.sec;
@@ -755,6 +762,97 @@ class Game {
         }
         bs.nextSpawn = this.now + 120000 + Math.random() * 120000;
       }
+    }
+  }
+
+  // ---------- Гражданский трафик: шахтёры, перевозчики, путешественники ----------
+  civTraffic(occupied) {
+    const bySys = {};
+    for (const e of this.ents.values()) {
+      if (!e.civ) continue;
+      if (!occupied.has(e.sys)) { this.removeEntity(e); continue; }
+      bySys[e.sys] = (bySys[e.sys] || 0) + 1;
+    }
+    for (const sysId of occupied) {
+      const sys = this.U.systems[sysId];
+      const sec = sys.def.sec;
+      const want = sys.def.hub ? 12 : sec >= 0.5 ? 7 : sec > 0 ? 4 : 2;
+      if ((bySys[sysId] || 0) < want && Math.random() < 0.6) this.spawnCiv(sysId);
+      // болтовня в локальном чате
+      if ((bySys[sysId] || 0) > 0 && Math.random() < 0.025) {
+        const civs = [...this.ents.values()].filter(e => e.civ && e.sys === sysId);
+        const who = civs[Math.floor(Math.random() * civs.length)];
+        const pool = sec >= 0.5 ? CIV_CHAT.safe : CIV_CHAT.danger;
+        this.broadcastSys(sysId, { t: 'chat', ch: 'local', from: who.name, text: pool[Math.floor(Math.random() * pool.length)] });
+      }
+    }
+  }
+
+  spawnCiv(sysId) {
+    const sys = this.U.systems[sysId];
+    const roll = Math.random();
+    const role = roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler';
+    const shipType = role === 'miner' ? (Math.random() < 0.6 ? 'burlak' : 'iskra') : role === 'hauler' ? 'tyagach' : (Math.random() < 0.5 ? 'klinok' : Math.random() < 0.5 ? 'strazh' : 'iskra');
+    let pos, vel = [0, 0, 0];
+    const fromStation = sys.stations.length && Math.random() < 0.6;
+    if (fromStation) {
+      const st = sys.stations[Math.floor(Math.random() * sys.stations.length)];
+      pos = add(st.pos, mul(st.undock, st.radius + 1200));
+      vel = mul(st.undock, 100);
+    } else {
+      const g = sys.gates[Math.floor(Math.random() * sys.gates.length)];
+      pos = add(g.pos, [rnd(-6000, 6000), rnd(-1000, 1000), rnd(-6000, 6000)]);
+      this.fxSys(sysId, pos, { k: 'jump', pos });
+    }
+    const t = SHIPS[shipType];
+    const stats = this.calcStats(null, { type: shipType, fit: [] });
+    const name = CIV_NAMES[0][Math.floor(Math.random() * CIV_NAMES[0].length)] + ' ' + CIV_NAMES[1][Math.floor(Math.random() * CIV_NAMES[1].length)];
+    const e = {
+      id: 'civ_' + uid(), type: 'ship', civ: role, name, shipType, sys: sysId,
+      pos, vel, heading: norm(vel[0] || vel[2] ? vel : [1, 0, 0]), stats, shield: stats.shield, armor: stats.armor, hull: stats.hull, cap: stats.cap,
+      cmd: { type: 'stop' }, speedFrac: 0.6 + Math.random() * 0.4, modules: [], locks: new Set(), locking: new Map(), warp: null,
+      scrambledUntil: 0, aggressors: new Map(), radius: t.radius, nextThink: this.now + 2000 + Math.random() * 4000, goal: null
+    };
+    this.ents.set(e.id, e);
+    this.sendLocalMembers(sysId);
+  }
+
+  civGoal(e) {
+    const sys = this.U.systems[e.sys];
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    if (e.civ === 'miner' && !e.mined && sys.belts.length) return { type: 'mine', target: pick(sys.belts).id, cycles: 4 + Math.floor(Math.random() * 6) };
+    if (sys.stations.length && Math.random() < 0.55) return { type: 'dock', target: pick(sys.stations).id };
+    return { type: 'jump', target: pick(sys.gates).id };
+  }
+
+  civTick(e) {
+    if (this.now < e.nextThink) return;
+    e.nextThink = this.now + 1000;
+    if (e.warp || e.cmd.type === 'align') return;
+    if (!e.goal) e.goal = this.civGoal(e);
+    const g = e.goal;
+    const tgt = this.U.celestials[g.target];
+    if (!tgt) { e.goal = null; return; }
+    const far = dist(e.pos, tgt.pos) > MIN_WARP;
+    if (g.type === 'dock' || g.type === 'jump') {
+      if (far) this.startAlignWarp(e, tgt, 0, g.type);
+      else if (e.cmd.type !== g.type) e.cmd = { type: g.type, target: tgt.id };
+      return;
+    }
+    // добыча: долететь до пояса, подойти к астероиду, работать буром
+    if (far) { this.startAlignWarp(e, tgt, 0); return; }
+    let ast = g.ast && this.ents.get(g.ast);
+    if (!ast) {
+      const list = [...this.ents.values()].filter(a => a.type === 'asteroid' && a.belt === tgt.id);
+      if (!list.length) { e.mined = true; e.goal = null; return; }
+      ast = list[Math.floor(Math.random() * list.length)];
+      g.ast = ast.id;
+      e.cmd = { type: 'keep', target: ast.id, range: 2000 + Math.random() * 3000 };
+    }
+    if (this.surfaceDist(e, ast) < 9000 && (!g.nextCycle || this.now >= g.nextCycle)) {
+      g.nextCycle = this.now + 6000;
+      this.fxSys(e.sys, null, { k: 'mine', from: e.id, to: ast.id, color: 0x80ff90, dur: 6 });
+      if (--g.cycles <= 0) { e.mined = true; e.goal = null; }
     }
   }
 
@@ -1195,6 +1293,7 @@ class Game {
       const p = s.player;
       return { name: p.name, crim: p.criminalUntil > this.now, susp: p.suspectUntil > this.now };
     });
+    for (const e of this.ents.values()) if (e.civ && e.sys === sysId) members.push({ name: e.name });
     this.broadcastSys(sysId, { t: 'local', members });
   }
 
@@ -1232,6 +1331,7 @@ class Game {
       if (o.warp) v.w = 1;
       if (o.npc) v.npc = 1;
       if (o.guardian) v.gd = 1;
+      if (o.civ) { v.civ = 1; v.o = o.name; }
       if (o.owner) {
         v.o = o.owner;
         const p = this.db.players[o.owner];
@@ -1276,6 +1376,24 @@ class Game {
     }
   }
 }
+
+const CIV_NAMES = [
+  ['Арс', 'Вега', 'Дан', 'Кира', 'Лео', 'Мира', 'Ник', 'Ольга', 'Рэй', 'Тэо', 'Юна', 'Зар', 'Ирма', 'Сол', 'Тарас', 'Ева', 'Гор', 'Лана', 'Марк', 'Нора'],
+  ['Корвин', 'Стрельцов', 'Ноэль', 'Варга', 'Айхен', 'Мерк', 'Ростов', 'Кейн', 'Орлова', 'Тайри', 'Векс', 'Лунд', 'Сато', 'Белых', 'Драгер', 'Рейн']
+];
+const CIV_CHAT = {
+  safe: [
+    'Кто-нибудь продаёт Корундит? Беру оптом на Арктуре.', 'Ферит опять подешевел, эх…', 'Летим колонной на Кассиопу, кто с нами?',
+    'Ищу корпорацию для добычи, опыт есть.', 'Поясная пустота сегодня… все в лоу ушли?', 'Новички, не летайте в 0.4 на «Искре» :)',
+    'Спасибо Стражам за спокойную смену.', 'Курьерские задания на Велле хорошо платят, советую.', 'Кто видел цены на «Бурлак»?',
+    'Отличный вид на газовый гигант из второго пояса.', 'Продам Импульсный лазер М1, недорого.', 'о7'
+  ],
+  danger: [
+    'Осторожно, на вратах дежурят пираты.', 'В первом поясе Жнецы, не суйтесь в одиночку.', 'Кто-то видел «Молот» без опознавательных знаков?',
+    'Нуллий здесь хороший, но долго не задерживайтесь.', 'Ищу сопровождение до хайсека, плачу.', 'Тут кто-нибудь вообще живой?',
+    'Мой трюм полон, уношу ноги.', 'о7, удачной охоты.'
+  ]
+};
 
 function fmt(n) { return Math.round(n).toLocaleString('ru-RU'); }
 
