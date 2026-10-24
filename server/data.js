@@ -131,6 +131,7 @@ const ITEMS = {
   ore_ferit:     { name: 'Ферит', cat: 'Руда', vol: 1, base: 12, color: 0x8c8c8c },
   ore_korundit:  { name: 'Корундит', cat: 'Руда', vol: 1, base: 26, color: 0xb07040 },
   ore_arkselit:  { name: 'Аркселит', cat: 'Руда', vol: 1.5, base: 85, color: 0x6aa0c0 },
+  ore_xenon:     { name: 'Ксенон-кристалл', cat: 'Руда', vol: 3, base: 720, color: 0x50ffd0 },
   ore_nullium:   { name: 'Нуллий', cat: 'Руда', vol: 2, base: 220, color: 0xb050e0 },
   salv_scrap:    { name: 'Металлолом', cat: 'Трофеи', vol: 1, base: 600 },
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
@@ -173,6 +174,7 @@ function oresForSec(sec) {
   if (sec >= 0.7) return [['ore_ferit', 0.75], ['ore_korundit', 0.25]];
   if (sec >= 0.45) return [['ore_ferit', 0.4], ['ore_korundit', 0.45], ['ore_arkselit', 0.15]];
   if (sec > 0) return [['ore_korundit', 0.4], ['ore_arkselit', 0.5], ['ore_nullium', 0.1]];
+  if (sec <= -0.8) return [['ore_nullium', 0.6], ['ore_xenon', 0.4]];
   return [['ore_arkselit', 0.45], ['ore_nullium', 0.55]];
 }
 
@@ -212,28 +214,66 @@ const SKILLS = {
 const SKILL_TIME = [0, 60, 240, 900, 3000, 9000]; // секунд на уровень 1..5
 
 // ---------- Карта вселенной ----------
-// x,y — координаты на звёздной карте, sec — уровень безопасности
+// Регионы: свой облик неба и множитель дохода (добыча, награды за пиратов, аномалии, задания)
+const REGIONS = {
+  core:   { name: 'Ядро Арктура', income: 1.0, color: '#4fd0ff', nebula: 'calm',   stars: ['yellow', 'white', 'yellow'] , labels: [[-40, -265]] },
+  border: { name: 'Пограничье', income: 1.4, color: '#e8d05f', nebula: 'gold',   stars: ['yellow', 'orange', 'blue'] , labels: [[330, -150], [-430, -90]] },
+  low:    { name: 'Тёмный рубеж', income: 2.0, color: '#ff8a3d', nebula: 'ember',  stars: ['orange', 'red', 'red'] , labels: [[-470, 240], [560, 120]] },
+  null:   { name: 'Бездна', income: 2.8, color: '#ff3d4a', nebula: 'blood',  stars: ['red', 'blue', 'white'] , labels: [[650, 360], [-420, 500]] },
+  deep:   { name: 'Глубокий космос', income: 4.0, color: '#b45cff', nebula: 'void',   stars: ['blackhole', 'blue', 'white'] , labels: [[500, 610]] }
+};
+// x,y — координаты на звёздной карте, sec — уровень безопасности, star — тип звезды (иначе выбирается по региону)
 const SYSTEMS = [
-  { id: 'arktur', name: 'Арктур Прайм', sec: 1.0, x: 0, y: 0, hub: true },
-  { id: 'vella', name: 'Велла', sec: 0.9, x: -140, y: -60 },
-  { id: 'kassiopa', name: 'Кассиопа', sec: 0.8, x: 130, y: -80 },
-  { id: 'lumen', name: 'Люмен', sec: 0.7, x: 40, y: 140 },
-  { id: 'dront', name: 'Дронт', sec: 0.6, x: 260, y: 0 },
-  { id: 'eridan', name: 'Эридан', sec: 0.5, x: -260, y: 60 },
-  { id: 'mirra', name: 'Мирра', sec: 0.4, x: 330, y: 140 },
-  { id: 'gierax', name: 'Гиеракс', sec: 0.3, x: -330, y: 190 },
-  { id: 'ten7', name: 'Тень-7', sec: 0.1, x: 180, y: 260 },
-  { id: 'bezdna', name: 'Бездна', sec: -0.3, x: 450, y: 250 },
-  { id: 'haos', name: 'Хаос-Х', sec: -0.7, x: 320, y: 380 },
-  { id: 'nihil', name: 'Нихиль', sec: -0.9, x: -200, y: 340 }
+  { id: 'arktur', name: 'Арктур Прайм', sec: 1.0, x: 0, y: 0, hub: true, region: 'core', star: 'yellow' },
+  { id: 'vella', name: 'Велла', sec: 0.9, x: -140, y: -60, region: 'core' },
+  { id: 'kassiopa', name: 'Кассиопа', sec: 0.8, x: 130, y: -80, region: 'core', star: 'white' },
+  { id: 'lumen', name: 'Люмен', sec: 0.7, x: 40, y: 140, region: 'core' },
+  { id: 'sirian', name: 'Сириан', sec: 0.9, x: -60, y: -180, region: 'core', star: 'white' },
+  { id: 'polaris', name: 'Полярис', sec: 1.0, x: 100, y: -220, region: 'core', star: 'blue' },
+  { id: 'altair', name: 'Альтаир', sec: 0.8, x: -230, y: -170, region: 'core' },
+  { id: 'dront', name: 'Дронт', sec: 0.6, x: 260, y: 0, region: 'border' },
+  { id: 'eridan', name: 'Эридан', sec: 0.5, x: -260, y: 60, region: 'border', star: 'orange' },
+  { id: 'talos', name: 'Талос', sec: 0.7, x: 250, y: -190, region: 'border', star: 'blue' },
+  { id: 'korona', name: 'Корона', sec: 0.6, x: 400, y: -90, region: 'border' },
+  { id: 'rigel', name: 'Ригель', sec: 0.5, x: -420, y: -40, region: 'border', star: 'blue' },
+  { id: 'mirra', name: 'Мирра', sec: 0.4, x: 330, y: 140, region: 'low' },
+  { id: 'gierax', name: 'Гиеракс', sec: 0.3, x: -330, y: 190, region: 'low' },
+  { id: 'ten7', name: 'Тень-7', sec: 0.1, x: 180, y: 260, region: 'low', star: 'red' },
+  { id: 'pepel', name: 'Пепел', sec: 0.2, x: -480, y: 160, region: 'low', star: 'red' },
+  { id: 'skorp', name: 'Скорпиус', sec: 0.3, x: 540, y: 60, region: 'low', star: 'orange' },
+  { id: 'mgla', name: 'Мгла', sec: 0.1, x: 30, y: 330, region: 'low', star: 'white' },
+  { id: 'bezdna', name: 'Бездна', sec: -0.3, x: 450, y: 250, region: 'null' },
+  { id: 'haos', name: 'Хаос-Х', sec: -0.7, x: 320, y: 380, region: 'null', star: 'blue' },
+  { id: 'nihil', name: 'Нихиль', sec: -0.9, x: -200, y: 340, region: 'null', star: 'red' },
+  { id: 'razlom', name: 'Разлом', sec: -0.4, x: 620, y: 300, region: 'null' },
+  { id: 'pustosh', name: 'Пустошь', sec: -0.5, x: -400, y: 430, region: 'null', star: 'white' },
+  { id: 'kladbishe', name: 'Кладбище кораблей', sec: -0.6, x: 110, y: 480, region: 'null', star: 'red' },
+  { id: 'sing', name: 'Сингулярность', sec: -1.0, x: 470, y: 520, region: 'deep', star: 'blackhole' },
+  { id: 'eho', name: 'Эхо', sec: -0.8, x: 740, y: 440, region: 'deep', star: 'blue' },
+  { id: 'predtecha', name: 'Предтеча', sec: -0.9, x: -180, y: 590, region: 'deep', star: 'white' },
+  { id: 'kray', name: 'Край', sec: -1.0, x: 240, y: 650, region: 'deep', star: 'blackhole' }
 ];
 const GATES = [
   ['arktur', 'vella'], ['arktur', 'kassiopa'], ['arktur', 'lumen'], ['kassiopa', 'dront'],
   ['vella', 'eridan'], ['dront', 'mirra'], ['lumen', 'ten7'], ['eridan', 'gierax'],
   ['mirra', 'bezdna'], ['ten7', 'bezdna'], ['ten7', 'haos'], ['bezdna', 'haos'],
-  ['gierax', 'nihil'], ['lumen', 'gierax'], ['kassiopa', 'vella']
+  ['gierax', 'nihil'], ['lumen', 'gierax'], ['kassiopa', 'vella'],
+  ['vella', 'sirian'], ['sirian', 'polaris'], ['polaris', 'kassiopa'], ['sirian', 'altair'], ['altair', 'vella'],
+  ['kassiopa', 'talos'], ['talos', 'korona'], ['dront', 'korona'], ['eridan', 'rigel'], ['rigel', 'altair'],
+  ['gierax', 'pepel'], ['pepel', 'rigel'], ['mirra', 'skorp'], ['korona', 'skorp'], ['ten7', 'mgla'], ['mgla', 'lumen'],
+  ['bezdna', 'razlom'], ['skorp', 'razlom'], ['nihil', 'pustosh'], ['pepel', 'pustosh'], ['haos', 'kladbishe'], ['mgla', 'kladbishe'],
+  ['razlom', 'eho'], ['haos', 'sing'], ['sing', 'eho'], ['kladbishe', 'kray'], ['sing', 'kray'], ['pustosh', 'predtecha'], ['predtecha', 'kray']
 ];
+const STAR_TYPES = {
+  yellow:    { name: 'Жёлтая звезда', light: 0xfff1dc },
+  white:     { name: 'Белый карлик', light: 0xeef4ff },
+  blue:      { name: 'Голубой гигант', light: 0xbcd4ff },
+  orange:    { name: 'Оранжевая звезда', light: 0xffd2a0 },
+  red:       { name: 'Красный карлик', light: 0xff9c78 },
+  blackhole: { name: 'Чёрная дыра', light: 0xc8a0ff }
+};
+const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); return s ? REGIONS[s.region].income : 1; };
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec };
+module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf };

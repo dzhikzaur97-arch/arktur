@@ -1,6 +1,6 @@
 // Процедурная генерация звёздных систем (детерминированная по id системы).
 'use strict';
-const { AU, SYSTEMS, GATES, STATION_NAMES, oresForSec, ITEMS } = require('./data');
+const { AU, SYSTEMS, GATES, STATION_NAMES, oresForSec, ITEMS, REGIONS, STAR_TYPES } = require('./data');
 
 function rng(seedStr) {
   let h = 1779033703 ^ seedStr.length;
@@ -40,7 +40,10 @@ function buildUniverse() {
     const sys = { def, id: def.id, celestials: [], belts: [], stations: [], gates: [], asteroidSeed: 0 };
     const add = (c) => { c.sys = def.id; sys.celestials.push(c); celestials[c.id] = c; return c; };
 
-    add({ id: def.id + ':sun', kind: 'sun', name: def.name + ' — звезда', pos: [0, 0, 0], radius: 4e8 + r() * 4e8, landing: 2e9 });
+    const reg = REGIONS[def.region] || REGIONS.core;
+    const star = def.star || reg.stars[Math.floor(r() * reg.stars.length)];
+    const sr = { yellow: 1, white: 0.5, blue: 2.2, orange: 0.9, red: 0.6, blackhole: 0.35 }[star];
+    add({ id: def.id + ':sun', kind: 'sun', star, name: def.name + ' — ' + STAR_TYPES[star].name.toLowerCase(), pos: [0, 0, 0], radius: (4e8 + r() * 4e8) * sr, landing: 2e9 * Math.max(1, sr) });
 
     const nPlanets = 3 + Math.floor(r() * 4);
     let orbit = 0.4 * AU;

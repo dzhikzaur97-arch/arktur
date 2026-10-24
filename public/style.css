@@ -438,3 +438,16 @@ body.mobile .login-box input { font-size: 16px; padding: 10px; }
 .bm-name { font-size: 16px; color: #ffd870; }
 .bm-elite td:first-child { color: #e9a6ff; text-shadow: 0 0 6px rgba(200,100,255,0.4); }
 .bm-cb td:first-child { color: #ffb070; }
+
+/* Регион и заставка прыжка */
+#sys-region { font-size: 11px; margin-top: 2px; }
+#sys-region .inc { color: var(--accent2); }
+#jump-banner { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); text-align: center; pointer-events: none; z-index: 12; opacity: 0; }
+#jump-banner.show { animation: jb 4.5s ease forwards; }
+@keyframes jb { 0% { opacity: 0; transform: translate(-50%, 10px); } 12% { opacity: 1; transform: translate(-50%, 0); } 75% { opacity: 1; } 100% { opacity: 0; } }
+.jb-region { font-size: 13px; letter-spacing: 6px; text-transform: uppercase; }
+.jb-name { font-size: 46px; font-weight: 200; letter-spacing: 4px; color: #fff; text-shadow: 0 0 24px var(--rc); border-bottom: 1px solid var(--rc); padding: 0 20px 4px; }
+.jb-row { display: flex; gap: 18px; justify-content: center; margin-top: 6px; font-size: 13px; color: #cde; text-shadow: 0 0 6px #000; }
+.jb-inc { color: var(--accent2); }
+body.mobile .jb-name { font-size: 30px; }
+body.mobile #sys-region { display: none; }

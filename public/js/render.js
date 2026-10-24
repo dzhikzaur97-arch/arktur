@@ -473,11 +473,21 @@ function spikeTexture() {
   });
 }
 
-function buildSky(sysId, sec) {
+// Палитры туманностей по регионам: [основной газ, второй газ, яркие волокна], плюс размер туманности и плотность звёзд
+const REGION_SKY = {
+  core:   { pals: [[[0.1, 0.35, 0.6], [0.2, 0.15, 0.55], [0.4, 0.85, 1.0]], [[0.12, 0.4, 0.5], [0.08, 0.2, 0.5], [0.5, 0.95, 0.9]]], size: [0.35, 0.55], stars: 1.0 },
+  border: { pals: [[[0.6, 0.45, 0.12], [0.35, 0.15, 0.45], [1.0, 0.85, 0.4]], [[0.5, 0.3, 0.1], [0.15, 0.25, 0.5], [1.0, 0.75, 0.35]]], size: [0.45, 0.65], stars: 1.0 },
+  low:    { pals: [[[0.65, 0.22, 0.06], [0.3, 0.06, 0.08], [1.0, 0.55, 0.2]], [[0.55, 0.18, 0.1], [0.25, 0.08, 0.2], [1.0, 0.45, 0.25]]], size: [0.55, 0.75], stars: 0.8 },
+  null:   { pals: [[[0.55, 0.05, 0.08], [0.18, 0.02, 0.12], [1.0, 0.25, 0.2]], [[0.45, 0.04, 0.15], [0.15, 0.03, 0.2], [1.0, 0.2, 0.35]]], size: [0.6, 0.85], stars: 0.65 },
+  deep:   { pals: [[[0.1, 0.45, 0.3], [0.35, 0.05, 0.5], [0.4, 1.0, 0.75]], [[0.3, 0.05, 0.55], [0.05, 0.3, 0.35], [0.85, 0.5, 1.0]]], size: [0.7, 0.95], stars: 0.45 }
+};
+
+function buildSky(sysId, sec, region) {
   const seed = strSeed(sysId);
   const r = seeded(seed);
-  let pal = NEBULA_PALETTES[seed % NEBULA_PALETTES.length];
-  if (sec < 0) pal = NEBULA_PALETTES[4]; // в нулях небо тревожно-красное
+  const RS = REGION_SKY[region];
+  let pal = RS ? RS.pals[seed % RS.pals.length] : NEBULA_PALETTES[seed % NEBULA_PALETTES.length];
+  if (!RS && sec < 0) pal = NEBULA_PALETTES[4];
   const rv = () => new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize();
   const bandN = new THREE.Vector3(r() - 0.5, 1.6, r() - 0.5).normalize();
   const nebDir = rv();
@@ -486,7 +496,7 @@ function buildSky(sysId, sec) {
   const mat = new THREE.ShaderMaterial({
     depthWrite: false, depthTest: false,
     uniforms: { c1: { value: new THREE.Vector3(...pal[0]) }, c2: { value: new THREE.Vector3(...pal[1]) }, c3: { value: new THREE.Vector3(...pal[2]) },
-      seed: { value: r() * 50 }, bandN: { value: bandN }, nebDir: { value: nebDir }, coreDir: { value: coreDir }, nebSize: { value: 0.45 + r() * 0.3 } },
+      seed: { value: r() * 50 }, bandN: { value: bandN }, nebDir: { value: nebDir }, coreDir: { value: coreDir }, nebSize: { value: RS ? RS.size[0] + r() * (RS.size[1] - RS.size[0]) : 0.45 + r() * 0.3 } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: `${GLSL_SIMPLEX}
       uniform vec3 c1, c2, c3, bandN, nebDir, coreDir; uniform float seed, nebSize; varying vec2 vUv;
@@ -561,7 +571,8 @@ function buildSky(sysId, sec) {
     return v;
   };
   const tintOf = (t) => t < 0.12 ? [1, 0.7, 0.45] : t < 0.25 ? [1, 0.88, 0.7] : t < 0.42 ? [0.68, 0.8, 1] : [1, 0.98, 0.95];
-  const layers = [[16000, 1.3, 0.45], [5000, 2.0, 0.75], [900, 3.0, 1.0]];
+  const sk = RS ? RS.stars : 1;
+  const layers = [[Math.round(16000 * sk), 1.3, 0.45], [Math.round(5000 * sk), 2.0, 0.75], [Math.round(900 * sk), 3.0, 1.0]];
   for (const [count, size, bright] of layers) {
     const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
@@ -1341,7 +1352,49 @@ function planetModel(c) {
   return g;
 }
 
-function sunModel() {
+// Чёрная дыра: тёмный горизонт событий, вращающийся аккреционный диск, светящееся кольцо фотонов
+function blackHoleModel() {
+  const g = new THREE.Group();
+  const T = sharedTextures();
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), new THREE.MeshBasicMaterial({ color: 0x000000 })));
+  const ring = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 32), fresnelMaterial(0xffc890, 6, 3, false));
+  g.add(ring);
+  const disk = new THREE.Mesh(new THREE.RingGeometry(1.4, 6, 128, 4), logShader({
+    uniforms: { time: GU.time },
+    vertex: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`,
+    fragment: `uniform float time; varying vec2 vP;
+      void main(){ /*LOGDEPTH*/ float r = length(vP); float a = atan(vP.y, vP.x);
+        float sw = fbm3(vec3(cos(a - time * 0.25 + r * 1.5) * 2.0, sin(a - time * 0.25 + r * 1.5) * 2.0, r * 1.2));
+        float k = smoothstep(6.0, 1.6, r) * smoothstep(1.4, 1.7, r);
+        vec3 hot = mix(vec3(4.0, 2.4, 1.2), vec3(1.6, 0.6, 2.6), smoothstep(1.6, 5.0, r));
+        gl_FragColor = vec4(hot * k * (0.3 + 1.2 * sw * sw), 1.0); }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  }));
+  disk.rotation.x = Math.PI / 2 - 0.25;
+  g.add(disk);
+  // «линзированная» часть диска над и под тенью
+  const halo = disk.clone(); halo.rotation.x = 0.15; halo.scale.setScalar(0.6); g.add(halo);
+  for (const [s, c, k] of [[9, 0xd0a0ff, 0.35], [26, 0x8040ff, 0.12]]) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(c).multiplyScalar(k), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
+    sp.scale.setScalar(s); g.add(sp);
+  }
+  g.userData.unit = true;
+  g.userData.spinY = 0.02;
+  return g;
+}
+
+// Облик звёзд: цвета поверхности (тёмные пятна → яркие), корона, свет на сцене
+const STAR_LOOK = {
+  yellow: { a: [4.0, 1.6, 0.5], b: [6.0, 4.5, 2.6], corona: 0xffb060, glow: [0xffe0b0, 0xffa050, 0xff8040], light: 0xfff1dc, power: 3.2 },
+  white:  { a: [2.4, 2.5, 3.0], b: [3.6, 3.7, 4.2], corona: 0xd0e0ff, glow: [0xb0c0e0, 0x8098d0, 0x6070c0], light: 0xeef4ff, power: 3.0, k: 0.6 },
+  blue:   { a: [0.6, 1.2, 3.2], b: [1.6, 2.6, 4.6], corona: 0x6aa0ff, glow: [0x6080d0, 0x4060c0, 0x3040b0], light: 0xbcd4ff, power: 3.6, k: 0.55 },
+  orange: { a: [3.2, 0.8, 0.12], b: [4.4, 2.0, 0.6], corona: 0xff8a40, glow: [0xd08850, 0xc06030, 0xa04018], light: 0xffd2a0, power: 3.0, k: 0.7 },
+  red:    { a: [3.0, 0.4, 0.1], b: [5.0, 1.6, 0.6], corona: 0xff4a30, glow: [0xff9070, 0xff4030, 0xc02020], light: 0xff9c78, power: 2.5 },
+  blackhole: { light: 0xc8a0ff, power: 1.6 }
+};
+
+function sunModel(star = 'yellow') {
+  const L = STAR_LOOK[star] || STAR_LOOK.yellow;
   const g = new THREE.Group();
   const T = sharedTextures();
   const surface = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 48), logShader({
@@ -1351,13 +1404,14 @@ function sunModel() {
     fragment: `uniform float time; varying vec3 vP; varying vec3 vN; varying vec3 vV;
       void main(){ /*LOGDEPTH*/ float n = fbm3(vP * 6.0 + vec3(time * 0.05)); float n2 = fbm3(vP * 22.0 - vec3(time * 0.1));
         float limb = pow(max(dot(vN, vV), 0.0), 0.45);
-        vec3 col = mix(vec3(4.0, 1.6, 0.5), vec3(6.0, 4.5, 2.6), n * 0.7 + n2 * 0.5) * (0.55 + 0.45 * limb);
+        vec3 col = mix(vec3(${L.a.join(',')}), vec3(${L.b.join(',')}), n * 0.7 + n2 * 0.5) * (0.55 + 0.45 * limb);
         gl_FragColor = vec4(col, 1.0); }`
   }));
   g.add(surface);
-  const corona = new THREE.Mesh(new THREE.SphereGeometry(1.15, 64, 32), fresnelMaterial(0xffb060, 1.6, 2.5, false));
+  const corona = new THREE.Mesh(new THREE.SphereGeometry(1.15, 64, 32), fresnelMaterial(L.corona, 1.6, 2.5, false));
   g.add(corona);
-  for (const [s, c, k] of [[5, 0xffe0b0, 1.6], [14, 0xffa050, 0.7], [40, 0xff8040, 0.25]]) {
+  for (const [s, c, k0] of [[5, L.glow[0], 1.6], [14, L.glow[1], 0.7], [40, L.glow[2], 0.25]]) {
+    const k = k0 * (L.k || 1);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(c).multiplyScalar(k), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
     sp.scale.setScalar(s); g.add(sp);
   }
@@ -1375,7 +1429,7 @@ function sunModel() {
     });
   }
   const flare = new Lensflare();
-  flare.addElement(new LensflareElement(TEX.glow, 380, 0, new THREE.Color(1, 0.9, 0.75)));
+  flare.addElement(new LensflareElement(TEX.glow, 260, 0, new THREE.Color(L.glow[0]).multiplyScalar(0.8 * (L.k || 1))));
   flare.addElement(new LensflareElement(TEX.flareHex, 50, 0.35, new THREE.Color(0.12, 0.18, 0.3)));
   flare.addElement(new LensflareElement(TEX.flareHex, 80, 0.55, new THREE.Color(0.25, 0.15, 0.1)));
   flare.addElement(new LensflareElement(TEX.flareRing, 110, 0.75, new THREE.Color(0.12, 0.25, 0.18)));
@@ -1476,10 +1530,13 @@ export function setSystem(sys) {
   for (const { obj } of celMeshes.values()) celGroup.remove(obj);
   celMeshes.clear();
   for (const id of [...entMeshes.keys()]) removeEnt(id);
-  buildSky(sys.id, sys.sec);
+  buildSky(sys.id, sys.sec, sys.region);
+  const sun = sys.celestials.find(c => c.kind === 'sun');
+  sunLight.color.set(STAR_LOOK[(sun && sun.star) || 'yellow'].light);
+  sunLight.intensity = STAR_LOOK[(sun && sun.star) || 'yellow'].power;
   for (const c of sys.celestials) {
     let obj = null;
-    if (c.kind === 'sun') obj = sunModel();
+    if (c.kind === 'sun') obj = c.star === 'blackhole' ? blackHoleModel() : sunModel(c.star);
     else if (c.kind === 'planet') obj = planetModel(c);
     else if (c.kind === 'station') obj = stationModel(c.style);
     else if (c.kind === 'gate') obj = gateModel();

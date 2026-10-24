@@ -310,7 +310,7 @@ module.exports = function install(Game) {
     items[pick(['laser_m', 'rail_l', 'shield_booster_l', 'drone_heavy', 'dmg_amp', 'overdrive'])] = 1;
     const w = { id: 'wr_' + uid(), type: 'wreck', sys: a.sys, pos: a.pos.slice(), vel: [0, 0, 0], radius: 90, name: 'Тайник Скверны', items, expires: this.now + 20 * 60000, anom: a.id };
     this.ents.set(w.id, w);
-    const bonus = Math.round((sec >= 0.5 ? 20000 : sec > 0 ? 60000 : 150000) * rnd(0.8, 1.2));
+    const bonus = Math.round(25000 * require('./data').incomeOf(a.sys) * (a.sys && sec <= 0 ? 1.5 : 1) * rnd(0.8, 1.2));
     if (killerPlayer) killerPlayer.credits += bonus;
     for (const s of this.sessions) {
       if (!s.ent || s.ent.sys !== a.sys) continue;

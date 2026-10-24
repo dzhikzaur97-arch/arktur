@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const D = require('./data');
 const { buildUniverse, makeAsteroid, route, rng } = require('./universe');
-const { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME } = D;
+const { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, REGIONS, STAR_TYPES, incomeOf } = D;
 
 // ---------- Векторная математика ----------
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -100,7 +100,8 @@ class Game {
       t: 'welcome', name: p.name,
       data: {
         ships: SHIPS, modules: MODULES, drones: DRONES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
-        systems: D.SYSTEMS, gates: D.GATES,
+        systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,
+        stars: Object.fromEntries(Object.values(this.U.systems).map(x => [x.id, x.celestials[0].star])),
         stations: Object.values(this.U.celestials).filter(c => c.kind === 'station').map(s => ({ id: s.id, name: s.name, sys: s.sys }))
       }
     });
@@ -225,7 +226,8 @@ class Game {
     const sys = this.U.systems[sysId];
     sess.send({
       t: 'system', id: sysId, name: sys.def.name, sec: sys.def.sec,
-      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style }))
+      region: sys.def.region, income: incomeOf(sysId),
+      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star }))
     });
     this.sendLocalMembers(sysId);
     this.sendAnoms(sess);
@@ -527,7 +529,7 @@ class Game {
       if (t.belt && this.beltState[t.belt]) this.beltState[t.belt].npcs.delete(t.id);
       if (t.anom) this.anomNpcKilled(t, killerPlayer);
       if (killerPlayer) {
-        const bounty = Math.round(NPCS[t.npc].bounty * (t.bountyMul || 1));
+        const bounty = Math.round(NPCS[t.npc].bounty * (t.bountyMul || 1) * incomeOf(sysId));
         killerPlayer.credits += bounty;
         killerPlayer.stats.npcKills++;
         const ks = killerEnt.session;
@@ -576,7 +578,7 @@ class Game {
     const p = this.db.players[e.owner];
     const item = ITEMS[t.ore];
     const free = e.stats.cargo - this.cargoUsed(p.ship.cargo);
-    let units = Math.floor(def.yield * e.stats.mineMul / item.vol);
+    let units = Math.floor(def.yield * e.stats.mineMul * incomeOf(e.sys) / item.vol);
     units = Math.min(units, t.amount, Math.floor(free / item.vol));
     if (units <= 0) {
       mod.active = false;
@@ -794,6 +796,7 @@ class Game {
         const group = [];
         if (sec >= 0.5) { for (let i = 0; i < 1 + (Math.random() < 0.5 ? 1 : 0); i++) group.push('raider'); }
         else if (sec > 0) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) group.push('raider'); if (Math.random() < 0.5) group.push('reaper'); if (Math.random() < 0.4) group.push('hunter'); }
+        else if (sec <= -0.8) { group.push('warlord', 'reaper', 'reaper', 'hunter'); if (Math.random() < 0.25) group.push('dreadlord'); }
         else { group.push('reaper', 'hunter'); if (Math.random() < 0.6) group.push('reaper'); group.push('raider', 'raider'); if (Math.random() < 0.2) group.push('warlord'); if (Math.random() < 0.05) group.push('dreadlord'); }
         for (const type of group) {
           const e = this.spawnNpc(type, sysId, add(b.pos, [rnd(-15000, 15000), rnd(-3000, 3000), rnd(-15000, 15000)]));
@@ -1318,7 +1321,7 @@ class Game {
         const tgt = hostile[Math.floor(Math.random() * hostile.length)];
         const sec = this.U.byId[tgt.id].sec;
         const count = 2 + Math.floor(Math.random() * 4);
-        const reward = Math.round(count * (sec >= 0.5 ? 9000 : sec > 0 ? 20000 : 50000) * (1 + 0.2 * (tgt.r.length - 1)));
+        const reward = Math.round(count * 9000 * incomeOf(tgt.id) * (1 + 0.2 * (tgt.r.length - 1)));
         offers.push({ id: uid(), type: 'kill', sys: tgt.id, count, progress: 0, reward,
           title: `Зачистка: ${this.U.byId[tgt.id].name}`, text: `Уничтожьте ${count} пиратских кораблей в системе ${this.U.byId[tgt.id].name} (${sec.toFixed(1)}).` });
       } else {
@@ -1327,7 +1330,7 @@ class Game {
         const d = dests[Math.floor(Math.random() * dests.length)];
         const jumps = near.find(n => n.id === d.sys).r.length - 1;
         const sec = this.U.byId[d.sys].sec;
-        const reward = Math.round((6000 + jumps * 9000) * (sec < 0.5 ? 2.5 : 1));
+        const reward = Math.round((6000 + jumps * 9000) * incomeOf(d.sys));
         offers.push({ id: uid(), type: 'courier', dest: d.id, reward, from: stationId,
           title: `Доставка: ${this.U.byId[d.sys].name}`, text: `Доставьте опечатанный контейнер (5 м³) на станцию «${d.name}» (${jumps} прыжк.).` });
       }

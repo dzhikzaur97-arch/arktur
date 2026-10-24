@@ -233,6 +233,7 @@ function onMsg(m) {
       addChat('local', '*', `Добро пожаловать, пилот ${m.name}! Нажмите H или «?» слева, чтобы узнать управление.`);
       break;
     case 'system':
+      if (S.sys && S.sys.id !== m.id) jumpBanner(m);
       S.sys = m; S.ents.clear(); S.sel = null; S.active = null; S.meRec = null;
       S.celById = Object.fromEntries(m.celestials.map(c => [c.id, c]));
       R.setSystem(m);
@@ -931,8 +932,25 @@ function slotType(shipType, idx) {
 // ======================================================================
 // Инфо о системе, уведомления, чат
 // ======================================================================
+// Заставка при входе в новую систему
+function jumpBanner(m) {
+  const reg = S.data.regions[m.region] || {};
+  const star = S.data.starTypes[S.data.stars[m.id]] || {};
+  const el = $('#jump-banner');
+  el.innerHTML = `<div class="jb-region" style="color:${reg.color}">${esc(reg.name || '')}</div>
+    <div class="jb-name">${esc(m.name)}</div>
+    <div class="jb-row"><span style="color:${secColor(m.sec)}">безопасность ${m.sec.toFixed(1)}</span><span>${esc(star.name || '')}</span><span class="jb-inc">доход ×${(m.income || 1).toFixed(1)}</span></div>`;
+  el.style.setProperty('--rc', reg.color || '#5fc8e8');
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  if (S.lastRegion && S.lastRegion !== m.region) note(`Вы вошли в регион «${reg.name}». Множитель дохода ×${(m.income || 1).toFixed(1)}`, m.income > 1 ? 'good' : 'info');
+  S.lastRegion = m.region;
+}
+
 function updateSysInfo() {
   if (!S.sys) return;
+  if (!S.lastRegion) S.lastRegion = S.sys.region;
+  const reg = S.data.regions[S.sys.region] || {};
+  $('#sys-region').innerHTML = `<span style="color:${reg.color}">${esc(reg.name || '')}</span> · <span class="inc" title="Множитель дохода: добыча, награды за пиратов, аномалии, задания">доход ×${(S.sys.income || 1).toFixed(1)}</span>`;
   $('#sys-sec').textContent = S.sys.sec.toFixed(1);
   $('#sys-sec').style.color = secColor(S.sys.sec);
   $('#sys-name').textContent = S.sys.name;
@@ -1570,6 +1588,21 @@ function drawMap() {
   const g = mc.getContext('2d');
   g.scale(dpr, dpr);
   g.clearRect(0, 0, innerWidth, innerHeight);
+  // подложки регионов: мягкие пятна цвета региона и подпись в центре
+  const byReg = {};
+  for (const s of S.data.systems) (byReg[s.region] = byReg[s.region] || []).push(s);
+  for (const [rid, list] of Object.entries(byReg)) {
+    const reg = S.data.regions[rid]; if (!reg) continue;
+    for (const s of list) {
+      const [x, y] = mapPt(s), rad = 95 * map.z;
+      const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+      grd.addColorStop(0, reg.color + '26'); grd.addColorStop(1, reg.color + '00');
+      g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    g.font = `600 ${Math.max(11, 14 * Math.min(1.4, map.z))}px Segoe UI, sans-serif`; g.textAlign = 'center';
+    g.fillStyle = reg.color + 'bb';
+    for (const [x, y] of reg.labels || []) { const [lx, ly] = mapPt({ x, y }); g.fillText(reg.name.toUpperCase() + `  ×${reg.income.toFixed(1)}`, lx, ly); }
+  }
   const routeSet = new Set();
   for (let i = 0; i < S.route.length - 1; i++) routeSet.add([S.route[i], S.route[i + 1]].sort().join('|'));
   for (const [a, b] of S.data.gates) {
@@ -1598,10 +1631,14 @@ function renderMapInfo() {
   if (!s) return;
   const stations = S.data.stations.filter(st => st.sys === s.id);
   const cur = S.sys && S.sys.id;
+  const reg = S.data.regions[s.region] || {}, star = S.data.starTypes[S.data.stars[s.id]] || {};
   $('#map-info').innerHTML = `<h3 style="color:${secColor(s.sec)}">${esc(s.name)} <span>${s.sec.toFixed(1)}</span></h3>
-    <div class="kv"><span>Безопасность</span><span>${s.sec >= 0.5 ? 'высокая — стражи порядка' : s.sec > 0 ? 'низкая — PvP без защиты' : 'нулевая — закона нет'}</span>
+    <div class="kv"><span>Регион</span><span style="color:${reg.color}">${esc(reg.name || '')}</span>
+    <span>Доход</span><span class="isk">×${(reg.income || 1).toFixed(1)} к добыче, наградам и заданиям</span>
+    <span>Звезда</span><span>${esc(star.name || '')}</span>
+    <span>Безопасность</span><span>${s.sec >= 0.5 ? 'высокая — стражи порядка' : s.sec > 0 ? 'низкая — PvP без защиты' : 'нулевая — закона нет'}</span>
     <span>Станции</span><span>${stations.length || 'нет'}</span><span>Пираты</span><span>${s.sec >= 0.8 ? 'нет' : s.sec >= 0.5 ? 'слабые' : s.sec > 0 ? 'средние' : 'сильные'}</span>
-    <span>Руда</span><span>${s.sec >= 0.7 ? 'Ферит, Корундит' : s.sec >= 0.45 ? '+ Аркселит' : s.sec > 0 ? 'Корундит, Аркселит, Нуллий' : 'Аркселит, Нуллий'}</span></div>
+    <span>Руда</span><span>${s.sec >= 0.7 ? 'Ферит, Корундит' : s.sec >= 0.45 ? '+ Аркселит' : s.sec > 0 ? 'Корундит, Аркселит, Нуллий' : s.sec <= -0.8 ? 'Нуллий, Ксенон-кристалл' : 'Аркселит, Нуллий'}</span></div>
     ${stations.map(st => `<div class="muted" style="font-size:11px">⌂ ${esc(st.name)}</div>`).join('')}
     ${s.id !== cur ? `<div style="display:flex;gap:6px;margin-top:10px"><button id="mi-route">Проложить маршрут</button><button id="mi-ap" class="primary">Автопилот</button></div>` : '<p class="muted">Вы здесь.</p>'}
     ${S.route.length ? '<button id="mi-clear" style="margin-top:6px">Сбросить маршрут</button>' : ''}`;
