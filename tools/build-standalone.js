@@ -72,7 +72,8 @@ const WebSocket = LocalSocket;
 
 // --- рендер как замкнутый модуль ---
 let render = read('public/js/render.js');
-render = render.replace(/^import \* as THREE from 'three';\n/m, '');
+const renderImports = [...render.matchAll(/^import .*;$/gm)].map(m => m[0]).filter(l => !l.includes("* as THREE"));
+render = render.replace(/^import .*;\n/gm, '');
 const exportsList = [...render.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
 render = render.replace(/^export /gm, '');
 const renderBundle = `const R = (() => {\n${render}\nreturn { ${exportsList.join(', ')} };\n})();`;
@@ -92,11 +93,12 @@ const page = `<title>Void Frontier</title>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }
 </style>
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@${THREE_VER}/build/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@${THREE_VER}/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@${THREE_VER}/examples/jsm/" } }</script>
 ${body.replace('<p class="hint">Новый пилот создаётся автоматически при первом входе.</p>',
   '<p class="hint">Новый пилот создаётся автоматически при первом входе.<span class="offline-tag">Одиночный режим: вселенная работает в вашем браузере, прогресс сохраняется на этом устройстве.</span></p>')}
 <script type="module">
 import * as THREE from 'three';
+${renderImports.join('\n')}
 ${serverBundle}
 ${renderBundle}
 ${main}
