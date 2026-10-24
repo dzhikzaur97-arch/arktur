@@ -76,7 +76,7 @@ module.exports = function install(Game) {
       pos: add(owner.pos, [rnd(-150, 150), rnd(-80, 80), rnd(-150, 150)]), vel: owner.vel.slice(), heading: [0, 0, 1],
       stats: { maxSpeed: def.speed, align: 0.6, sig: 20, shield: 1, armor: 1, hull: hp, radius: 6 }, shield: 0, armor: 0, hull: hp,
       cmd: { type: 'orbit', target: owner.id, range: 500 }, speedFrac: 1, modules: [], radius: 6,
-      aggressors: new Map(), task: 'idle', target: null, nextCycle: 0, mul: 1 + 0.1 * ((p && p.skills.drones) || 0)
+      aggressors: new Map(), task: 'idle', target: null, nextCycle: 0, mul: 1 + 0.1 * ((p && p.skills.drones) || 0) + ((SHIPS[owner.shipType].bonus || {}).drones || 0)
     };
     this.ents.set(d.id, d);
     return d;
@@ -227,7 +227,7 @@ module.exports = function install(Game) {
   P.c_scan = function (s, m, p, e) {
     if (!e || e.warp) return;
     if (e.scanUntil > this.now) return;
-    const dur = Math.max(3, 8 - (p.skills.scanning || 0)) * 1000;
+    const dur = Math.max(2, (8 - (p.skills.scanning || 0)) * (1 - (e.stats.scanBonus || 0) * 0.5)) * 1000;
     e.scanStart = this.now; e.scanUntil = this.now + dur;
     this.notify(s, 'Сканирование системы…');
   };
@@ -240,7 +240,7 @@ module.exports = function install(Game) {
     let found = 0;
     for (const a of this.anoms.values()) {
       if (a.sys !== e.sys || known[a.id]) continue;
-      if (Math.random() < clamp(a.sig * (0.7 + 0.1 * (p.skills.scanning || 0)), 0.1, 1)) { known[a.id] = true; found++; }
+      if (Math.random() < clamp(a.sig * (0.7 + 0.1 * (p.skills.scanning || 0)) * (1 + (e.stats.scanBonus || 0) * 2), 0.1, 1)) { known[a.id] = true; found++; }
     }
     const total = this.knownAnoms(p, e.sys).length;
     const hidden = [...this.anoms.values()].filter(a => a.sys === e.sys && !known[a.id]).length;

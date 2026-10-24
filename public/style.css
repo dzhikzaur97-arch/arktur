@@ -271,3 +271,6 @@ h3:first-child { margin-top: 0; }
 .settings label { display: flex; flex-direction: column; gap: 4px; }
 .settings label.chk { flex-direction: row; align-items: center; gap: 8px; }
 .settings input[type=range] { width: 100%; }
+
+.req-ok { color: var(--good); }
+.req-no { color: var(--bad); }

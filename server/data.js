@@ -46,7 +46,63 @@ const SHIPS = {
     maxSpeed: 190, align: 8, warpSpeed: 2.5, sig: 260, radius: 160,
     shield: 5500, armor: 6000, hull: 5000, cap: 2600, capRegen: 32,
     cargo: 700, slots: { high: 7, mid: 4, low: 4 }, maxLocks: 6, lockRange: 60000, lockTime: 4,
-    bonus: { damage: 0.25 }, desc: 'Тяжёлый ударный корабль. +25% урона.'
+    bonus: { damage: 0.25 }, desc: 'Тяжёлый ударный корабль. +25% урона.', req: { gunnery: 2 }
+  },
+  strizh: {
+    name: 'Стриж', cls: 'Перехватчик', price: 70000, color: 0x5fd0c0,
+    maxSpeed: 680, align: 1.8, warpSpeed: 8, sig: 28, radius: 32,
+    shield: 450, armor: 350, hull: 380, cap: 380, capRegen: 9,
+    cargo: 120, slots: { high: 2, mid: 3, low: 1 }, maxLocks: 3, lockRange: 35000, lockTime: 1.2,
+    bonus: { speed: 0.1 }, desc: 'Самый быстрый корабль. Ловит цели глушителем и уходит от огня крупных орудий.'
+  },
+  sokol: {
+    name: 'Сокол', cls: 'Разведчик', price: 60000, color: 0xd8d4c8,
+    maxSpeed: 400, align: 2.4, warpSpeed: 7, sig: 34, radius: 38,
+    shield: 500, armor: 400, hull: 420, cap: 450, capRegen: 11,
+    cargo: 250, slots: { high: 2, mid: 3, low: 1 }, maxLocks: 3, lockRange: 40000, lockTime: 1.8,
+    bonus: { scan: 0.5 }, desc: 'Корабль исследователя: сканирует быстрее и находит аномалии с первого раза.'
+  },
+  staratel: {
+    name: 'Старатель', cls: 'Шахтёрский фрегат', price: 32000, color: 0xd88a3a,
+    maxSpeed: 280, align: 3.5, warpSpeed: 4, sig: 45, radius: 48,
+    shield: 600, armor: 500, hull: 550, cap: 400, capRegen: 9,
+    cargo: 900, slots: { high: 2, mid: 2, low: 1 }, maxLocks: 2, lockRange: 25000, lockTime: 2,
+    bonus: { mining: 0.35 }, desc: 'Недорогой шахтёрский фрегат: +35% к добыче и трюм 900 м³.'
+  },
+  vihr: {
+    name: 'Вихрь', cls: 'Эсминец', price: 150000, color: 0xb84860,
+    maxSpeed: 330, align: 3.5, warpSpeed: 4, sig: 70, radius: 70,
+    shield: 1100, armor: 1200, hull: 1000, cap: 700, capRegen: 13,
+    cargo: 250, slots: { high: 6, mid: 2, low: 2 }, maxLocks: 4, lockRange: 40000, lockTime: 2,
+    bonus: { damage: 0.2 }, desc: 'Шесть орудий на лёгком корпусе. Гроза пиратских фрегатов.', req: { gunnery: 1 }
+  },
+  piligrim: {
+    name: 'Пилигрим', cls: 'Дроновый крейсер', price: 380000, color: 0x7a9a6a,
+    maxSpeed: 240, align: 5.5, warpSpeed: 3, sig: 130, radius: 110,
+    shield: 2600, armor: 2600, hull: 2400, cap: 1400, capRegen: 20,
+    cargo: 500, slots: { high: 3, mid: 4, low: 3 }, maxLocks: 5, lockRange: 55000, lockTime: 3,
+    bonus: { drones: 0.5 }, desc: 'Огромный отсек дронов и +50% к их урону и добыче.', req: { drones: 2 }
+  },
+  leviafan: {
+    name: 'Левиафан', cls: 'Эксгуматор', price: 1200000, color: 0xe0b040,
+    maxSpeed: 130, align: 10, warpSpeed: 2, sig: 260, radius: 170,
+    shield: 4500, armor: 2500, hull: 3000, cap: 1500, capRegen: 20,
+    cargo: 12000, slots: { high: 4, mid: 3, low: 2 }, maxLocks: 4, lockRange: 30000, lockTime: 3.5,
+    bonus: { mining: 1.2 }, desc: 'Король добычи: +120% к буровым лазерам и трюм 12 000 м³.', req: { mining: 3 }
+  },
+  kit: {
+    name: 'Кит', cls: 'Грузовоз', price: 900000, color: 0x6a7480,
+    maxSpeed: 120, align: 14, warpSpeed: 1.5, sig: 400, radius: 260,
+    shield: 6000, armor: 8000, hull: 12000, cap: 1200, capRegen: 12,
+    cargo: 40000, slots: { high: 0, mid: 2, low: 3 }, maxLocks: 1, lockRange: 20000, lockTime: 5,
+    desc: 'Трюм на 40 000 м³ для крупной торговли. Медленный и беззащитный.', req: { trade: 2 }
+  },
+  citadel: {
+    name: 'Цитадель', cls: 'Линкор', price: 2800000, color: 0x5a6a8a,
+    maxSpeed: 120, align: 11, warpSpeed: 2, sig: 380, radius: 260,
+    shield: 11000, armor: 13000, hull: 11000, cap: 5000, capRegen: 55,
+    cargo: 900, slots: { high: 8, mid: 5, low: 5 }, maxLocks: 7, lockRange: 80000, lockTime: 5,
+    bonus: { damage: 0.35 }, desc: 'Летающая крепость. +35% урона, восемь орудийных портов.', req: { gunnery: 4, shields: 2 }
   }
 };
 
@@ -91,7 +147,8 @@ const DRONES = {
 };
 for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: 'Дроны', vol: d.vol, base: d.price, drone: true };
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
-const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5] };
+const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
+  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
 
 // Какие руды встречаются при данном уровне безопасности
@@ -108,6 +165,10 @@ const NPCS = {
             loot: [['salv_scrap', 0.7, 1, 3], ['salv_core', 0.08, 1, 1]] },
   reaper: { name: 'Жнец Скверны', ship: 'strazh', bounty: 45000, dmgMul: 0.5, hpMul: 0.8, weapon: 'rail_s', guns: 3, speedMul: 0.9,
             loot: [['salv_scrap', 0.9, 2, 6], ['salv_core', 0.3, 1, 2], ['laser_m', 0.1, 1, 1]] },
+  hunter: { name: 'Охотник Скверны', ship: 'vihr', bounty: 28000, dmgMul: 0.5, hpMul: 0.75, weapon: 'laser_s', guns: 4, speedMul: 0.9,
+            loot: [['salv_scrap', 0.9, 1, 4], ['salv_core', 0.2, 1, 1], ['laser_s', 0.15, 1, 1]] },
+  dreadlord: { name: 'Владыка Скверны', ship: 'citadel', bounty: 750000, dmgMul: 0.5, hpMul: 0.8, weapon: 'rail_l', guns: 4, speedMul: 0.8,
+            loot: [['salv_relic', 1, 1, 3], ['salv_core', 1, 3, 6], ['rail_l', 0.5, 1, 2], ['shield_booster_l', 0.4, 1, 1], ['drone_heavy', 0.4, 1, 2]] },
   warlord:{ name: 'Полководец Скверны', ship: 'molot', bounty: 220000, dmgMul: 0.55, hpMul: 1, weapon: 'rail_l', guns: 3, speedMul: 0.8,
             loot: [['salv_core', 1, 2, 5], ['salv_relic', 0.3, 1, 1], ['rail_l', 0.2, 1, 1], ['shield_booster_l', 0.2, 1, 1]] }
 };

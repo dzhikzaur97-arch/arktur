@@ -162,7 +162,7 @@ class Game {
   calcStats(p, ship) {
     const t = SHIPS[ship.type];
     const sk = (p && p.skills) || {};
-    const b = { damage: 0, mining: 0, cargo: 0, speed: 0 };
+    const b = { damage: 0, mining: 0, cargo: 0, speed: 0, scan: 0, drones: 0 };
     for (const k in (t.bonus || {})) b[k] += t.bonus[k];
     for (const m of ship.fit) if (m && MODULES[m].passive) for (const k in MODULES[m].passive) b[k] += MODULES[m].passive[k];
     b.damage += 0.05 * (sk.gunnery || 0);
@@ -174,7 +174,7 @@ class Game {
       shield: t.shield * (1 + 0.05 * (sk.shields || 0)), armor: t.armor, hull: t.hull,
       cap: t.cap * eng, capRegen: t.capRegen * eng, cargo: t.cargo * (1 + b.cargo),
       maxLocks: t.maxLocks, lockRange: t.lockRange, lockTime: t.lockTime,
-      dmgMul: 1 + b.damage, mineMul: 1 + b.mining, droneBay: t.droneBay || 0, maxDrones: t.maxDrones || 0
+      dmgMul: 1 + b.damage, mineMul: 1 + b.mining, scanBonus: b.scan, droneMul: b.drones, droneBay: t.droneBay || 0, maxDrones: t.maxDrones || 0
     };
   }
 
@@ -770,8 +770,8 @@ class Game {
         if (bs.npcs.size > 0 || this.now < bs.nextSpawn) continue;
         const group = [];
         if (sec >= 0.5) { for (let i = 0; i < 1 + (Math.random() < 0.5 ? 1 : 0); i++) group.push('raider'); }
-        else if (sec > 0) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) group.push('raider'); if (Math.random() < 0.5) group.push('reaper'); }
-        else { group.push('reaper'); if (Math.random() < 0.6) group.push('reaper'); group.push('raider', 'raider'); if (Math.random() < 0.2) group.push('warlord'); }
+        else if (sec > 0) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) group.push('raider'); if (Math.random() < 0.5) group.push('reaper'); if (Math.random() < 0.4) group.push('hunter'); }
+        else { group.push('reaper', 'hunter'); if (Math.random() < 0.6) group.push('reaper'); group.push('raider', 'raider'); if (Math.random() < 0.2) group.push('warlord'); if (Math.random() < 0.05) group.push('dreadlord'); }
         for (const type of group) {
           const e = this.spawnNpc(type, sysId, add(b.pos, [rnd(-15000, 15000), rnd(-3000, 3000), rnd(-15000, 15000)]));
           e.belt = b.id; e.home = b.pos;
@@ -809,7 +809,10 @@ class Game {
     const sys = this.U.systems[sysId];
     const roll = Math.random();
     const role = roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler';
-    const shipType = role === 'miner' ? (Math.random() < 0.6 ? 'burlak' : 'iskra') : role === 'hauler' ? 'tyagach' : (Math.random() < 0.5 ? 'klinok' : Math.random() < 0.5 ? 'strazh' : 'iskra');
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    const shipType = role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
+      : role === 'hauler' ? pick(['tyagach', 'tyagach', 'tyagach', 'kit'])
+      : pick(['klinok', 'strazh', 'iskra', 'strizh', 'sokol', 'vihr', 'piligrim', 'molot', 'citadel']);
     let pos, vel = [0, 0, 0];
     const fromStation = sys.stations.length && Math.random() < 0.6;
     if (fromStation) {
@@ -1061,6 +1064,9 @@ class Game {
     const h = this.hangar(p, st);
     const i = h.ships.findIndex(x => x.uid === m.uid);
     if (i < 0) return;
+    const req = SHIPS[h.ships[i].type].req || {};
+    const miss = Object.entries(req).filter(([sk, lv]) => (p.skills[sk] || 0) < lv);
+    if (miss.length) return this.notify(s, 'Не хватает навыков: ' + miss.map(([sk, lv]) => `${SKILLS[sk].name} ${lv}`).join(', '), 'warn');
     const next = h.ships.splice(i, 1)[0];
     h.ships.push(p.ship);
     p.ship = next;

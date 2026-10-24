@@ -1185,7 +1185,8 @@ function renderStation() {
         ${Object.entries(mk.buy).map(([id, pr]) => { const d = S.data.modules[id]; return `<tr><td>${esc(d.name)}</td><td class="muted">${{ high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted">${moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`; }).join('')}</table>
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
-        <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; return `<div class="shipcard"><div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}<div class="isk">${isk(pr)}</div><button class="primary" data-a="buyShip" data-item="${id}">Купить</button></div>`; }).join('')}</div>`;
+        <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
+          return `<div class="shipcard"><div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><button class="primary" data-a="buyShip" data-item="${id}">Купить</button></div>`; }).join('')}</div>`;
       break;
     }
     case 'exchange': {
