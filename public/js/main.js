@@ -1131,7 +1131,7 @@ function cargoHTML(inSpace) {
   const p = S.prof;
   const cap = p.shipStats.cargo;
   return `<div>Трюм: ${p.cargoUsed.toFixed(1)} / ${num(cap)} м³</div><div class="cap-bar"><i style="width:${Math.min(100, p.cargoUsed / cap * 100)}%"></i></div>` +
-    itemsTable(p.ship.cargo, (id) => inSpace ? `<button data-a="jettison" data-item="${id}">Выбросить</button>` : `<button data-a="unload" data-item="${id}">В ангар</button>`);
+    itemsTable(p.ship.cargo, (id) => (S.data.drones[id] && S.data.ships[p.ship.type].droneBay ? `<button data-a="cargoToBay" data-item="${id}">В отсек</button> ` : '') + (inSpace ? `<button data-a="jettison" data-item="${id}">Выбросить</button>` : `<button data-a="unload" data-item="${id}">В ангар</button>`));
 }
 
 // Эмблемы навыков (SVG): своя фигура и цвет у каждого
@@ -1409,11 +1409,24 @@ function droneDesc(d) {
 }
 function droneBayHTML() {
   const p = S.prof, t = S.data.ships[p.ship.type];
-  if (!t.droneBay) return '<h3>Отсек дронов</h3><div class="muted">У этого корабля нет отсека дронов.</div>';
-  const bay = p.ship.drones || {};
+  if (!t.droneBay) return '<h3>Отсек дронов</h3><div class="muted">У этого корабля нет отсека дронов. Дроны есть у «Стража», «Пилигрима», «Бурлака», «Молота», «Цитадели» и других.</div>';
+  const bay = p.ship.drones || {}, cargo = p.ship.cargo || {}, hang = (S.prof.hangar || { items: {} }).items;
   let used = 0; for (const id in bay) used += bay[id] * S.data.drones[id].vol;
-  const rows = Object.entries(bay).map(([id, q]) => `<div class="slot-row"><span class="sm">${esc(S.data.drones[id].name)} ×${q}<br><span class="muted">${droneDesc(S.data.drones[id])}</span></span><button data-a="unloadDrone" data-item="${id}">В ангар</button></div>`).join('');
-  return `<h3>Отсек дронов <span class="muted">${used} / ${t.droneBay} м³ · одновременно до ${t.maxDrones}</span></h3>${rows || '<div class="muted">Пусто. Купите дронов на рынке и загрузите из ангара.</div>'}`;
+  const free = t.droneBay - used;
+  const qtyIn = (id, max, pre) => `<input class="qty" type="number" min="1" max="${max}" value="${Math.max(1, Math.min(max, Math.floor(free / S.data.drones[id].vol) || 1))}" id="${pre}-${id}">`;
+  const row = (id, q, btns) => `<div class="slot-row"><span class="sm">${esc(S.data.drones[id].name)} <b>×${q}</b><br><span class="muted">${droneDesc(S.data.drones[id])}</span></span>${btns}</div>`;
+  let html = `<h3>Отсек дронов</h3><div class="bay-head"><div style="flex:1"><div class="muted">${used} / ${t.droneBay} м³ · в космосе одновременно до ${t.maxDrones}</div>
+    <div class="cap-bar"><i style="width:${Math.min(100, used / t.droneBay * 100)}%"></i></div></div><button class="primary" data-a="fillBay">Заполнить отсек</button></div>`;
+  html += Object.keys(bay).length ? Object.entries(bay).map(([id, q]) => row(id, q, S.docked
+      ? `<button data-a="unloadDrone" data-item="${id}">В ангар</button><button data-a="bayToCargo" data-item="${id}">В трюм</button>`
+      : `<button data-a="bayToCargo" data-item="${id}">В трюм</button>`)).join('')
+    : '<div class="muted">Отсек пуст.</div>';
+  const fromCargo = Object.entries(cargo).filter(([id]) => S.data.drones[id]);
+  const fromHang = S.docked ? Object.entries(hang).filter(([id]) => S.data.drones[id]) : [];
+  if (fromHang.length) html += '<div class="bay-src">В ангаре станции:</div>' + fromHang.map(([id, q]) => row(id, q, `${qtyIn(id, q, 'dh')}<button data-a="loadDrone" data-item="${id}">Загрузить</button>`)).join('');
+  if (fromCargo.length) html += '<div class="bay-src">В трюме:</div>' + fromCargo.map(([id, q]) => row(id, q, `${qtyIn(id, q, 'dc')}<button data-a="cargoToBay" data-item="${id}">Загрузить</button>`)).join('');
+  if (!fromHang.length && !fromCargo.length && !Object.keys(bay).length) html += '<div class="muted">Купите дронов на рынке (раздел «Дроны») — они сразу попадут в отсек.</div>';
+  return html;
 }
 function droneEngage() {
   let target = S.active;
@@ -1427,6 +1440,7 @@ onTap($('#drones'), (e) => {
   if (b.dataset.dr === 'launch') { send({ t: 'droneLaunch' }); Sound.whoosh(0.3, true, 0.8); }
   else if (b.dataset.dr === 'engage') droneEngage();
   else if (b.dataset.dr === 'recall') send({ t: 'droneRecall' });
+  else if (b.dataset.dr === 'fill') send({ t: 'fillBay' });
 });
 const TASK = { idle: 'ожидает', attack: 'атакует', mine: 'добывает', return: 'возвращается' };
 function renderDrones() {
@@ -1439,7 +1453,8 @@ function renderDrones() {
   const inBay = Object.entries(bay).map(([id, q]) => `${esc(S.data.drones[id].name.replace(/^.*«(.*)»$/, '$1'))} ×${q}`).join(', ') || 'пусто';
   const mine = [...S.ents.values()].filter(e => e.k === 'd' && e.o === S.name);
   const list = mine.map(d => `<div class="dr-row"><span>${esc(d.n.replace(/^.*«(.*)»$/, '$1'))}</span><span class="bar hu" style="flex:1"><i style="width:${d.hu * 100}%"></i></span><span class="muted">${TASK[d.task] || ''}</span></div>`).join('');
-  setHTML($('#dr-body'), `<div class="muted" style="font-size:11px">В отсеке: ${inBay}</div>${list}
+  const inCargo = Object.keys(p.ship.cargo || {}).some(k => S.data.drones[k]);
+  setHTML($('#dr-body'), `<div class="muted" style="font-size:11px">В отсеке: ${inBay}</div>${inCargo ? '<button class="primary" data-dr="fill" style="font-size:11px">Загрузить дронов из трюма</button>' : ''}${list}
     <div class="dr-btns"><button data-dr="launch" title="Shift+F">Выпустить</button><button data-dr="engage" title="F">Атака / добыча</button><button data-dr="recall" title="Shift+R">Вернуть</button></div>`);
   $('#dr-count').textContent = `${mine.length} / ${t.maxDrones}`;
 }
@@ -1487,7 +1502,7 @@ function renderStation() {
       html = `<div class="cols"><div><h3>Активный корабль: ${esc(t.name)} <span class="muted">(${esc(t.cls)})</span></h3>${artImg(p.ship.type, 'ship-art big')}${shipStatsHTML(t, p.shipStats)}
         <h3>Трюм</h3>${cargoHTML(false)}<div style="margin-top:6px"><button data-a="unloadAll">Разгрузить всё в ангар</button></div>
         ${droneBayHTML()}</div>
-        <div><h3>Ангар станции</h3>${itemsTable(h.items, (id, q) => `${S.data.drones[id] ? `<button data-a="loadDrone" data-item="${id}">В отсек дронов</button> ` : ''}<button data-a="load" data-item="${id}">В трюм</button>`)}
+        <div><h3>Ангар станции</h3>${itemsTable(h.items, (id, q) => `${S.data.drones[id] && S.data.ships[p.ship.type].droneBay ? `<button data-a="loadDrone" data-item="${id}">В отсек</button> ` : ''}<button data-a="load" data-item="${id}">В трюм</button>`)}
         <h3>Корабли в ангаре</h3>${h.ships.length ? h.ships.map(s => `<div class="slot-row">${artImg(s.type, 'ship-thumb')}<span class="sm">${esc(S.data.ships[s.type].name)} <span class="muted">${esc(S.data.ships[s.type].cls)}</span></span><button data-a="board" data-uid="${s.uid}">Пересесть</button></div>`).join('') : '<div class="muted">Нет других кораблей</div>'}
         <h3>Клон</h3><div>${p.home === S.docked.id ? '<span class="muted">Эта станция — ваша домашняя (здесь вы возродитесь).</span>' : '<button data-a="sethome">Сделать станцию домашней</button>'}</div></div></div>`;
       break;
@@ -1502,8 +1517,8 @@ function renderStation() {
         const d = S.data.modules[id];
         return `<div class="slot-row"><span class="st ${d.slot}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[d.slot]}</span><span class="sm">${esc(d.name)} ×${q}<br><span class="muted">${moduleDesc(d)}</span></span><button data-a="fit" data-item="${id}">Установить</button></div>`;
       }).join('');
-      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}${droneBayHTML()}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
-        <div><h3>Модули в ангаре</h3>${mods || '<div class="muted">Нет модулей. Купите их на рынке.</div>'}</div></div>`;
+      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
+        <div>${droneBayHTML()}<h3>Модули в ангаре</h3>${mods || '<div class="muted">Нет модулей. Купите их на рынке.</div>'}</div></div>`;
       break;
     }
     case 'market': {
@@ -1577,8 +1592,11 @@ function onActionClick(e) {
     case 'jettison': send({ t: 'jettison', item: d.item }); break;
     case 'unload': send({ t: 'unload', item: d.item }); break;
     case 'unloadAll': send({ t: 'unload' }); break;
-    case 'loadDrone': send({ t: 'loadDrone', item: d.item }); break;
-    case 'unloadDrone': send({ t: 'unloadDrone', item: d.item }); break;
+    case 'loadDrone': send({ t: 'loadDrone', item: d.item, qty: +(($('#dh-' + d.item) || {}).value || 1) }); break;
+    case 'cargoToBay': send({ t: 'cargoToBay', item: d.item, qty: +(($('#dc-' + d.item) || {}).value || 999) }); break;
+    case 'unloadDrone': send({ t: 'unloadDrone', item: d.item, qty: 1 }); break;
+    case 'bayToCargo': send({ t: 'unloadDrone', item: d.item, qty: 1, to: 'cargo' }); break;
+    case 'fillBay': send({ t: 'fillBay' }); break;
     case 'load': send({ t: 'load', item: d.item }); break;
     case 'board': send({ t: 'board', uid: d.uid }); break;
     case 'sethome': send({ t: 'sethome' }); break;

@@ -38,24 +38,72 @@ module.exports = function install(Game) {
   P.droneVol = function (bay) { let v = 0; for (const id in bay) v += bay[id] * DRONES[id].vol; return v; };
   P.myDrones = function (e) { return [...this.ents.values()].filter(d => d.type === 'drone' && d.ownerEnt === e.id); };
 
+  // ---------- загрузка дронов: ангар / трюм ↔ отсек ----------
+  P.bayFree = function (p) { return (SHIPS[p.ship.type].droneBay || 0) - this.droneVol(this.droneBay(p.ship)); };
+
+  // Перекладывает до qty дронов из склада src (объект id→кол-во) в отсек. Возвращает, сколько поместилось.
+  P.moveToBay = function (p, src, item, qty) {
+    const bay = this.droneBay(p.ship);
+    const fit = Math.floor(this.bayFree(p) / DRONES[item].vol + 1e-9);
+    const n = Math.max(0, Math.min(qty, src[item] || 0, fit));
+    if (!n) return 0;
+    src[item] -= n; if (!src[item]) delete src[item];
+    bay[item] = (bay[item] || 0) + n;
+    return n;
+  };
+
+  P.bayReport = function (s, p, n, item, from) {
+    const cap = SHIPS[p.ship.type].droneBay;
+    if (!cap) return this.notify(s, `У корабля «${SHIPS[p.ship.type].name}» нет отсека дронов`, 'warn');
+    if (!n) return this.notify(s, `Отсек дронов заполнен (${cap} м³). Освободите место или выберите дронов поменьше.`, 'warn');
+    this.notify(s, `В отсек загружено: ${ITEMS[item].name} ×${n} (${from})`, 'good');
+  };
+
+  // из ангара станции
   P.c_loadDrone = function (s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
-    const h = this.hangar(p, st), bay = this.droneBay(p.ship);
-    if (!DRONES[m.item] || !(h.items[m.item] > 0)) return;
-    const cap = SHIPS[p.ship.type].droneBay;
-    if (this.droneVol(bay) + DRONES[m.item].vol > cap) return this.notify(s, cap ? `Отсек дронов заполнен (${cap} м³)` : 'У этого корабля нет отсека дронов', 'warn');
-    h.items[m.item]--; if (!h.items[m.item]) delete h.items[m.item];
-    bay[m.item] = (bay[m.item] || 0) + 1;
+    if (!DRONES[m.item]) return;
+    const n = this.moveToBay(p, this.hangar(p, st).items, m.item, Math.max(1, Math.floor(+m.qty) || 1));
+    this.bayReport(s, p, n, m.item, 'из ангара');
     this.sendProfile(s);
   };
 
+  // из трюма — работает и в космосе
+  P.c_cargoToBay = function (s, m, p) {
+    if (!DRONES[m.item]) return;
+    const n = this.moveToBay(p, p.ship.cargo, m.item, Math.max(1, Math.floor(+m.qty) || 999));
+    this.bayReport(s, p, n, m.item, 'из трюма');
+    this.sendProfile(s);
+  };
+
+  // из отсека в ангар (на станции) или в трюм (в космосе)
   P.c_unloadDrone = function (s, m, p) {
-    const st = this.requireDocked(s); if (!st) return;
     const bay = this.droneBay(p.ship);
-    if (!(bay[m.item] > 0)) return;
-    bay[m.item]--; if (!bay[m.item]) delete bay[m.item];
-    const h = this.hangar(p, st);
-    h.items[m.item] = (h.items[m.item] || 0) + 1;
+    const qty = Math.min(bay[m.item] || 0, Math.max(1, Math.floor(+m.qty) || 1));
+    if (!qty) return;
+    let dest;
+    if (s.docked && m.to !== 'cargo') dest = this.hangar(p, s.docked).items;
+    else {
+      const free = this.calcStats(p, p.ship).cargo - this.cargoUsed(p.ship.cargo);
+      if (DRONES[m.item].vol * qty > free + 1e-9) return this.notify(s, 'Не хватает места в трюме', 'warn');
+      dest = p.ship.cargo;
+    }
+    bay[m.item] -= qty; if (!bay[m.item]) delete bay[m.item];
+    dest[m.item] = (dest[m.item] || 0) + qty;
+    this.sendProfile(s);
+  };
+
+  // «Заполнить отсек»: лучшие дроны (сначала боевые по урону, потом шахтёрские) из трюма и ангара
+  P.c_fillBay = function (s, m, p) {
+    const cap = SHIPS[p.ship.type].droneBay;
+    if (!cap) return this.notify(s, 'У этого корабля нет отсека дронов', 'warn');
+    const sources = [['трюм', p.ship.cargo]];
+    if (s.docked) sources.push(['ангар', this.hangar(p, s.docked).items]);
+    const order = Object.keys(DRONES).sort((a, b) => (DRONES[b].kind === 'combat') - (DRONES[a].kind === 'combat') || (DRONES[b].dmg || 0) - (DRONES[a].dmg || 0));
+    let total = 0;
+    for (const id of order) for (const [, src] of sources) total += this.moveToBay(p, src, id, 999);
+    if (!total) this.notify(s, this.bayFree(p) < 5 ? 'Отсек уже заполнен' : (s.docked ? 'Нет дронов в ангаре и трюме. Купите их на рынке.' : 'В трюме нет дронов'), 'warn');
+    else this.notify(s, `Загружено дронов: ${total}. Свободно в отсеке: ${this.bayFree(p)} м³`, 'good');
     this.sendProfile(s);
   };
 

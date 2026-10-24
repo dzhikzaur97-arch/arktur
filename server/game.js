@@ -285,6 +285,9 @@ class Game {
     this.ents.set(e.id, e);
     e.session = sess; sess.ent = e;
     sess.send({ t: 'undocked' });
+    const hd = this.hangar(p, st.id).items;
+    if (SHIPS[p.ship.type].droneBay && !Object.keys(this.droneBay(p.ship)).length && (Object.keys(hd).some(k => DRONES[k]) || Object.keys(p.ship.cargo).some(k => DRONES[k])))
+      this.notify(sess, 'Отсек дронов пуст, а дроны есть в ангаре или трюме. В следующий раз нажмите «Заполнить отсек» во вкладке «Оснастка».', 'warn');
     this.sendProfile(sess);
   }
 
@@ -1151,7 +1154,9 @@ class Game {
       p.credits -= cost;
       const h = this.hangar(p, st);
       h.items[m.item] = (h.items[m.item] || 0) + qty;
-      this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${qty}`, 'good');
+      // дроны сразу попадают в отсек, если там есть место
+      const toBay = DRONES[m.item] ? this.moveToBay(p, h.items, m.item, qty) : 0;
+      this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${qty}` + (toBay ? (toBay === qty ? ' — загружено в отсек дронов' : ` — ${toBay} в отсек, остальные в ангар`) : ''), 'good');
     } else if (SHIPS[m.item] && SHIPS[m.item].price > 0) {
       const cost = Math.round(SHIPS[m.item].price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
