@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Void Frontier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="brackets"></div>
+
+<!-- Экран входа -->
+<div id="login" class="screen">
+  <div class="login-box">
+    <h1>VOID<span>FRONTIER</span></h1>
+    <p class="tag">Онлайн-песочница в глубоком космосе</p>
+    <input id="lg-name" placeholder="Имя пилота" maxlength="20" autocomplete="username">
+    <input id="lg-pass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <button id="lg-go">Войти / создать пилота</button>
+    <div id="lg-err"></div>
+    <p class="hint">Новый пилот создаётся автоматически при первом входе.</p>
+  </div>
+</div>
+
+<div id="ui" class="hidden">
+  <!-- Информация о системе -->
+  <div id="sysinfo" class="panel">
+    <div class="sys-row"><span id="sys-sec"></span><span id="sys-name"></span></div>
+    <div id="sys-route"></div>
+    <div id="wallet"></div>
+    <div id="flags"></div>
+  </div>
+
+  <!-- Боковая панель (Неоком) -->
+  <div id="neocom">
+    <button data-win="map" title="Звёздная карта (M)">✦<small>Карта</small></button>
+    <button data-win="cargo" title="Трюм (C)">▣<small>Трюм</small></button>
+    <button data-win="skills" title="Навыки (K)">✪<small>Навыки</small></button>
+    <button data-win="missions" title="Задания (J)">☰<small>Задания</small></button>
+    <button data-win="assets" title="Имущество (A)">◫<small>Имущ.</small></button>
+    <button data-win="help" title="Управление (H)">?<small>Помощь</small></button>
+  </div>
+
+  <!-- Захваченные цели -->
+  <div id="targets"></div>
+
+  <div id="rightcol">
+  <!-- Выбранный объект -->
+  <div id="selected" class="panel">
+    <div class="ph">Выбранный объект</div>
+    <div id="sel-body"><div class="muted">Ничего не выбрано</div></div>
+  </div>
+
+  <!-- Обзор -->
+  <div id="overview" class="panel">
+    <div class="ph">Обзор
+      <div class="tabs" id="ov-tabs">
+        <span data-f="all" class="on">Все</span><span data-f="combat">Бой</span><span data-f="mining">Добыча</span><span data-f="nav">Навигация</span>
+      </div>
+    </div>
+    <div class="ov-head"><span></span><span>Название</span><span>Тип</span><span>Дист.</span></div>
+    <div id="ov-list"></div>
+  </div>
+  </div>
+
+  <!-- HUD корабля -->
+  <div id="hud">
+    <div id="hud-status"></div>
+    <div id="hud-main">
+      <svg id="gauge" viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="88" class="g-bg"/>
+        <path id="g-cap" class="g-cap"/>
+        <path id="g-sh-bg" class="g-track"/><path id="g-sh" class="g-sh"/>
+        <path id="g-ar-bg" class="g-track"/><path id="g-ar" class="g-ar"/>
+        <path id="g-hu-bg" class="g-track"/><path id="g-hu" class="g-hu"/>
+        <text x="100" y="96" id="g-speed" class="g-text">0</text>
+        <text x="100" y="114" class="g-sub">м/с</text>
+      </svg>
+      <div id="hp-text"></div>
+      <div id="speedbar" title="Скорость: щелчок задаёт долю от максимума"><div id="speedfill"></div></div>
+      <div id="hud-btns">
+        <button id="b-stop" title="Стоп (Ctrl+Space)">■ Стоп</button>
+        <button id="b-full" title="Полный ход">▶ Полный</button>
+      </div>
+    </div>
+    <div id="modules"></div>
+  </div>
+
+  <!-- Чат -->
+  <div id="chat" class="panel">
+    <div class="ph">
+      <div class="tabs" id="chat-tabs"><span data-ch="local" class="on">Локальный</span><span data-ch="global">Общий</span></div>
+      <span id="local-count"></span>
+    </div>
+    <div id="chat-body">
+      <div id="chat-log"></div>
+      <div id="chat-members"></div>
+    </div>
+    <input id="chat-in" placeholder="Сообщение… (Enter)" maxlength="300">
+  </div>
+
+  <div id="notes"></div>
+  <div id="ctx" class="hidden"></div>
+
+  <!-- Плавающие окна -->
+  <div id="win" class="panel hidden">
+    <div class="ph"><span id="win-title"></span><button class="x" id="win-close">×</button></div>
+    <div id="win-body"></div>
+  </div>
+
+  <!-- Звёздная карта -->
+  <div id="map" class="hidden">
+    <canvas id="map-canvas"></canvas>
+    <div id="map-info" class="panel"></div>
+    <button class="x big" id="map-close">×</button>
+    <div class="map-legend">Колесо — масштаб · Перетаскивание — сдвиг · Щелчок по системе — маршрут</div>
+  </div>
+
+  <!-- Станция -->
+  <div id="station" class="hidden">
+    <div id="st-top">
+      <div><div id="st-name"></div><div id="st-sys" class="muted"></div></div>
+      <button id="st-undock">ОТСТЫКОВКА</button>
+    </div>
+    <div id="st-tabs" class="tabs big">
+      <span data-tab="hangar" class="on">Ангар</span><span data-tab="fitting">Оснастка</span><span data-tab="market">Рынок</span>
+      <span data-tab="exchange">Биржа</span><span data-tab="agents">Агенты</span><span data-tab="skills">Навыки</span>
+    </div>
+    <div id="st-body" class="panel"></div>
+  </div>
+
+  <div id="modal" class="hidden"><div class="panel modal-box"><div id="modal-body"></div></div></div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
