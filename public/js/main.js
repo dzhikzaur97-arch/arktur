@@ -515,15 +515,27 @@ addEventListener('mousemove', (e) => {
   R.cam.yaw -= dx * 0.006 * CFG.sens;
   R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + dy * 0.006 * CFG.sens));
 });
-addEventListener('mouseup', () => { drag = null; });
+// Щелчок по пустому космосу (без перетаскивания) — лететь в эту сторону
+function flyTo(x, y) {
+  if (!S.me || S.docked || (S.me && S.me.warp)) return;
+  send({ t: 'dir', dir: R.screenDir(x, y) });
+  const m = document.createElement('div');
+  m.className = 'fly-mark'; m.style.left = x + 'px'; m.style.top = y + 'px';
+  document.body.appendChild(m);
+  setTimeout(() => m.remove(), 700);
+}
+addEventListener('mouseup', (e) => {
+  if (drag && drag.moved < 5 && e.button === 0 && e.target === canvas) flyTo(e.clientX, e.clientY);
+  drag = null;
+});
 canvas.addEventListener('wheel', (e) => {
   const minD = S.me ? S.data.ships[S.me.st].radius * 4 : 200;
   R.cam.target = Math.max(minD, Math.min(400000, R.cam.target * Math.pow(1.0015, e.deltaY)));
 }, { passive: true });
-canvas.addEventListener('dblclick', (e) => { if (S.me && !S.docked) send({ t: 'dir', dir: R.screenDir(e.clientX, e.clientY) }); });
+
 canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!S.docked) spaceMenu(e.clientX, e.clientY); });
 
-// Сенсорное управление: палец — вращение камеры, щипок — зум, двойной тап — курс, долгое нажатие — меню варпа
+// Сенсорное управление: палец — вращение камеры, щипок — зум, тап — курс, долгое нажатие — меню варпа
 const touches = new Map();
 let pinch0 = null, tap = null, lastTap = 0, lpTimer = null;
 const touchDist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
@@ -558,8 +570,7 @@ const touchEnd = (e) => {
   clearTimeout(lpTimer);
   const now = performance.now();
   if (tap && tap.moved < 10 && !tap.long && now - tap.t < 300) {
-    if (now - lastTap < 350 && S.me && !S.docked) { send({ t: 'dir', dir: R.screenDir(tap.x, tap.y) }); lastTap = 0; note('Курс задан'); }
-    else lastTap = now;
+    flyTo(tap.x, tap.y);
   }
   tap = null;
   if (touches.size < 2) pinch0 = null;
@@ -1089,14 +1100,14 @@ onTap($('#win-body'), onActionClick);
 const HELP_MOBILE = `<h3>Управление на телефоне</h3><div class="kv">
 <span>Палец по экрану</span><span>вращать камеру</span>
 <span>Два пальца (щипок)</span><span>приблизить / отдалить</span>
-<span>Двойной тап по космосу</span><span>лететь в этом направлении</span>
+<span>Тап по космосу</span><span>лететь в этом направлении</span>
 <span>Долгое нажатие на космос</span><span>меню варпа</span>
 <span>Тап по объекту</span><span>выбрать — внизу появятся кнопки действий</span>
 <span>☰</span><span>меню: карта, трюм, навыки, задания, настройки</span>
 <span>◫ / » / ◎ / 💬</span><span>обзор / варп / скан / чат</span>
 <span>Круглые кнопки справа внизу</span><span>модули: орудия, бур, щит</span></div>`;
 const HELP = `<h3>Полёт</h3><div class="kv">
-<span>Двойной щелчок в космосе</span><span>лететь в этом направлении</span>
+<span>Щелчок по космосу</span><span>лететь в этом направлении (перетаскивание — вращать камеру)</span>
 <span>Перетаскивание ЛКМ</span><span>вращение камеры, колесо — приближение</span>
 <span>ПКМ по космосу</span><span>меню варпа к станциям, вратам, поясам</span>
 <span>ПКМ по объекту</span><span>все действия с объектом</span>
@@ -1322,7 +1333,7 @@ function buildHTML() {
     <table class="tbl"><tr><th>Руда</th><th>Материал</th><th class="r">Выход</th><th class="r">Выгода (ур.1…3)</th></tr>${rows}</table>
     <div class="kv" style="margin-top:10px"><span>Стоимость</span><span class="isk">${isk(st.cost)}</span><span>Улучшения</span><span>ур. 2 — ${isk(lv[2].cost)}, ур. 3 — ${isk(lv[3].cost)}</span>
     <span>Где можно</span><span>в любой системе, кроме столичных (1.0), дальше 200 км от планет, станций и врат</span></div>
-    <p class="muted">Совет: отлетите от объектов — двойной щелчок по космосу и подождите, или варп к поясу на 50 км и отлетите ещё.</p>
+    <p class="muted">Совет: отлетите от объектов — щелчок по космосу и подождите, или варп к поясу на 50 км и отлетите ещё.</p>
     ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="build" ${S.prof.credits < st.cost ? 'disabled' : ''}>Построить здесь за ${isk(st.cost)}</button>`}`;
 }
 function factoryHTML() {

@@ -514,7 +514,7 @@ module.exports = function install(Game) {
     if (this.U.byId[e.sys].sec >= 1.0) return this.notify(s, 'В столичных системах (1.0) частные станции запрещены', 'warn');
     if (p.credits < D.REFINERY.buildCost) return this.notify(s, `Нужно ${fmt(D.REFINERY.buildCost)} ISK`, 'warn');
     for (const c of this.U.systems[e.sys].celestials) {
-      if (dist(c.pos, e.pos) - (c.radius || 0) < 200000) return this.notify(s, `Слишком близко к объекту «${c.name}». Отлетите дальше 200 км (варп в пустое место или двойной щелчок по космосу).`, 'warn');
+      if (dist(c.pos, e.pos) - (c.radius || 0) < 200000) return this.notify(s, `Слишком близко к объекту «${c.name}». Отлетите дальше 200 км (щелчок по космосу — корабль полетит в ту сторону).`, 'warn');
     }
     p.credits -= D.REFINERY.buildCost;
     const st = { id: 'ps_' + uid(), owner: p.name, name: `Завод «${p.name}»`, sys: e.sys, pos: e.pos.map(x => x + rnd(-1, 1) * 4000), level: 1, jobs: [],
