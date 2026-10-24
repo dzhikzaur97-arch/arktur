@@ -51,7 +51,7 @@ class Game {
       for (const b of sys.belts) {
         const r = rng(b.id);
         const n = 10 + Math.floor(r() * 8);
-        this.beltState[b.id] = { npcs: new Set(), nextSpawn: 0, counter: n, r };
+        this.beltState[b.id] = { npcs: new Set(), nextSpawn: 0, counter: n, r, size: n };
         for (let i = 0; i < n; i++) { const a = makeAsteroid(b, r, i); this.ents.set(a.id, a); }
       }
     }
@@ -238,6 +238,8 @@ class Game {
   enterStation(sess, stationId, silent) {
     const p = sess.player;
     const st = this.U.celestials[stationId];
+    // каждый прилёт на станцию обновляет руду в поясах системы
+    if (!silent && this.refillBelts(st.sys)) this.notify(sess, 'Пояса астероидов системы обновлены — руда восстановлена', 'good');
     if (sess.ent) {
       this.scoopAll(sess.ent);
       this.storeShipState(p, sess.ent);
@@ -590,7 +592,24 @@ class Game {
     this.removeEntity(t);
     const bs = this.beltState[t.belt];
     const belt = this.U.celestials[t.belt];
-    if (bs && belt) setTimeout(() => { const a = makeAsteroid(belt, bs.r, bs.counter++); this.ents.set(a.id, a); }, 8 * 60000);
+    if (bs && belt) setTimeout(() => {
+      if (this.beltAsteroids(belt.id).length >= bs.size) return; // пояс уже восполнен
+      const a = makeAsteroid(belt, bs.r, bs.counter++); this.ents.set(a.id, a);
+    }, 8 * 60000);
+  }
+
+  beltAsteroids(beltId) { return [...this.ents.values()].filter(a => a.type === 'asteroid' && a.belt === beltId); }
+
+  // Полностью восстанавливает руду во всех поясах системы: выкопанные астероиды появляются заново, остальные наполняются до максимума
+  refillBelts(sysId) {
+    let restored = 0;
+    for (const belt of this.U.systems[sysId].belts) {
+      const bs = this.beltState[belt.id];
+      const list = this.beltAsteroids(belt.id);
+      for (const a of list) if (a.amount < a.maxAmount) { a.amount = a.maxAmount; restored++; }
+      for (let i = list.length; i < bs.size; i++) { const a = makeAsteroid(belt, bs.r, bs.counter++); this.ents.set(a.id, a); restored++; }
+    }
+    return restored;
   }
 
   // --- Варп ---
