@@ -493,6 +493,27 @@ function buildShip(type, color, faction) {
   return g;
 }
 
+// Дрон: корпус-капсула, три лопасти, светящийся «глаз» и двигатель
+function droneModel(item) {
+  const key = 'drone:' + item;
+  if (!shipCache.has(key)) {
+    const g = new THREE.Group();
+    const mining = item === 'drone_mine', heavy = item === 'drone_heavy';
+    const R = heavy ? 9 : 6;
+    const M = hullMat(mining ? 0xc8a050 : 0x8a96a4, 'player');
+    const body = new THREE.Mesh(new THREE.SphereGeometry(R * 0.55, 20, 14), M); body.scale.set(1, 0.8, 1.3); g.add(body);
+    for (let i = 0; i < 3; i++) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(R * 0.08, R * 0.9, R * 0.8), darkMetal());
+      fin.rotation.z = i * Math.PI * 2 / 3; fin.translateY(R * 0.55); g.add(fin);
+    }
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(R * 0.18, 12, 8), glowMat(mining ? 0x60ff90 : 0xff9040, 4));
+    eye.position.z = R * 0.7; g.add(eye);
+    addEngine(g, 0, 0, -R * 0.75, R * 0.2, 0x60c0ff, 0.6);
+    shipCache.set(key, g);
+  }
+  return shipCache.get(key).clone();
+}
+
 function shipModel(type, color, radius, faction) {
   const key = type + color + faction;
   if (!shipCache.has(key)) shipCache.set(key, buildShip(type, color, faction));
@@ -911,7 +932,8 @@ function makeEnt(e, data) {
     const faction = e.gd ? 'guard' : e.npc ? 'pirate' : 'player';
     const col = e.gd ? 0xd8e4f0 : e.npc ? 0x4a3a38 : t.color;
     obj = shipModel(e.st, col, e.r || t.radius, faction);
-  } else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
+  } else if (e.k === 'd') obj = droneModel(e.item);
+  else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
   else if (e.k === 'w') obj = wreckModel(e.r || 60);
   else return null;
   entGroup.add(obj);
@@ -1009,6 +1031,9 @@ export function frame(view, dt, time) {
       rec.obj.visible = !e.w || Math.hypot(...rel) < 2e6;
       const t = view.data.ships[e.st];
       setEngines(rec.obj, e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0, time);
+    } else if (e.k === 'd') {
+      if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
+      setEngines(rec.obj, 1, time);
     } else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
     else if (e.k === 'w') rec.obj.userData.flicker.material.opacity = 0.5 + 0.5 * Math.random();
   }
@@ -1116,8 +1141,14 @@ function spark(color, id, r) {
   fxList.push({ sprite: s, follow: id, t: 0, dur: 0.5, kind: 'spark', size: r * 1.5, jitter: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(r * 0.8) });
 }
 
+const lastShield = new Map();
 function shieldFlash(id, r) {
-  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.6, 3), fresnelMaterial(0x60b0ff, 2.2, 2.5, false));
+  // не чаще раза в 0.4 с на цель, иначе вспышки складываются в белый шар
+  const now = performance.now();
+  if (now - (lastShield.get(id) || 0) < 400) return;
+  lastShield.set(id, now);
+  if (lastShield.size > 200) lastShield.clear();
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.4, 5), fresnelMaterial(0x4a90ff, 3, 0.9, false));
   fxGroup.add(m);
   fxList.push({ shield: m, follow: id, t: 0, dur: 0.6, kind: 'shield' });
 }

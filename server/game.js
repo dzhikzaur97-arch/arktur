@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const D = require('./data');
 const { buildUniverse, makeAsteroid, route, rng } = require('./universe');
-const { AU, SHIPS, MODULES, ITEMS, NPCS, SKILLS, SKILL_TIME } = D;
+const { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME } = D;
 
 // ---------- Векторная математика ----------
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -99,7 +99,7 @@ class Game {
     sess.send({
       t: 'welcome', name: p.name,
       data: {
-        ships: SHIPS, modules: MODULES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
+        ships: SHIPS, modules: MODULES, drones: DRONES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES,
         stations: Object.values(this.U.celestials).filter(c => c.kind === 'station').map(s => ({ id: s.id, name: s.name, sys: s.sys }))
       }
@@ -126,7 +126,7 @@ class Game {
     const t = SHIPS[type];
     const n = t.slots.high + t.slots.mid + t.slots.low;
     const fit = fitted && t.defaultFit ? t.defaultFit.slice(0, n) : new Array(n).fill(null);
-    return { uid: uid(), type, fit, cargo: {}, hp: { shield: 1, armor: 1, hull: 1 } };
+    return { uid: uid(), type, fit, cargo: {}, drones: {}, hp: { shield: 1, armor: 1, hull: 1 } };
   }
 
   logout(sess) {
@@ -137,6 +137,7 @@ class Game {
       const e = sess.ent;
       // Если корабль в бою — оставим его в космосе ещё на 30 секунд
       const fighting = e.lastHitAt && this.now - e.lastHitAt < 30000;
+      this.scoopAll(e);
       this.storeShipState(p, e);
       p.loc = { sys: e.sys, pos: e.warp ? e.warp.to : e.pos.slice() };
       if (fighting) {
@@ -173,7 +174,7 @@ class Game {
       shield: t.shield * (1 + 0.05 * (sk.shields || 0)), armor: t.armor, hull: t.hull,
       cap: t.cap * eng, capRegen: t.capRegen * eng, cargo: t.cargo * (1 + b.cargo),
       maxLocks: t.maxLocks, lockRange: t.lockRange, lockTime: t.lockTime,
-      dmgMul: 1 + b.damage, mineMul: 1 + b.mining
+      dmgMul: 1 + b.damage, mineMul: 1 + b.mining, droneBay: t.droneBay || 0, maxDrones: t.maxDrones || 0
     };
   }
 
@@ -227,6 +228,7 @@ class Game {
       celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style }))
     });
     this.sendLocalMembers(sysId);
+    this.sendAnoms(sess);
   }
 
   storeShipState(p, e) {
@@ -237,6 +239,7 @@ class Game {
     const p = sess.player;
     const st = this.U.celestials[stationId];
     if (sess.ent) {
+      this.scoopAll(sess.ent);
       this.storeShipState(p, sess.ent);
       this.removeEntity(sess.ent);
       sess.ent = null;
@@ -271,6 +274,7 @@ class Game {
   }
 
   jump(e, gate) {
+    if (e.owner) this.scoopAll(e);
     const destSys = this.U.systems[gate.dest];
     const back = destSys.gates.find(g => g.dest === e.sys);
     this.clearLocks(e);
@@ -318,6 +322,8 @@ class Game {
     if (x && x.sys === e.sys) return x;
     const c = this.U.celestials[id];
     if (c && c.sys === e.sys) return c;
+    const a = this.anoms && this.anoms.get(id);
+    if (a && a.sys === e.sys) return a;
     return null;
   }
 
@@ -379,7 +385,7 @@ class Game {
   c_lock(s, m, p, e) {
     if (!e || e.warp) return;
     const t = this.ents.get(m.id);
-    if (!t || t.sys !== e.sys || t === e || (t.type !== 'ship' && t.type !== 'asteroid' && t.type !== 'wreck')) return;
+    if (!t || t.sys !== e.sys || t === e || !['ship', 'asteroid', 'wreck', 'drone'].includes(t.type)) return;
     if (t.civ) return this.notify(s, 'Гражданское судно под защитой Стражей — захват невозможен', 'warn');
     if (e.locks.has(t.id) || e.locking.has(t.id)) return;
     if (e.locks.size + e.locking.size >= e.stats.maxLocks) return this.notify(s, `Максимум целей: ${e.stats.maxLocks}`, 'warn');
@@ -459,7 +465,7 @@ class Game {
 
   fireWeapon(e, mod, def) {
     const t = this.ents.get(mod.target);
-    if (!t || t.type !== 'ship') { mod.active = false; return; }
+    if (!t || (t.type !== 'ship' && t.type !== 'drone')) { mod.active = false; return; }
     const d = this.surfaceDist(e, t);
     const q = d <= def.optimal ? 1 : Math.pow(0.5, Math.pow((d - def.optimal) / def.falloff, 2));
     const hit = Math.random() < q;
@@ -481,12 +487,13 @@ class Game {
       if (t.owner && src.owner) t.aggressors.set(src.id, this.now + CRIME_TIME);
       t.lastAttacker = src.id;
       if (t.npc && !t.npcTarget) t.npcTarget = src.id;
+      else if (t.npc && src.type === 'drone' && Math.random() < 0.12) t.npcTarget = src.id;
     }
     let rest = dmg;
     const s = Math.min(t.shield, rest); t.shield -= s; rest -= s;
     const a = Math.min(t.armor, rest); t.armor -= a; rest -= a;
     t.hull -= rest;
-    if (t.hull <= 0) this.destroyShip(t, src);
+    if (t.hull <= 0) { if (t.type === 'drone') this.destroyDrone(t, src); else this.destroyShip(t, src); }
   }
 
   destroyShip(t, killer) {
@@ -512,6 +519,7 @@ class Game {
     // убийство NPC — награда
     if (t.npc) {
       if (t.belt && this.beltState[t.belt]) this.beltState[t.belt].npcs.delete(t.id);
+      if (t.anom) this.anomNpcKilled(t, killerPlayer);
       if (killerPlayer) {
         const bounty = NPCS[t.npc].bounty;
         killerPlayer.credits += bounty;
@@ -532,6 +540,8 @@ class Game {
     // уничтожение корабля игрока
     const p = this.db.players[t.owner];
     if (!p) return;
+    for (const d of this.myDrones(t)) this.destroyDrone(d);
+    p.ship.drones = {};
     p.stats.deaths++;
     if (killerPlayer && killerPlayer !== p) killerPlayer.stats.kills++;
     const lost = SHIPS[t.shipType];
@@ -571,12 +581,14 @@ class Game {
     p.stats.mined += units;
     t.amount -= units;
     if (e.session) { this.notify(e.session, `+${units} ${item.name}`, 'mine'); this.sendProfile(e.session); }
-    if (t.amount <= 0) {
-      this.removeEntity(t);
-      const bs = this.beltState[t.belt];
-      const belt = this.U.celestials[t.belt];
-      setTimeout(() => { const a = makeAsteroid(belt, bs.r, bs.counter++); this.ents.set(a.id, a); }, 8 * 60000);
-    }
+    if (t.amount <= 0) this.depleteAsteroid(t);
+  }
+
+  depleteAsteroid(t) {
+    this.removeEntity(t);
+    const bs = this.beltState[t.belt];
+    const belt = this.U.celestials[t.belt];
+    if (bs && belt) setTimeout(() => { const a = makeAsteroid(belt, bs.r, bs.counter++); this.ents.set(a.id, a); }, 8 * 60000);
   }
 
   // --- Варп ---
@@ -594,6 +606,7 @@ class Game {
 
   beginWarp(e) {
     const c = e.cmd;
+    if (e.owner) this.scoopAll(e);
     this.clearLocks(e);
     for (const m of e.modules) if (m) m.active = false;
     const d = dist(e.pos, c.to);
@@ -609,6 +622,7 @@ class Game {
     this.now = Date.now();
     const now = this.now;
     for (const e of this.ents.values()) {
+      if (e.type === 'drone') { this.droneTick(e); if (this.ents.has(e.id)) this.physics(e, dt); continue; }
       if (e.type !== 'ship') {
         if (e.type === 'wreck' && e.expires < now) this.removeEntity(e);
         continue;
@@ -642,6 +656,7 @@ class Game {
       }
     }
     this.npcSpawns();
+    this.anomTick();
     if (!this._slow || now - this._slow > 1000) { this._slow = now; this.slowTick(); }
     this.broadcastState();
   }
@@ -942,6 +957,8 @@ class Game {
       const p = s.player;
       if (this.checkSkills(p)) this.sendProfile(s);
       const e = s.ent;
+      this.scanTick(s);
+      this.triggerAnomalies(s);
       if (e && !e.warp && p.criminalUntil > this.now && this.U.byId[e.sys].sec >= 0.5) {
         const hunted = [...this.ents.values()].some(o => o.guardian && o.npcTarget === e.id);
         if (!hunted) this.spawnGuardian(e);
@@ -998,7 +1015,9 @@ class Game {
     for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0) ships[id] = Math.round(t.price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
     const tax = Math.max(0, BASE_TAX - 0.01 * (p.skills.trade || 0));
     const orders = this.db.orders.map(o => ({ ...o, stationName: this.U.celestials[o.station].name, sysName: this.U.byId[this.U.celestials[o.station].sys].name }));
-    s.send({ t: 'market', sell, buy, ships, tax, orders });
+    const drones = {};
+    for (const id of Object.keys(DRONES)) drones[id] = this.buyPriceOf(st, id);
+    s.send({ t: 'market', sell, buy, drones, ships, tax, orders });
   }
 
   c_sell(s, m, p) {
@@ -1018,13 +1037,13 @@ class Game {
   c_buy(s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
     const qty = Math.floor(+m.qty) || 1;
-    if (MODULES[m.item]) {
+    if (MODULES[m.item] || DRONES[m.item]) {
       const cost = this.buyPriceOf(st, m.item) * qty;
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
       p.credits -= cost;
       const h = this.hangar(p, st);
       h.items[m.item] = (h.items[m.item] || 0) + qty;
-      this.notify(s, `Куплено: ${MODULES[m.item].name} ×${qty}`, 'good');
+      this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${qty}`, 'good');
     } else if (SHIPS[m.item] && SHIPS[m.item].price > 0) {
       const cost = Math.round(SHIPS[m.item].price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
@@ -1341,6 +1360,9 @@ class Game {
       if (o.modules.some(m => m && m.active && m.target === viewer.id && MODULES[m.id].kind === 'weapon')) v.ag = 1;
     } else if (o.type === 'asteroid') {
       v.ore = o.ore; v.r = o.radius; v.am = o.amount; v.sd = o.seed;
+    } else if (o.type === 'drone') {
+      v.v = o.vel.map(x => Math.round(x)); v.h = o.heading.map(x => +x.toFixed(3));
+      v.hu = +(o.hull / o.stats.hull).toFixed(3); v.r = o.radius; v.o = o.owner; v.item = o.item; v.task = o.task;
     } else if (o.type === 'wreck') {
       v.r = o.radius;
       v.items = o.items;
@@ -1368,7 +1390,8 @@ class Game {
         locks: [...e.locks], locking: [...e.locking].map(([id, t]) => [id, t]),
         mods: e.modules.map(m => m ? { id: m.id, a: m.active, s: m.cycleStart || 0, e: m.cycleEnd, t: m.target } : null),
         scram: e.scrambledUntil > this.now, ap: e.autopilot ? e.autopilot.dest : null,
-        invuln: e.invulnUntil > this.now
+        invuln: e.invulnUntil > this.now,
+        scan: e.scanUntil > this.now ? (this.now - e.scanStart) / (e.scanUntil - e.scanStart) : null
       };
       const msg = { t: 'state', now: this.now, me, ents };
       if (s.fx && s.fx.length) { msg.fx = s.fx; s.fx = null; }
@@ -1396,5 +1419,7 @@ const CIV_CHAT = {
 };
 
 function fmt(n) { return Math.round(n).toLocaleString('ru-RU'); }
+
+require('./features')(Game);
 
 module.exports = { Game };

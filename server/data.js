@@ -83,6 +83,17 @@ const ITEMS = {
 };
 for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: 'Модули', vol: m.vol, base: m.price, module: true };
 
+// ---------- Дроны ----------
+const DRONES = {
+  drone_light: { name: 'Боевой дрон «Оса»', kind: 'combat', price: 8000, vol: 5, dmg: 14, cycle: 2, range: 2500, speed: 2200, hp: 260, color: 0xffb040 },
+  drone_heavy: { name: 'Тяжёлый дрон «Шершень»', kind: 'combat', price: 32000, vol: 10, dmg: 40, cycle: 3, range: 3000, speed: 1400, hp: 750, color: 0xff7040 },
+  drone_mine:  { name: 'Шахтёрский дрон «Крот»', kind: 'mining', price: 9000, vol: 5, yield: 20, cycle: 6, range: 1500, speed: 1200, hp: 220, color: 0x80ff90 }
+};
+for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: 'Дроны', vol: d.vol, base: d.price, drone: true };
+// Отсек дронов (м³) и сколько дронов можно выпустить одновременно
+const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5] };
+for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
+
 // Какие руды встречаются при данном уровне безопасности
 function oresForSec(sec) {
   if (sec >= 0.7) return [['ore_ferit', 0.75], ['ore_korundit', 0.25]];
@@ -108,7 +119,9 @@ const SKILLS = {
   navigation: { name: 'Навигация', desc: '+5% скорости за уровень' },
   shields:    { name: 'Щиты', desc: '+5% ёмкости щитов за уровень' },
   engineering:{ name: 'Энергетика', desc: '+5% накопителя и его регенерации за уровень' },
-  trade:      { name: 'Торговля', desc: '−1% налога с продаж за уровень (базовый налог 6%)' }
+  trade:      { name: 'Торговля', desc: '−1% налога с продаж за уровень (базовый налог 6%)' },
+  drones:     { name: 'Управление дронами', desc: '+10% урона и добычи дронов за уровень' },
+  scanning:   { name: 'Астрометрия', desc: '−1 с ко времени сканирования и +10% к шансу найти аномалию за уровень' }
 };
 const SKILL_TIME = [0, 60, 240, 900, 3000, 9000]; // секунд на уровень 1..5
 
@@ -137,4 +150,4 @@ const GATES = [
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, MODULES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec };
+module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec };

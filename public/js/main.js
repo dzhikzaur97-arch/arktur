@@ -212,6 +212,7 @@ function onMsg(m) {
     case 'local': S.members = m.members; renderMembers(); break;
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
     case 'agents': S.agents = m.offers; if (S.docked && S.stTab === 'agents') renderStation(); break;
+    case 'anoms': S.anoms = m.list; break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'destroyed':
       modal(`<h3 style="color:var(--bad)">Корабль уничтожен</h3><p>Ваш «${esc(m.ship)}» уничтожен. Нападавший: <b>${esc(m.killer)}</b>.</p>
@@ -275,9 +276,11 @@ function viewState() {
 // ======================================================================
 function getObj(id) {
   const e = S.ents.get(id);
-  if (e) return { ...e, pos: e.dp, kind: e.k === 's' ? 'ship' : e.k === 'a' ? 'asteroid' : 'wreck', radius: e.r || 0 };
+  if (e) return { ...e, pos: e.dp, kind: { s: 'ship', a: 'asteroid', w: 'wreck', d: 'drone' }[e.k], radius: e.r || 0 };
   const c = S.celById && S.celById[id];
   if (c) return { ...c, n: c.name };
+  const an = S.anoms && S.anoms.find(a => a.id === id);
+  if (an) return { ...an, n: an.name };
   return null;
 }
 function distTo(o) {
@@ -288,8 +291,9 @@ function distTo(o) {
 }
 const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
-  asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки']
+  asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия']
 };
+const ANOM_TYPE = { combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины' };
 function iconOf(o) {
   if (o.kind === 'ship') return o.gd ? '✠' : o.npc ? '▼' : '▲';
   return (KIND[o.kind] || ['•'])[0];
@@ -297,6 +301,8 @@ function iconOf(o) {
 function typeOf(o) {
   if (o.kind === 'ship') return o.gd ? 'Страж порядка' : S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль';
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
+  if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
+  if (o.kind === 'drone') return o.o === S.name ? 'Ваш дрон' : 'Дрон: ' + o.o;
   return (KIND[o.kind] || ['', ''])[1];
 }
 function isHostile(o) {
@@ -307,6 +313,7 @@ function allObjects() {
   const list = [];
   for (const e of S.ents.values()) list.push(getObj(e.id));
   if (S.sys) for (const c of S.sys.celestials) list.push({ ...c, n: c.name });
+  if (S.anoms) for (const a of S.anoms) list.push({ ...a, n: a.name });
   return list;
 }
 
@@ -435,6 +442,10 @@ addEventListener('keydown', (e) => {
   if (k === 'KeyS') act('warp');
   if (k === 'KeyD') { const o = getObj(S.sel); if (o && o.kind === 'station') act('dock'); else if (o && o.kind === 'gate') act('jump'); }
   if (k === 'KeyL') act('lock');
+  if (k === 'KeyV') send({ t: 'scan' });
+  if (k === 'KeyF' && e.shiftKey) send({ t: 'droneLaunch' });
+  else if (k === 'KeyF') droneEngage();
+  if (k === 'KeyR' && e.shiftKey) send({ t: 'droneRecall' });
   if (k === 'KeyX') act('stop');
   if (k === 'Tab') { e.preventDefault(); cycleTarget(); }
 });
@@ -484,10 +495,10 @@ function objMenu(x, y, id) {
 
 function spaceMenu(x, y) {
   if (!S.sys) return;
-  const groups = [['Станции', 'station'], ['Звёздные врата', 'gate'], ['Пояса астероидов', 'belt'], ['Планеты', 'planet'], ['Звезда', 'sun']];
+  const groups = [['Станции', 'station'], ['Звёздные врата', 'gate'], ['Пояса астероидов', 'belt'], ['Аномалии', 'anomaly'], ['Планеты', 'planet'], ['Звезда', 'sun']];
   const items = [];
   for (const [label, kind] of groups) {
-    const cs = S.sys.celestials.filter(c => c.kind === kind);
+    const cs = [...S.sys.celestials, ...(S.anoms || [])].filter(c => c.kind === kind);
     if (!cs.length) continue;
     items.push([`${label} ▸`, () => showCtx(x, y, label, cs.map(c => [c.name, () => {
       S.sel = c.id;
@@ -531,7 +542,10 @@ function updateBrackets() {
       if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
       if (o.cr) cls.push('crim'); else if (o.su) cls.push('susp');
       if (o.ag) cls.push('aggro');
-    } else if (o.kind === 'asteroid') cls.push('ast'); else cls.push('cel');
+    } else if (o.kind === 'asteroid') cls.push('ast');
+    else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
+    else if (o.kind === 'anomaly') cls.push('anom', 'lbl');
+    else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
     if (o.kind === 'ship' || o.kind === 'station' || o.kind === 'gate') cls.push('lbl');
@@ -551,9 +565,9 @@ function updateBrackets() {
 // ======================================================================
 const OV_FILTERS = {
   all: (o) => o.kind !== 'asteroid' || distTo(o) < 100000,
-  combat: (o) => o.kind === 'ship' || o.kind === 'wreck',
+  combat: (o) => o.kind === 'ship' || o.kind === 'wreck' || o.kind === 'drone',
   mining: (o) => o.kind === 'asteroid' || o.kind === 'belt',
-  nav: (o) => ['station', 'gate', 'belt', 'planet', 'sun'].includes(o.kind)
+  nav: (o) => ['station', 'gate', 'belt', 'planet', 'sun', 'anomaly'].includes(o.kind)
 };
 $('#ov-tabs').onclick = (e) => {
   const f = e.target.dataset.f; if (!f) return;
@@ -676,6 +690,7 @@ function renderHud(now) {
   else if (me.cmd.type === 'align') st.push('<div class="warp">РАЗГОН ДЛЯ ВАРПА…</div>');
   if (me.scram) st.push('<div class="scram">⚠ ВАРП-ДВИГАТЕЛЬ ЗАБЛОКИРОВАН</div>');
   if (me.invuln) st.push('<div class="muted">Маскировка после прыжка / отстыковки</div>');
+  if (me.scan != null) st.push(`<div class="warp">СКАНИРОВАНИЕ · ${Math.round(me.scan * 100)}%</div>`);
   if (me.ap) st.push(`<div>Автопилот → ${esc(S.sysById[me.ap].name)}</div>`);
   const cmdName = { approach: 'Подлёт', orbit: 'Орбита', keep: 'Удержание дистанции', dock: 'Подлёт для стыковки', jump: 'Подлёт к вратам', dir: 'Курс задан' }[me.cmd.type];
   if (cmdName && !me.warp) { const t = me.cmd.target && getObj(me.cmd.target); st.push(`<div class="muted">${cmdName}${t ? ': ' + esc(t.n || t.name) : ''}</div>`); }
@@ -706,6 +721,7 @@ $('#modules').addEventListener('mousedown', (e) => { const m = e.target.closest(
 $('#speedbar').addEventListener('click', (e) => { const r = e.currentTarget.getBoundingClientRect(); send({ t: 'speed', v: (e.clientX - r.left) / r.width }); });
 $('#b-stop').onclick = () => act('stop');
 $('#b-full').onclick = () => send({ t: 'speed', v: 1 });
+$('#b-scan').onclick = () => send({ t: 'scan' });
 
 function slotType(shipType, idx) {
   const s = S.data.ships[shipType].slots;
@@ -843,6 +859,8 @@ const HELP = `<h3>Полёт</h3><div class="kv">
 <h3>Бой и добыча</h3><div class="kv">
 <span>Ctrl+щелчок или L</span><span>захватить цель</span>
 <span>Tab</span><span>сменить активную цель</span>
+<span>Shift+F / F / Shift+R</span><span>выпустить дронов / дроны атакуют или копают активную цель / вернуть дронов</span>
+<span>V</span><span>сканировать систему в поисках аномалий</span>
 <span>F1–F8 или 1–8</span><span>включить/выключить модули</span></div>
 <h3>Окна</h3><div class="kv"><span>M</span><span>звёздная карта и автопилот</span><span>C / K / J / A</span><span>трюм / навыки / задания / имущество</span><span>Enter</span><span>чат</span></div>
 <h3>С чего начать</h3><p>1) Отстыкуйтесь, щёлкните ПКМ по космосу → «Пояса астероидов» и выберите пояс.<br>
@@ -939,6 +957,49 @@ function moduleDesc(d) {
 }
 
 // ======================================================================
+// Дроны
+// ======================================================================
+function droneDesc(d) {
+  return d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, ${d.vol} м³, прочность ${d.hp}` : `${d.yield} м³ руды / ${d.cycle}с, ${d.vol} м³`;
+}
+function droneBayHTML() {
+  const p = S.prof, t = S.data.ships[p.ship.type];
+  if (!t.droneBay) return '<h3>Отсек дронов</h3><div class="muted">У этого корабля нет отсека дронов.</div>';
+  const bay = p.ship.drones || {};
+  let used = 0; for (const id in bay) used += bay[id] * S.data.drones[id].vol;
+  const rows = Object.entries(bay).map(([id, q]) => `<div class="slot-row"><span class="sm">${esc(S.data.drones[id].name)} ×${q}<br><span class="muted">${droneDesc(S.data.drones[id])}</span></span><button data-a="unloadDrone" data-item="${id}">В ангар</button></div>`).join('');
+  return `<h3>Отсек дронов <span class="muted">${used} / ${t.droneBay} м³ · одновременно до ${t.maxDrones}</span></h3>${rows || '<div class="muted">Пусто. Купите дронов на рынке и загрузите из ангара.</div>'}`;
+}
+function droneEngage() {
+  let target = S.active;
+  if (!target && S.sel && S.me && S.me.locks.includes(S.sel)) target = S.sel;
+  if (!target) return note('Сначала захватите цель (Ctrl+щелчок)', 'warn');
+  send({ t: 'droneEngage', target });
+}
+$('#drones').addEventListener('mousedown', (e) => {
+  const b = e.target.closest('[data-dr]'); if (!b || e.button !== 0) return;
+  Sound.click();
+  if (b.dataset.dr === 'launch') { send({ t: 'droneLaunch' }); Sound.whoosh(0.3, true, 0.8); }
+  else if (b.dataset.dr === 'engage') droneEngage();
+  else if (b.dataset.dr === 'recall') send({ t: 'droneRecall' });
+});
+const TASK = { idle: 'ожидает', attack: 'атакует', mine: 'добывает', return: 'возвращается' };
+function renderDrones() {
+  const el = $('#drones');
+  const p = S.prof;
+  const t = p && S.data.ships[p.ship.type];
+  if (!t || !t.droneBay || S.docked) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const bay = p.ship.drones || {};
+  const inBay = Object.entries(bay).map(([id, q]) => `${esc(S.data.drones[id].name.replace(/^.*«(.*)»$/, '$1'))} ×${q}`).join(', ') || 'пусто';
+  const mine = [...S.ents.values()].filter(e => e.k === 'd' && e.o === S.name);
+  const list = mine.map(d => `<div class="dr-row"><span>${esc(d.n.replace(/^.*«(.*)»$/, '$1'))}</span><span class="bar hu" style="flex:1"><i style="width:${d.hu * 100}%"></i></span><span class="muted">${TASK[d.task] || ''}</span></div>`).join('');
+  setHTML($('#dr-body'), `<div class="muted" style="font-size:11px">В отсеке: ${inBay}</div>${list}
+    <div class="dr-btns"><button data-dr="launch" title="Shift+F">Выпустить</button><button data-dr="engage" title="F">Атака / добыча</button><button data-dr="recall" title="Shift+R">Вернуть</button></div>`);
+  $('#dr-count').textContent = `${mine.length} / ${t.maxDrones}`;
+}
+
+// ======================================================================
 // Станция
 // ======================================================================
 function showStation() {
@@ -974,8 +1035,9 @@ function renderStation() {
   switch (S.stTab) {
     case 'hangar': {
       html = `<div class="cols"><div><h3>Активный корабль: ${esc(t.name)} <span class="muted">(${esc(t.cls)})</span></h3>${shipStatsHTML(t, p.shipStats)}
-        <h3>Трюм</h3>${cargoHTML(false)}<div style="margin-top:6px"><button data-a="unloadAll">Разгрузить всё в ангар</button></div></div>
-        <div><h3>Ангар станции</h3>${itemsTable(h.items, (id, q) => `<button data-a="load" data-item="${id}">В трюм</button>`)}
+        <h3>Трюм</h3>${cargoHTML(false)}<div style="margin-top:6px"><button data-a="unloadAll">Разгрузить всё в ангар</button></div>
+        ${droneBayHTML()}</div>
+        <div><h3>Ангар станции</h3>${itemsTable(h.items, (id, q) => `${S.data.drones[id] ? `<button data-a="loadDrone" data-item="${id}">В отсек дронов</button> ` : ''}<button data-a="load" data-item="${id}">В трюм</button>`)}
         <h3>Корабли в ангаре</h3>${h.ships.length ? h.ships.map(s => `<div class="slot-row"><span class="sm">${esc(S.data.ships[s.type].name)} <span class="muted">${esc(S.data.ships[s.type].cls)}</span></span><button data-a="board" data-uid="${s.uid}">Пересесть</button></div>`).join('') : '<div class="muted">Нет других кораблей</div>'}
         <h3>Клон</h3><div>${p.home === S.docked.id ? '<span class="muted">Эта станция — ваша домашняя (здесь вы возродитесь).</span>' : '<button data-a="sethome">Сделать станцию домашней</button>'}</div></div></div>`;
       break;
@@ -990,7 +1052,7 @@ function renderStation() {
         const d = S.data.modules[id];
         return `<div class="slot-row"><span class="st ${d.slot}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[d.slot]}</span><span class="sm">${esc(d.name)} ×${q}<br><span class="muted">${moduleDesc(d)}</span></span><button data-a="fit" data-item="${id}">Установить</button></div>`;
       }).join('');
-      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
+      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}${droneBayHTML()}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
         <div><h3>Модули в ангаре</h3>${mods || '<div class="muted">Нет модулей. Купите их на рынке.</div>'}</div></div>`;
       break;
     }
@@ -1005,6 +1067,8 @@ function renderStation() {
         <h3>Цены на сырьё в этой системе</h3><div class="kv">${Object.entries(mk.sell).filter(([id]) => S.data.items[id].cat === 'Руда' || S.data.items[id].cat === 'Трофеи').map(([id, pr]) => `<span>${esc(S.data.items[id].name)}</span><span class="isk">${num(pr)} ISK</span>`).join('')}</div>
         <h3>Модули</h3><table class="tbl"><tr><th>Модуль</th><th>Слот</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.buy).map(([id, pr]) => { const d = S.data.modules[id]; return `<tr><td>${esc(d.name)}</td><td class="muted">${{ high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted">${moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`; }).join('')}</table>
+        <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
+        ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
         <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; return `<div class="shipcard"><div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}<div class="isk">${isk(pr)}</div><button class="primary" data-a="buyShip" data-item="${id}">Купить</button></div>`; }).join('')}</div>`;
       break;
     }
@@ -1037,6 +1101,8 @@ function onActionClick(e) {
     case 'jettison': send({ t: 'jettison', item: d.item }); break;
     case 'unload': send({ t: 'unload', item: d.item }); break;
     case 'unloadAll': send({ t: 'unload' }); break;
+    case 'loadDrone': send({ t: 'loadDrone', item: d.item }); break;
+    case 'unloadDrone': send({ t: 'unloadDrone', item: d.item }); break;
     case 'load': send({ t: 'load', item: d.item }); break;
     case 'board': send({ t: 'board', uid: d.uid }); break;
     case 'sethome': send({ t: 'sethome' }); break;
@@ -1170,7 +1236,7 @@ function loop(now) {
   updateBrackets();
   if (now - lastUi > 200) {
     lastUi = now;
-    if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); }
+    if (!S.docked && S.me) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills') renderWin();
     if (S.docked && S.stTab === 'skills') renderStation();
   }
