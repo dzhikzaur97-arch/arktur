@@ -739,6 +739,36 @@ function manualFire() {
   for (const i of guns) if (!!S.me.mods[i].a !== anyOff) toggleModule(i);
 }
 
+// Индикаторы направления угрозы: красные стрелки у края экрана на тех, кто целится в вас или стреляет
+const threatEls = new Map();
+function updateThreats() {
+  const seen = new Set();
+  if (S.me && S.meRec && !S.docked && CFG.threats !== false) {
+    const me = S.meRec.dp, W = innerWidth, H = innerHeight, cx = W / 2, cy = H / 2;
+    for (const e of S.ents.values()) {
+      if (e.k !== 's' || !(e.ag || e.tg) || !e.dp) continue;
+      const rel = [e.dp[0] - me[0], e.dp[1] - me[1], e.dp[2] - me[2]];
+      const p = R.project(rel);
+      let x, y, onScreen = p && p[0] > 30 && p[0] < W - 30 && p[1] > 30 && p[1] < H - 30;
+      if (onScreen) continue;
+      // направление на угрозу в экранных координатах (для точек позади камеры — отражаем)
+      const q = p || R.project(rel.map(v => -v)) && R.project(rel.map(v => -v)).map((v, i) => (i ? H : W) - v);
+      if (!q) continue;
+      let dx = q[0] - cx, dy = q[1] - cy;
+      const k = Math.min((cx - 40) / Math.abs(dx || 1e-6), (cy - 40) / Math.abs(dy || 1e-6));
+      x = cx + dx * k; y = cy + dy * k;
+      let el = threatEls.get(e.id);
+      if (!el) { el = document.createElement('div'); el.className = 'threat'; document.body.appendChild(el); threatEls.set(e.id, el); }
+      el.style.left = x + 'px'; el.style.top = y + 'px';
+      el.style.transform = `translate(-50%,-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+      el.classList.toggle('fire', !!e.ag);
+      el.title = e.n;
+      seen.add(e.id);
+    }
+  }
+  for (const [id, el] of threatEls) if (!seen.has(id)) { el.remove(); threatEls.delete(id); }
+}
+
 function cycleTarget() {
   if (!S.me || !S.me.locks.length) return;
   const i = S.me.locks.indexOf(S.active);
@@ -1033,10 +1063,14 @@ function renderHud(now) {
   $('#g-speed').style.fontSize = me.warp ? '15px' : '26px';
   $('#hp-text').textContent = `Щит ${Math.round(me.sh / m.sh * 100)}% · Броня ${Math.round(me.ar / m.ar * 100)}% · Корпус ${Math.round(me.hu / m.hu * 100)}% · Энергия ${Math.round(cf * 100)}%`;
   $('#speedfill').style.width = (me.speedFrac * 100) + '%';
+  const hb = $('#heat-fill'), heat = me.heat || 0;
+  if (hb) { hb.style.width = heat + '%'; hb.className = heat >= 80 || me.oh ? 'hot' : heat >= 50 ? 'warm' : ''; $('#heat').classList.toggle('hidden', heat < 1 && !me.oh); $('#heat-t').textContent = `Нагрев ${heat}%`; }
   const st = [];
   if (me.warp) st.push(`<div class="warp">ВАРП-ПЕРЕХОД · ${Math.round(me.warp.prog * 100)}%</div>`);
   else if (me.cmd.type === 'align') st.push('<div class="warp">РАЗГОН ДЛЯ ВАРПА…</div>');
   if (me.scram) st.push('<div class="scram">⚠ ВАРП-ДВИГАТЕЛЬ ЗАБЛОКИРОВАН</div>');
+  if (me.oh && me.oh > S.serverNow(now)) st.push(`<div class="scram">🔥 ПЕРЕГРЕВ ОРУДИЙ · ${Math.ceil((me.oh - S.serverNow(now)) / 1000)} с</div>`);
+  if (me.eng) st.push('<div class="scram">⚠ ДВИГАТЕЛИ ПОВРЕЖДЕНЫ · скорость −30%</div>');
   if (me.invuln) st.push('<div class="muted">Маскировка после прыжка / отстыковки</div>');
   if (me.scan != null) st.push(`<div class="warp">СКАНИРОВАНИЕ · ${Math.round(me.scan * 100)}%</div>`);
   if (me.ap) st.push(`<div>Автопилот → ${esc(S.sysById[me.ap].name)}</div>`);
@@ -1057,7 +1091,8 @@ function renderHud(now) {
       ring = `<svg viewBox="0 0 58 58"><path d="${arcPath(27, 90, 90 - 359.9 * f, 29, 29)}" stroke="${md.a ? 'var(--good)' : 'var(--warn)'}" stroke-width="3" fill="none"/></svg>`;
     }
     const keyIdx = order.indexOf(i);
-    return `<div class="mod ${slotT} ${md.a ? 'active' : ''} ${def.kind === 'passive' ? 'passive' : ''}" data-slot="${i}" title="${esc(def.name)}">${icon}${ring}<span class="k">${keyIdx >= 0 ? 'F' + (keyIdx + 1) : ''}</span></div>`;
+    const dmg = md.d && md.d > S.serverNow(now);
+    return `<div class="mod ${slotT} ${md.a ? 'active' : ''} ${def.kind === 'passive' ? 'passive' : ''} ${dmg ? 'broken' : ''}" data-slot="${i}" title="${esc(def.name)}${dmg ? ' — повреждён' : ''}">${dmg ? '✖' : icon}${ring}<span class="k">${keyIdx >= 0 ? 'F' + (keyIdx + 1) : ''}</span></div>`;
   });
   const sl = S.data.ships[me.st].slots;
   const html = [[0, sl.high], [sl.high, sl.high + sl.mid], [sl.high + sl.mid, cells.length]]
@@ -1989,6 +2024,7 @@ function loop(now) {
   R.frame(viewState(), dt, now / 1000);
   autoQuality(now, dt);
   updateBrackets();
+  updateThreats();
   if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;

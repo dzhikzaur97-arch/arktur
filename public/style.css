@@ -512,3 +512,14 @@ body.mobile #b-manual { display: none; }
 .ctype { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #8cf; border: 1px solid rgba(120,190,255,.4); padding: 0 4px; margin-right: 4px; }
 .br.event .bi { color: #ff8060; text-shadow: 0 0 8px #ff4020; font-size: 15px; }
 .br.event .bl { color: #ffb0a0; }
+
+/* Нагрев и повреждения */
+#heat { position: relative; height: 12px; margin: 3px auto 0; width: 160px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,160,80,.35); }
+#heat-fill { height: 100%; width: 0; background: #d9a040; transition: width .2s; }
+#heat-fill.warm { background: #e88a30; }
+#heat-fill.hot { background: #ff4a2a; box-shadow: 0 0 8px #ff4a2a; }
+#heat-t { position: absolute; inset: 0; font-size: 9px; line-height: 12px; text-align: center; color: #fff; text-shadow: 0 0 2px #000; }
+.mod.broken { color: #f55 !important; border-color: #a33 !important; background: rgba(120,20,20,.35) !important; }
+.threat { position: fixed; z-index: 7; width: 0; height: 0; border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-left: 16px solid rgba(255,170,60,.85); pointer-events: none; filter: drop-shadow(0 0 4px #000); }
+.threat.fire { border-left-color: #ff3a2a; animation: thr .6s infinite alternate; }
+@keyframes thr { from { opacity: 1; } to { opacity: .45; } }

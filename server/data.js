@@ -162,6 +162,8 @@ Object.assign(MODULES, {
   dmg_x:    { name: 'Нейроусилитель «Ярость»', slot: 'low', kind: 'passive', price: 480000, passive: { damage: 0.3 }, vol: 5, elite: true },
   speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true }
 });
+// нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
+for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (id.startsWith('rail') ? 0.09 : 0.12) * 10) / 10;
 for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite };
 
 // ---------- Дроны ----------

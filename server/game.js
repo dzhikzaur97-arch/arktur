@@ -470,13 +470,29 @@ class Game {
     return true;
   }
 
+  // Нагрев: каждый выстрел греет корабль (heatPerShot), мощное оружие — сильнее. При 100% орудия отключаются на время остывания.
   startCycle(e, mod) {
     const def = MODULES[mod.id];
+    if (e.owner && mod.damagedUntil > this.now) { mod.active = false; if (e.session) this.notify(e.session, `${def.name} повреждён — ремонт ещё ${Math.ceil((mod.damagedUntil - this.now) / 1000)} с`, 'warn'); return; }
+    if (e.owner && def.kind === 'weapon' && e.overheatUntil > this.now) { mod.active = false; if (e.session) this.notify(e.session, 'Орудия перегреты — дождитесь остывания', 'warn'); return; }
     if (e.cap < def.cap) { mod.active = false; if (e.session) this.notify(e.session, 'Недостаточно энергии в накопителе', 'warn'); return; }
     e.cap -= def.cap;
     mod.cycleStart = this.now;
     mod.cycleEnd = this.now + def.cycle * 1000;
-    if (def.kind === 'weapon') this.fireWeapon(e, mod, def);
+    if (def.kind === 'weapon') {
+      this.fireWeapon(e, mod, def);
+      if (e.owner) {
+        // запас тепла и охлаждение растут с числом орудийных портов корабля
+        const before = e.heat || 0, hs = SHIPS[e.shipType].slots.high || 1;
+        e.heat = before + (MODULES[mod.id].heatPerShot || 0) * 100 / (100 + 25 * hs);
+        if (before < 80 && e.heat >= 80 && e.heat < 100 && e.session) this.notify(e.session, 'Нагрев орудий 80% — сбавьте темп или выключите часть орудий', 'warn');
+        if (e.heat >= 100) {
+          e.overheatUntil = this.now + 6000; e.heat = 100;
+          for (const m of e.modules) if (m && MODULES[m.id].kind === 'weapon') m.active = false;
+          if (e.session) this.notify(e.session, 'ПЕРЕГРЕВ! Орудия отключены на 6 секунд', 'bad');
+        }
+      }
+    }
     if (def.kind === 'miner') { const t = this.ents.get(mod.target); if (t) this.fxSys(e.sys, null, { k: 'mine', from: e.id, to: t.id, color: def.color, dur: def.cycle }); }
     if (def.kind === 'scram') { const t = this.ents.get(mod.target); if (t) t.scrambledUntil = mod.cycleEnd + 500; }
   }
@@ -528,6 +544,15 @@ class Game {
     const s = Math.min(t.shield, rest); t.shield -= s; rest -= s;
     const a = Math.min(t.armor, rest); t.armor -= a; rest -= a;
     t.hull -= rest;
+    // попадания в корпус могут вывести из строя модуль (временно) — состояния повреждений вместо разрушения
+    if (rest > 0 && t.owner && t.hull > 0 && Math.random() < Math.min(0.35, 0.12 * rest / (t.stats.hull * 0.05))) {
+      const live = t.modules.filter(m => m && MODULES[m.id].kind !== 'passive' && !(m.damagedUntil > this.now));
+      if (live.length) {
+        const m = live[Math.floor(Math.random() * live.length)];
+        m.damagedUntil = this.now + 10000; m.active = false;
+        if (t.session) this.notify(t.session, `Попадание в корпус: «${MODULES[m.id].name}» выведен из строя на 10 с`, 'bad');
+      }
+    }
     if (t.hull <= 0) { if (t.type === 'drone') this.destroyDrone(t, src); else this.destroyShip(t, src); }
   }
 
@@ -702,6 +727,8 @@ class Game {
           for (const m of e.modules) if (m && m.target === id) m.active = false;
         }
       }
+      // остывание орудий
+      if (e.owner && e.heat) { const hs = SHIPS[e.shipType].slots.high || 1; e.heat = Math.max(0, e.heat - (4 + 2.2 * hs) * 100 / (100 + 25 * hs) * dt); }
       // модули
       for (const m of e.modules) {
         if (!m || !m.cycleEnd) continue;
@@ -735,6 +762,7 @@ class Game {
       return;
     }
     let maxSpeed = e.stats.maxSpeed * (e.npcSpeedMul || 1);
+    if (e.owner && e.hull < e.stats.hull * 0.35) maxSpeed *= 0.7; // повреждённые двигатели
     for (const m of e.modules) if (m && m.active && MODULES[m.id].kind === 'prop') maxSpeed *= 1 + MODULES[m.id].speedBonus;
     if (e.cmd.type === 'manual') return this.manualPhysics(e, dt, maxSpeed);
     let dir = null, speed = maxSpeed * e.speedFrac;
@@ -1566,7 +1594,8 @@ class Game {
         speedFrac: e.speedFrac, cmd: { type: e.cmd.type, target: e.cmd.target, range: e.cmd.range },
         warp: e.warp ? { to: e.warp.to, prog: (this.now - e.warp.start) / e.warp.dur } : null,
         locks: [...e.locks], locking: [...e.locking].map(([id, t]) => [id, t]),
-        mods: e.modules.map(m => m ? { id: m.id, a: m.active, s: m.cycleStart || 0, e: m.cycleEnd, t: m.target } : null),
+        mods: e.modules.map(m => m ? { id: m.id, a: m.active, s: m.cycleStart || 0, e: m.cycleEnd, t: m.target, d: m.damagedUntil > this.now ? m.damagedUntil : 0 } : null),
+        heat: Math.round(e.heat || 0), oh: e.overheatUntil > this.now ? e.overheatUntil : 0, eng: e.hull < e.stats.hull * 0.35 ? 1 : 0,
         scram: e.scrambledUntil > this.now, ap: e.autopilot ? e.autopilot.dest : null,
         invuln: e.invulnUntil > this.now,
         scan: e.scanUntil > this.now ? (this.now - e.scanStart) / (e.scanUntil - e.scanStart) : null
