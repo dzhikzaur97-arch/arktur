@@ -103,6 +103,16 @@ const SHIPS = {
     shield: 11000, armor: 13000, hull: 11000, cap: 5000, capRegen: 55,
     cargo: 900, slots: { high: 8, mid: 5, low: 5 }, maxLocks: 7, lockRange: 80000, lockTime: 5,
     bonus: { damage: 0.35 }, desc: 'Летающая крепость. +35% урона, восемь орудийных портов.', req: { gunnery: 4, shields: 2 }
+  },
+  begemot: {
+    name: 'Бегемот', cls: 'Индустриальный дредноут', price: 18000000, color: 0x3a3c40, code: 'SC-02',
+    maker: 'Орион-Хэви-Индастриз', length: 4200, crew: '450 + 1500 технологов',
+    maxSpeed: 55, align: 30, warpSpeed: 0.8, sig: 1200, radius: 1000,
+    shield: 30000, armor: 45000, hull: 50000, cap: 9000, capRegen: 70,
+    cargo: 80000, slots: { high: 4, mid: 4, low: 4 }, maxLocks: 3, lockRange: 40000, lockTime: 8,
+    bonus: { mining: 1.5 }, foundry: { range: 25000, cycle: 6, perRock: 300, maxRocks: 10, refine: 0.85 },
+    desc: 'SC-02 — мобильный плавильный комплекс длиной 4,2 км. Всеядные буры сами поглощают ВСЕ астероиды в радиусе 25 км, а литейный цех на лету переплавляет руду в слитки (85% выхода завода). Трюм 80 000 м³, +150% к добыче, отсек на 5 дронов-тендеров.',
+    req: { mining: 4, trade: 2, engineering: 2 }
   }
 };
 
@@ -171,7 +181,7 @@ Object.assign(ITEMS, {
 });
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
 const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
-  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5] };
+  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
 
 // Какие руды встречаются при данном уровне безопасности

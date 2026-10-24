@@ -1068,6 +1068,7 @@ class Game {
   // Раз в секунду: навыки, стражи, обновление профилей
   slowTick() {
     this.structTick();
+    this.foundryTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1416,6 +1417,10 @@ class Game {
     const text = String(m.text || '').slice(0, 300).trim();
     if (!text) return;
     // команда разработчика: вызвать контрабандиста (только при запуске с VF_DEV=1)
+    // /ship <тип> — пересесть на любой корабль в доке (только VF_DEV)
+    if (text.startsWith('/ship ') && typeof process !== 'undefined' && process.env && process.env.VF_DEV) {
+      const t = text.slice(6).trim(); if (SHIPS[t] && !s.ent) { p.ship = this.newShip(t, false); this.sendProfile(s); } return;
+    }
     if (text === '/dealer' && typeof process !== 'undefined' && process.env && process.env.VF_DEV) { this.spawnDealer(this.playerSys(p)); return; }
     if (s.lastChat && this.now - s.lastChat < 700) return;
     s.lastChat = this.now;
@@ -1461,7 +1466,7 @@ class Game {
       hangar: st ? this.hangar(p, st) : null,
       assets: Object.entries(p.hangars).filter(([, h]) => Object.keys(h.items).length || h.ships.length)
         .map(([id, h]) => ({ station: id, name: this.U.celestials[id].name, items: h.items, ships: h.ships.map(x => x.type) })),
-      criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
+      foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
       suspect: p.suspectUntil > this.now ? p.suspectUntil - this.now : 0,
       myOrders: this.db.orders.filter(o => o.seller === p.name)
     });

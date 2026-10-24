@@ -469,3 +469,5 @@ body.mobile #sys-region { display: none; }
 .pl-hunter b { color: #ffc060; }
 .pl-trader b { color: #80d0ff; }
 .pl-miner b { color: #a0e090; }
+
+#b-foundry.on { color: #ffb050; border-color: #c08a3a; box-shadow: 0 0 8px rgba(255, 150, 50, .35); }

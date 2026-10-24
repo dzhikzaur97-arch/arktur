@@ -17,7 +17,7 @@ const MIN_WARP = 150000;
 
 // Лестница кораблей по роли: ИИ-пилот копит деньги и строит следующий
 const LADDER = {
-  miner: ['iskra', 'staratel', 'burlak', 'leviafan'],
+  miner: ['iskra', 'staratel', 'burlak', 'leviafan', 'begemot'],
   hunter: ['klinok', 'vihr', 'strazh', 'molot', 'citadel'],
   trader: ['tyagach', 'kit'],
   pirate: ['klinok', 'vihr', 'strazh', 'molot', 'citadel']

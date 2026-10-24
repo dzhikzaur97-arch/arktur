@@ -701,7 +701,7 @@ function greebles(g, R, count, mat, region) {
 
 // Базовый радиус модели каждого корабля (модель строится в этих единицах, потом масштабируется)
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
-  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260 };
+  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300 };
 
 
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
@@ -1005,6 +1005,68 @@ function buildShip(type, color, faction) {
       addLights(g, [[R * 0.44, R * 0.15, R * 0.9, R * 0.015], [-R * 0.44, R * 0.15, R * 0.9, R * 0.015], [R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [-R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [0, R * 0.8, -R * 0.45, R * 0.015]], faction === 'guard' ? 0x80c0ff : 0xff2020);
       break;
     }
+    case 'begemot': {
+      // SC-02 «Бегемот»: длинный индустриальный корпус, два спиральных бура на носу,
+      // литейный цех с трубами и дымом в середине, кормовой блок с восемью двигателями
+      const soot = pbrMat(0x2c2e31, 'dark'), rust = pbrMat(0x5a3a22, 'dark');
+      // нижний хребет и носовая секция
+      add(rbox(R * 0.62, R * 0.36, R * 1.5), M, 0, -R * 0.05, R * 0.25);
+      add(rbox(R * 0.5, R * 0.3, R * 0.5), M, 0, R * 0.12, R * 0.62).rotation.x = 0.12;
+      add(rbox(R * 0.2, R * 0.12, R * 0.22), M, 0, R * 0.3, R * 0.55);
+      const win = new THREE.Mesh(rbox(R * 0.22, R * 0.03, R * 0.16), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.4 }));
+      win.position.set(0, R * 0.36, R * 0.55); g.add(win);
+      // полосы-предупреждения на носу
+      const warn = glowMat(0xc06a20, 0.9);
+      for (const sd of [1, -1]) add(rbox(R * 0.005, R * 0.08, R * 0.16), warn, sd * R * 0.315, R * 0.0, R * 0.62);
+      // два гигантских спиральных бура
+      const drillProf = [];
+      for (let i = 0; i <= 24; i++) { const t = i / 24; drillProf.push([t, (1 - t * 0.92) * (i % 2 ? 0.86 : 1)]); }
+      drillProf.push([1.02, 0.01]);
+      for (const sd of [1, -1]) {
+        add(new THREE.CylinderGeometry(R * 0.19, R * 0.21, R * 0.25, 20), soot, sd * R * 0.2, -R * 0.12, R * 1.05).rotation.x = Math.PI / 2;
+        const drill = add(lathe(R * 0.9, R * 0.19, drillProf, 14), soot, sd * R * 0.2, -R * 0.12, R * 1.6);
+        drill.userData.spin = ['z', 1.5 * sd];
+      }
+      // литейный цех: блоки, баки, трубопроводы
+      const r = seeded(4200);
+      for (let i = 0; i < 26; i++) {
+        const w = R * (0.08 + r() * 0.16), h = R * (0.08 + r() * 0.22), d = R * (0.08 + r() * 0.2);
+        add(rbox(w, h, d), r() < 0.3 ? rust : M, (r() - 0.5) * R * 0.6, R * 0.13 + h / 2, -R * (0.05 + r() * 0.85));
+      }
+      for (let i = 0; i < 10; i++) {
+        const tank = add(new THREE.CylinderGeometry(R * 0.06, R * 0.06, R * 0.22, 14), r() < 0.5 ? rust : soot, (r() < 0.5 ? 1 : -1) * R * 0.34, R * (0.02 + r() * 0.15), -R * (0.1 + r() * 0.8));
+        tank.rotation.x = Math.PI / 2;
+      }
+      for (const sd of [1, -1]) for (const y of [0.1, -0.05, -0.18]) add(new THREE.CylinderGeometry(R * 0.018, R * 0.018, R * 1.9, 8), rust, sd * R * 0.33, R * y, -R * 0.05).rotation.x = Math.PI / 2;
+      // дымовые трубы с раскалёнными жерлами и клубами дыма
+      const smokeMat = new THREE.MeshBasicMaterial({ color: 0x4a4440, transparent: true, opacity: 0.35, depthWrite: false });
+      for (let i = 0; i < 9; i++) {
+        const x = (r() - 0.5) * R * 0.45, z = -R * (0.1 + r() * 0.75), h = R * (0.25 + r() * 0.3);
+        add(new THREE.CylinderGeometry(R * 0.025, R * 0.03, h, 10), soot, x, R * 0.15 + h / 2, z);
+        add(new THREE.CylinderGeometry(R * 0.022, R * 0.022, R * 0.01, 10), glowMat(0xff6a20, 3), x, R * 0.15 + h, z);
+        for (let k = 0; k < 3; k++) {
+          const puff = add(new THREE.SphereGeometry(R * 0.04, 8, 6), smokeMat, x, R * 0.15 + h, z);
+          puff.userData.smoke = { y0: R * 0.15 + h, phase: k / 3 + r() * 0.1, rise: R * 0.35, s: R * 0.04 };
+        }
+      }
+      // кормовой блок и восемь ионных двигателей
+      add(rbox(R * 0.8, R * 0.62, R * 0.35), M, 0, R * 0.05, -R * 1.05);
+      for (const sd of [1, -1]) {
+        add(new THREE.CylinderGeometry(R * 0.16, R * 0.16, R * 0.35, 20), soot, sd * R * 0.46, R * 0.05, -R * 1.0).rotation.x = Math.PI / 2;
+        add(new THREE.CircleGeometry(R * 0.05, 16), glowMat(0xff7030, 3), sd * R * 0.62, R * 0.05, -R * 1.0).rotation.y = sd * Math.PI / 2;
+      }
+      for (const [x, y] of [[0.3, 0.2], [0.1, 0.2], [-0.1, 0.2], [-0.3, 0.2], [0.3, -0.1], [0.1, -0.1], [-0.1, -0.1], [-0.3, -0.1]]) addEngine(g, R * x, R * y, -R * 1.25, R * 0.08, eng);
+      // пристыкованные тендеры SC-03 под брюхом
+      for (const [x, z] of [[0.18, -0.4], [-0.15, -0.65]]) {
+        const t = new THREE.Group();
+        t.add(new THREE.Mesh(rbox(R * 0.05, R * 0.03, R * 0.16), M));
+        const w = new THREE.Mesh(rbox(R * 0.14, R * 0.008, R * 0.05), D); w.position.z = -R * 0.03; t.add(w);
+        t.position.set(R * x, -R * 0.3, R * z); g.add(t);
+      }
+      greebles(g, R, 60, D, [R * 0.6, R * 0.18, R * 1.8]);
+      addLights(g, [[R * 0.32, R * 0.15, R * 0.85, R * 0.012], [-R * 0.32, R * 0.15, R * 0.85, R * 0.012], [R * 0.42, R * 0.38, -R * 1.0, R * 0.012], [-R * 0.42, R * 0.38, -R * 1.0, R * 0.012]], 0xffa030);
+      break;
+    }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
   }
   if (faction === 'pirate') { // шипы на пиратских кораблях
@@ -1057,6 +1119,10 @@ function setEngines(obj, frac, time) {
     else if (o.userData.glow) o.scale.setScalar(o.userData.glow * (0.6 + f * 0.6));
     else if (o.userData.blink !== undefined) o.visible = ((time + o.userData.blink) % 2) < 0.25;
     if (o.userData.spin) o.rotation[o.userData.spin[0]] = time * o.userData.spin[1];
+    if (o.userData.smoke) { // клубы дыма поднимаются и расширяются
+      const sm = o.userData.smoke, k = (time * 0.35 + sm.phase) % 1;
+      o.position.y = sm.y0 + k * sm.rise; o.scale.setScalar(0.6 + k * 2.6);
+    }
   });
 }
 

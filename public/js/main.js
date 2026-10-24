@@ -207,7 +207,7 @@ try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 (function loginSlides() {
   const box = $('#login-art');
   if (!box) return;
-  const order = ['strizh', 'citadel', 'piligrim', 'leviafan', 'vihr', 'kit', 'sokol', 'staratel'];
+  const order = ['begemot', 'strizh', 'citadel', 'piligrim', 'leviafan', 'vihr', 'kit', 'sokol', 'staratel'];
   const layers = [0, 1].map(() => { const d = document.createElement('div'); d.className = 'login-slide'; box.appendChild(d); return d; });
   let i = 0, top = 0;
   const show = () => {
@@ -243,7 +243,13 @@ function onMsg(m) {
       updateSysInfo();
       break;
     case 'state': onState(m); break;
-    case 'profile': S.prof = m; onProfile(); break;
+    case 'profile': {
+      S.prof = m; onProfile();
+      const fb = $('#b-foundry'), has = !!(S.data.ships[m.ship.type] || {}).foundry;
+      fb.classList.toggle('hidden', !has); fb.classList.toggle('on', has && !m.foundryOff);
+      fb.textContent = m.foundryOff ? '⚙ Буры: выкл' : '⚙ Буры: вкл';
+      break;
+    }
     case 'docked': {
       const c = S.celById && S.celById[m.station];
       S.docked = { id: m.station, name: m.name, sys: m.sys, style: c ? c.style : 0 };
@@ -944,6 +950,7 @@ $('#speedbar').addEventListener('click', (e) => { const r = e.currentTarget.getB
 $('#b-stop').onclick = () => act('stop');
 $('#b-full').onclick = () => send({ t: 'speed', v: 1 });
 $('#b-scan').onclick = () => send({ t: 'scan' });
+$('#b-foundry').onclick = () => send({ t: 'foundry' });
 
 function slotType(shipType, idx) {
   const s = S.data.ships[shipType].slots;
@@ -1568,7 +1575,7 @@ function renderStation() {
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
         <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
-          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}</div><div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`;
+          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`;
       break;
     }
     case 'exchange': {

@@ -1,7 +1,7 @@
 // Дроны и исследование космоса (сканирование, аномалии). Подмешивается в класс Game.
 'use strict';
 const crypto = require('crypto');
-const { AU, SHIPS, DRONES, ITEMS, oresForSec } = require('./data');
+const { AU, SHIPS, DRONES, ITEMS, oresForSec, RECIPES, incomeOf } = require('./data');
 const { makeAsteroid, rng } = require('./universe');
 
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -30,6 +30,53 @@ const DEALER_LINES = [
 
 module.exports = function install(Game) {
   const P = Game.prototype;
+
+  // ======================================================================
+  // «Бегемот»: всеядные буры поглощают все астероиды вокруг, литейный цех сразу плавит руду в слитки
+  // ======================================================================
+  P.foundryTick = function () {
+    for (const s of this.sessions) {
+      const e = s.ent, p = s.player;
+      if (!e || e.warp || !e.owner) continue;
+      const F = SHIPS[e.shipType].foundry;
+      if (!F || p.foundryOff) continue;
+      if (this.now < (e.nextFoundry || 0)) continue;
+      e.nextFoundry = this.now + F.cycle * 1000;
+      const rocks = [];
+      for (const t of this.ents.values()) if (t.type === 'asteroid' && t.sys === e.sys && this.surfaceDist(e, t) <= F.range) rocks.push(t);
+      if (!rocks.length) continue;
+      rocks.sort((a, b) => this.surfaceDist(e, a) - this.surfaceDist(e, b));
+      const acc = e.foundryAcc || (e.foundryAcc = {});
+      const got = {};
+      let free = e.stats.cargo - this.cargoUsed(p.ship.cargo), full = false;
+      for (const t of rocks.slice(0, F.maxRocks)) {
+        const rec = RECIPES[t.ore];
+        let units = Math.min(t.amount, Math.floor(F.perRock * e.stats.mineMul * incomeOf(e.sys) / ITEMS[t.ore].vol));
+        if (rec) { // не берём больше, чем влезет слитков
+          const outVol = ITEMS[rec.out].vol * rec.ratio * F.refine;
+          units = Math.min(units, Math.floor(free / outVol));
+        } else units = Math.min(units, Math.floor(free / ITEMS[t.ore].vol));
+        if (units <= 0) { full = true; break; }
+        t.amount -= units; p.stats.mined += units;
+        if (rec) {
+          acc[rec.out] = (acc[rec.out] || 0) + units * rec.ratio * F.refine;
+          const n = Math.floor(acc[rec.out]); acc[rec.out] -= n;
+          if (n > 0) { p.ship.cargo[rec.out] = (p.ship.cargo[rec.out] || 0) + n; got[rec.out] = (got[rec.out] || 0) + n; free -= n * ITEMS[rec.out].vol; }
+        } else { p.ship.cargo[t.ore] = (p.ship.cargo[t.ore] || 0) + units; got[t.ore] = (got[t.ore] || 0) + units; free -= units * ITEMS[t.ore].vol; }
+        this.fxSys(e.sys, null, { k: 'mine', from: e.id, to: t.id, color: 0xff9a40, dur: F.cycle });
+        if (t.amount <= 0) this.depleteAsteroid(t);
+      }
+      const parts = Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`);
+      if (parts.length) this.notify(s, 'Литейный цех: ' + parts.join(', '), 'mine');
+      if (full) { this.notify(s, 'Трюм «Бегемота» полон — литейный цех остановлен.', 'warn'); e.nextFoundry = this.now + 20000; }
+      this.sendProfile(s);
+    }
+  };
+  P.c_foundry = function (s, m, p) {
+    p.foundryOff = !p.foundryOff;
+    this.notify(s, p.foundryOff ? 'Всеядные буры остановлены.' : 'Всеядные буры запущены: поглощаем всё вокруг.');
+    this.sendProfile(s);
+  };
 
   // ======================================================================
   // Дроны
