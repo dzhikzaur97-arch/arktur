@@ -1727,6 +1727,13 @@ export function frame(view, dt, time) {
     const h = view.me.h;
     tmpV.set(h[0], h[1], h[2]);
     if (tmpV.lengthSq() > 0.01) myShip.lookAt(tmpV);
+    // крен: корабль наклоняется в повороте (рыскание) и по командам Q/E в ручном режиме
+    const prevH = myShip.userData.prevH || [h[0], h[1], h[2]];
+    const yawRate = (prevH[2] * h[0] - prevH[0] * h[2]) / Math.max(dt, 0.001);
+    myShip.userData.prevH = [h[0], h[1], h[2]];
+    const wantBank = Math.max(-0.6, Math.min(0.6, -yawRate * 1.5)) + (view.roll || 0);
+    myShip.userData.bank = (myShip.userData.bank || 0) + (wantBank - (myShip.userData.bank || 0)) * Math.min(1, dt * 3);
+    myShip.rotateZ(myShip.userData.bank);
     const sf = Math.hypot(...view.me.v) / (view.me.max.spd || 1);
     setEngines(myShip, sf, time);
     if (quality !== 'low') updateTrail('me', origin, view.me.h, view.data.ships[view.me.st].radius, sf, 0x3aa8ff, origin, time, !!view.me.warp);

@@ -51,6 +51,8 @@ module.exports = function install(Game) {
   // ======================================================================
   // Оценка цели: ценность и уязвимость, а не только расстояние
   P.pirateTarget = function (e) {
+    // сюжетная атака: волна идёт на охраняемый транспорт
+    if (e.storyFocus && Math.random() < 0.75) { const f = this.ents.get(e.storyFocus); if (f && f.sys === e.sys && dist(f.pos, e.pos) < 150000) return f; }
     const sec = this.U.byId[e.sys].sec;
     let best = null, bestScore = 0;
     for (const o of this.ents.values()) {
@@ -176,6 +178,7 @@ module.exports = function install(Game) {
   // Гражданские: бегство под огнём, охотники отвечают ударом
   // ======================================================================
   P.civTick = function (e) {
+    if (e.storyHold) { e.cmd = { type: 'stop' }; return; } // сюжетный транспорт стоит на месте
     // охотник держит бой, пока противник жив и рядом
     if (e.civ === 'hunter') {
       if (e.lastHitAt && this.now - e.lastHitAt < 6000 && e.lastAttacker) e.engage = e.lastAttacker;

@@ -267,6 +267,7 @@ class Game {
     this.sendSystem(sess);
     sess.send({ t: 'docked', station: stationId, name: st.name, sys: st.sys });
     this.checkCourier(sess);
+    this.storyDock(sess);
     this.sendProfile(sess);
     if (!silent) this.notify(sess, `Стыковка: ${st.name}`);
   }
@@ -366,6 +367,15 @@ class Game {
   c_orbit(s, m, p, e) { if (!e || e.warp) return; const t = this.findTarget(e, m.id); if (t) { e.cmd = { type: 'orbit', target: t.id, range: clamp(+m.range || 5000, 500, 100000) }; e.autopilot = null; } }
   c_keep(s, m, p, e) { if (!e || e.warp) return; const t = this.findTarget(e, m.id); if (t) { e.cmd = { type: 'keep', target: t.id, range: clamp(+m.range || 10000, 500, 150000) }; e.autopilot = null; } }
   c_stop(s, m, p, e) { if (!e || e.warp) return; e.cmd = { type: 'stop' }; e.autopilot = null; }
+  c_manual(s, m, p, e) {
+    if (!e || e.warp) return;
+    if (!m.on) { if (e.cmd.type === 'manual') e.cmd = { type: 'stop' }; return; }
+    const n = (v, lo, hi) => { v = +v; return Number.isFinite(v) ? clamp(v, lo, hi) : 0; };
+    let dir = Array.isArray(m.dir) && m.dir.length === 3 ? m.dir.map(x => n(x, -1, 1)) : null;
+    if (dir && len(dir) < 0.1) dir = null;
+    e.cmd = { type: 'manual', dir: dir ? norm(dir) : e.heading, thr: n(m.thr, -0.5, 1), sx: n(m.sx, -1, 1), uy: n(m.uy, -1, 1), boost: !!m.boost, brake: !!m.brake, stab: m.stab !== false };
+    e.autopilot = null;
+  }
   c_dir(s, m, p, e) {
     if (!e || e.warp || !Array.isArray(m.dir)) return;
     e.cmd = { type: 'dir', dir: norm(m.dir.map(Number)) }; e.autopilot = null;
@@ -557,6 +567,7 @@ class Game {
             if (ms.progress >= ms.count) this.completeMission(killerPlayer, ms, ks);
           }
         }
+        this.storyKill(killerPlayer, t, sysId);
         if (ks) this.sendProfile(ks);
       }
       return;
@@ -724,6 +735,7 @@ class Game {
     }
     let maxSpeed = e.stats.maxSpeed * (e.npcSpeedMul || 1);
     for (const m of e.modules) if (m && m.active && MODULES[m.id].kind === 'prop') maxSpeed *= 1 + MODULES[m.id].speedBonus;
+    if (e.cmd.type === 'manual') return this.manualPhysics(e, dt, maxSpeed);
     let dir = null, speed = maxSpeed * e.speedFrac;
     const c = e.cmd;
     const tgt = c.target ? this.findTarget(e, c.target) : null;
@@ -785,6 +797,35 @@ class Game {
     const k = 1 - Math.exp(-dt / tau);
     e.vel = add(e.vel, mul(sub(desired, e.vel), k));
     e.pos = add(e.pos, mul(e.vel, dt));
+    this.collideCelestials(e);
+  }
+
+  // Ручной полёт: нос следует за прицелом камеры, тяга вперёд/назад, боковая и вертикальная,
+  // форсаж тратит накопитель. Стабилизация гасит снос; без неё корабль летит по инерции.
+  manualPhysics(e, dt, maxSpeed) {
+    const c = e.cmd, st = e.stats;
+    if (c.dir) e.heading = norm(lerp(e.heading, c.dir, 1 - Math.exp(-dt * 3 / Math.max(0.4, st.align * 0.35))));
+    let up = [0, 1, 0];
+    if (Math.abs(dot(up, e.heading)) > 0.97) up = [1, 0, 0];
+    const right = norm(cross(e.heading, up)), upv = cross(right, e.heading);
+    let vmax = maxSpeed;
+    if (c.boost && e.cap > st.cap * 0.05) { vmax *= 1.7; e.cap = Math.max(0, e.cap - st.cap * 0.07 * dt); }
+    const thrust = add(add(mul(e.heading, c.thr), mul(right, c.sx * 0.6)), mul(upv, c.uy * 0.6));
+    const tau = st.align / Math.log(4);
+    if (c.stab) {
+      const k = 1 - Math.exp(-dt / (c.brake ? tau * 0.5 : tau));
+      e.vel = add(e.vel, mul(sub(mul(thrust, vmax), e.vel), k));
+    } else {
+      e.vel = add(e.vel, mul(thrust, vmax / tau * dt));
+      if (c.brake) e.vel = mul(e.vel, Math.exp(-dt / (tau * 0.7))); // контртяга
+      const sp = len(e.vel);
+      if (sp > vmax) e.vel = mul(e.vel, vmax / sp);
+    }
+    e.pos = add(e.pos, mul(e.vel, dt));
+    this.collideCelestials(e);
+  }
+
+  collideCelestials(e) {
     // не даём пролететь сквозь станции и планеты
     const sys = this.U.systems[e.sys];
     for (const cel of sys.celestials) {
@@ -1069,6 +1110,7 @@ class Game {
   slowTick() {
     this.structTick();
     this.foundryTick();
+    this.storyTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1466,7 +1508,7 @@ class Game {
       hangar: st ? this.hangar(p, st) : null,
       assets: Object.entries(p.hangars).filter(([, h]) => Object.keys(h.items).length || h.ships.length)
         .map(([id, h]) => ({ station: id, name: this.U.celestials[id].name, items: h.items, ships: h.ships.map(x => x.type) })),
-      foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
+      story: this.storyView(p), rep: p.rep, foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
       suspect: p.suspectUntil > this.now ? p.suspectUntil - this.now : 0,
       myOrders: this.db.orders.filter(o => o.seller === p.name)
     });
@@ -1556,5 +1598,6 @@ function fmt(n) { return Math.round(n).toLocaleString('ru-RU'); }
 
 require('./features')(Game);
 require('./ai')(Game);
+require('./story')(Game);
 
 module.exports = { Game };

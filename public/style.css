@@ -245,6 +245,8 @@ h3:first-child { margin-top: 0; }
 .dr-btns button { flex: 1; font-size: 11px; padding: 3px 4px; }
 .br.mydrone .bi { color: #9fe0a0; font-size: 10px; }
 .br.anom .bi { color: #e8a0ff; text-shadow: 0 0 6px #b060ff; }
+.br.story .bi { color: #ffc060; text-shadow: 0 0 8px #ff9a20; font-size: 16px; }
+.br.story .bl { color: #ffd090; }
 
 /* Полоски здоровья у меток и цифры урона */
 .br .bh { display: none; flex-direction: column; gap: 1px; width: 34px; margin-top: 3px; }
@@ -471,3 +473,38 @@ body.mobile #sys-region { display: none; }
 .pl-miner b { color: #a0e090; }
 
 #b-foundry.on { color: #ffb050; border-color: #c08a3a; box-shadow: 0 0 8px rgba(255, 150, 50, .35); }
+
+/* Ручной полёт */
+#man-hud { display: none; }
+body.manual #man-hud { display: block; }
+#man-aim { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 1.5px solid rgba(140, 220, 255, .7); border-radius: 50%; pointer-events: none; z-index: 5; }
+#man-aim::after { content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; background: #8cdcff; border-radius: 50%; }
+#man-nose { position: fixed; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid #ffb050; transform: rotate(45deg); pointer-events: none; z-index: 5; }
+#man-thr { position: fixed; left: calc(50% - 150px); bottom: 120px; width: 10px; height: 110px; border: 1px solid rgba(140, 200, 255, .5); background: rgba(0, 10, 20, .5); z-index: 5; display: flex; align-items: flex-end; }
+#man-thr-fill { width: 100%; background: linear-gradient(#8cf, #2a8fd0); }
+#man-thr-fill.rev { background: #f84; }
+#man-thr-fill.boost { background: linear-gradient(#fff, #ffb050); }
+#man-stab { position: fixed; left: calc(50% - 178px); bottom: 98px; font: 600 10px/1 sans-serif; letter-spacing: 1px; color: #8cf; z-index: 5; }
+#man-stab.off { color: #ffb050; }
+#b-manual.on { color: #8cf; border-color: #4ab; box-shadow: 0 0 8px rgba(80, 200, 255, .35); }
+body.mobile #b-manual { display: none; }
+
+/* Сюжет и репутация */
+#story-track { margin-top: 6px; padding: 5px 7px; border-left: 2px solid #e0a64a; background: rgba(224, 166, 74, .07); cursor: pointer; max-width: 300px; }
+#story-track .st-t { font-size: 12px; color: #f0c070; font-weight: 600; }
+#story-track .st-x { font-size: 12px; margin-top: 2px; }
+#story-track .st-f { font-size: 11px; color: #f87; margin-top: 2px; }
+.mission.story { border-left: 3px solid #e0a64a; }
+.mission .bad, .bad { color: #f87; }
+.rep-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.rep-h { display: flex; justify-content: space-between; font-size: 12px; }
+.rep-bar { position: relative; height: 6px; background: rgba(255,255,255,.07); margin-top: 3px; }
+.rep-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: rgba(255,255,255,.35); }
+.rep-bar i { position: absolute; top: 0; bottom: 0; }
+.dlg-from { font-size: 11px; color: #8cf; letter-spacing: 1px; text-transform: uppercase; }
+.dlg-title { font-size: 18px; margin: 4px 0 8px; color: #f0c070; }
+.dlg p { margin: 6px 0; line-height: 1.45; }
+.dlg-choices { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.dlg-choice { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; }
+.dlg-choice span { font-size: 11px; color: var(--muted); }
+.modal-box { max-width: 520px; }

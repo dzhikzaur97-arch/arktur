@@ -38,7 +38,11 @@ const S = {
   pendingModule: null, interval: 100
 };
 
-function send(msg) { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(msg)); }
+const MOVE_CMDS = new Set(['approach', 'orbit', 'keep', 'warp', 'dock', 'jump', 'dir', 'stop', 'autopilot']);
+function send(msg) {
+  if (typeof MAN !== 'undefined' && MAN.on && MOVE_CMDS.has(msg.t)) manualToggle(false, true);
+  if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(msg));
+}
 
 
 // ======================================================================
@@ -271,6 +275,7 @@ function onMsg(m) {
       if (S.docked && S.stTab === 'factory') renderStation();
       break;
     case 'stationAdd': if (!S.stationById[m.station.id]) { S.data.stations.push(m.station); S.stationById[m.station.id] = m.station; } break;
+    case 'dialog': showDialog(m); break;
     case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -365,7 +370,8 @@ function sample(rec, rt) {
 function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ents, data: S.data, docked: S.docked,
-    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null
+    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null,
+    roll: MAN.on ? ((MAN.keys.has('KeyQ') ? 0.9 : 0) - (MAN.keys.has('KeyE') ? 0.9 : 0)) : 0
   };
 }
 
@@ -391,10 +397,12 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия']
 };
-const ANOM_TYPE = { combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
+const ANOM_TYPE = { story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
+  if (o.kind === 'anomaly' && o.akind === 'story') return '◈';
+  if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
@@ -513,8 +521,21 @@ const canvas = $('#scene');
 R.init(canvas);
 applyCfg();
 let drag = null;
-canvas.addEventListener('mousedown', (e) => { if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: 0 }; hideCtx(); });
+canvas.addEventListener('mousedown', (e) => {
+  hideCtx();
+  if (MAN.on) { // в ручном режиме: щелчок захватывает мышь, ЛКМ — огонь
+    if (!document.pointerLockElement) { canvas.requestPointerLock && canvas.requestPointerLock(); return; }
+    if (e.button === 0) manualFire();
+    return;
+  }
+  if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: 0 };
+});
 addEventListener('mousemove', (e) => {
+  if (MAN.on && document.pointerLockElement === canvas) {
+    R.cam.yaw -= e.movementX * 0.0025 * CFG.sens * (CFG.invX ? -1 : 1);
+    R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + e.movementY * 0.0025 * CFG.sens * (CFG.invY ? -1 : 1)));
+    return;
+  }
   if (!drag) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   drag.moved += Math.abs(dx) + Math.abs(dy);
@@ -594,6 +615,12 @@ addEventListener('keydown', (e) => {
   if (fk) { e.preventDefault(); toggleModule(moduleOrder()[+fk[1] - 1]); return; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey) { toggleModule(moduleOrder()[+e.key - 1]); return; }
   const k = e.code;
+  if (k === 'KeyZ' && !S.docked) return manualToggle();
+  if (MAN.on && !S.docked) {
+    if (MAN_KEYS.has(k)) { e.preventDefault(); MAN.keys.add(k); return; }
+    if (k === 'KeyT') { MAN.stab = !MAN.stab; note(MAN.stab ? 'Стабилизация включена' : 'Стабилизация выключена — полёт по инерции, гасите скорость контртягой (X)'); updateManualHud(); return; }
+    if (k === 'Tab') { e.preventDefault(); manualLockNext(); return; }
+  }
   if (k === 'Enter') { e.preventDefault(); $('#chat-in').focus(); return; }
   if (k === 'KeyM') return toggleMap();
   if (k === 'KeyC') return openWin('cargo');
@@ -618,6 +645,99 @@ addEventListener('keydown', (e) => {
   if (k === 'KeyX') act('stop');
   if (k === 'Tab') { e.preventDefault(); cycleTarget(); }
 });
+
+addEventListener('keyup', (e) => { if (typeof MAN !== 'undefined') MAN.keys.delete(e.code); });
+addEventListener('blur', () => MAN.keys.clear());
+
+// ======================================================================
+// Ручной полёт (Z): W/S — тяга, A/D — боковая, Space/Ctrl — вверх/вниз, Shift — форсаж,
+// X — торможение, T — стабилизация, Alt — свободный обзор, Tab — захват цели впереди, ЛКМ — огонь.
+// Нос корабля поворачивает туда, куда смотрит камера. Сервер считает физику сам — клиент шлёт только намерение.
+// ======================================================================
+const MAN_KEYS = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'AltLeft', 'AltRight', 'KeyQ', 'KeyE']);
+const MAN = { on: false, thr: 0, keys: new Set(), stab: true, lastSend: 0, sent: '' };
+function manualToggle(force, silent) {
+  const on = force !== undefined ? force : !MAN.on;
+  if (on && (!S.me || S.docked || S.me.warp)) return;
+  if (on === MAN.on) return;
+  MAN.on = on; MAN.keys.clear(); MAN.sent = '';
+  if (on) {
+    const v = S.me.v ? Math.hypot(...S.me.v) : 0;
+    MAN.thr = Math.min(1, v / S.data.ships[S.me.st].maxSpeed);
+    R.cam.target = Math.max(R.cam.target, S.data.ships[S.me.st].radius * 6);
+    if (!MOBILE && canvas.requestPointerLock) canvas.requestPointerLock();
+    note('Ручное управление: W/S — тяга, A/D — вбок, Space/Ctrl — вверх/вниз, Shift — форсаж, X — тормоз, T — стабилизация, Z — выход');
+  } else {
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (!silent) send({ t: 'manual', on: false });
+  }
+  document.body.classList.toggle('manual', on);
+  updateManualHud();
+}
+function camForward() {
+  const c = R.cam, cp = Math.cos(c.pitch);
+  return [-Math.sin(c.yaw) * cp, -Math.sin(c.pitch), -Math.cos(c.yaw) * cp];
+}
+function manualTick(dt, now) {
+  if (!MAN.on) return;
+  if (!S.me || S.docked) return manualToggle(false, true);
+  if (S.me.warp) return;
+  const k = MAN.keys, has = (...c) => c.some(x => k.has(x));
+  if (has('KeyW')) MAN.thr = Math.min(1, MAN.thr + dt * 0.7);
+  if (has('KeyS')) MAN.thr = Math.max(-0.5, MAN.thr - dt * 0.7);
+  const brake = has('KeyX');
+  if (brake) MAN.thr = 0;
+  const msg = { t: 'manual', on: true, thr: +MAN.thr.toFixed(2), sx: (has('KeyD') ? 1 : 0) - (has('KeyA') ? 1 : 0),
+    uy: (has('Space') ? 1 : 0) - (has('ControlLeft', 'ControlRight') ? 1 : 0), boost: has('ShiftLeft', 'ShiftRight'), brake, stab: MAN.stab,
+    dir: has('AltLeft', 'AltRight') ? null : camForward().map(x => +x.toFixed(3)) };
+  const key = JSON.stringify(msg);
+  if ((key !== MAN.sent && now - MAN.lastSend > 90) || now - MAN.lastSend > 1000) {
+    if (S.ws && S.ws.readyState === 1) S.ws.send(key);
+    MAN.sent = key; MAN.lastSend = now;
+  }
+  // прицел: куда сейчас смотрит нос корабля
+  const nose = $('#man-nose'), h = S.meRec && S.meRec.dh;
+  if (nose && h) {
+    const r = S.data.ships[S.me.st].radius * 40;
+    const pt = R.project([h[0] * r, h[1] * r, h[2] * r]);
+    if (pt) { nose.style.display = ''; nose.style.left = pt[0] + 'px'; nose.style.top = pt[1] + 'px'; } else nose.style.display = 'none';
+  }
+  const tb = $('#man-thr-fill');
+  if (tb) { tb.style.height = Math.abs(MAN.thr) * 100 + '%'; tb.classList.toggle('rev', MAN.thr < 0); tb.classList.toggle('boost', has('ShiftLeft', 'ShiftRight')); }
+}
+function updateManualHud() {
+  const b = $('#b-manual');
+  if (b) { b.classList.toggle('on', MAN.on); b.textContent = MAN.on ? '✈ Ручное: вкл' : '✈ Ручное'; }
+  const st = $('#man-stab');
+  if (st) { st.textContent = MAN.stab ? 'СТАБ' : 'ИНЕРЦИЯ'; st.classList.toggle('off', !MAN.stab); }
+}
+// Tab в ручном режиме: захват ближайшей к прицелу враждебной цели
+function manualLockNext() {
+  if (!S.me || !S.meRec) return;
+  const f = camForward(), me = S.meRec.dp, range = S.data.ships[S.me.st].lockRange * 1.5;
+  let best = null, bestScore = Infinity;
+  for (const e of S.ents.values()) {
+    if (e.k !== 's' || e.id === S.me.id || !e.dp) continue;
+    if (!(e.npc || e.ol || e.cr || e.ag || e.tg)) continue;
+    const d = [e.dp[0] - me[0], e.dp[1] - me[1], e.dp[2] - me[2]], L = Math.hypot(...d);
+    if (L > range) continue;
+    const ang = Math.acos(Math.max(-1, Math.min(1, (d[0] * f[0] + d[1] * f[1] + d[2] * f[2]) / L)));
+    const score = ang * 3 + L / range + (S.me.locks.includes(e.id) ? 2 : 0);
+    if (score < bestScore) { bestScore = score; best = e; }
+  }
+  if (!best) return note('Нет враждебных целей в зоне захвата', 'warn');
+  S.sel = best.id;
+  if (S.me.locks.includes(best.id)) S.active = best.id; else send({ t: 'lock', id: best.id });
+}
+// ЛКМ в ручном режиме: включить все орудия по активной цели (повторно — выключить)
+function manualFire() {
+  if (!S.me) return;
+  const guns = S.me.mods.map((m, i) => m && S.data.modules[m.id].kind === 'weapon' ? i : -1).filter(i => i >= 0);
+  if (!guns.length) return note('Нет орудий', 'warn');
+  if (!S.me.locks.length) return note('Нет захваченной цели — нажмите Tab', 'warn');
+  const anyOff = guns.some(i => !S.me.mods[i].a);
+  for (const i of guns) if (!!S.me.mods[i].a !== anyOff) toggleModule(i);
+}
 
 function cycleTarget() {
   if (!S.me || !S.me.locks.length) return;
@@ -742,7 +862,7 @@ function updateBrackets() {
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' ? 'story' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -951,6 +1071,8 @@ $('#b-stop').onclick = () => act('stop');
 $('#b-full').onclick = () => send({ t: 'speed', v: 1 });
 $('#b-scan').onclick = () => send({ t: 'scan' });
 $('#b-foundry').onclick = () => send({ t: 'foundry' });
+$('#b-manual').onclick = () => manualToggle();
+$('#story-track').onclick = () => openWin('missions');
 
 function slotType(shipType, idx) {
   const s = S.data.ships[shipType].slots;
@@ -1082,7 +1204,7 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { pilots: 'Пилоты галактики', build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') send({ t: 'structInfo' });
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
@@ -1117,7 +1239,17 @@ const HELP_MOBILE = `<h3>Управление на телефоне</h3><div cla
 <span>☰</span><span>меню: карта, трюм, навыки, задания, настройки</span>
 <span>◫ / » / ◎ / 💬</span><span>обзор / варп / скан / чат</span>
 <span>Круглые кнопки справа внизу</span><span>модули: орудия, бур, щит</span></div>`;
-const HELP = `<h3>Полёт</h3><div class="kv">
+const HELP = `<h3>Ручное управление (Z)</h3><div class="kv">
+<span>Z</span><span>включить / выключить ручной полёт (мышь захватывается, Esc — отпустить)</span>
+<span>Мышь</span><span>курс: нос корабля поворачивает туда, куда смотрит камера; Alt — свободный обзор</span>
+<span>W / S</span><span>прибавить / убавить тягу (S ниже нуля — задний ход)</span>
+<span>A / D, Space / Ctrl</span><span>боковая и вертикальная тяга</span>
+<span>Q / E</span><span>крен</span>
+<span>Shift</span><span>форсаж (тратит накопитель)</span>
+<span>X</span><span>торможение — не мгновенное</span>
+<span>T</span><span>стабилизация вкл/выкл: без неё корабль летит по инерции</span>
+<span>Tab / ЛКМ</span><span>захватить врага у прицела / открыть огонь из всех орудий</span></div>
+<h3>Полёт</h3><div class="kv">
 <span>Щелчок по космосу</span><span>лететь в этом направлении (перетаскивание — вращать камеру)</span>
 <span>Перетаскивание ЛКМ</span><span>вращение камеры, колесо — приближение</span>
 <span>ПКМ по космосу</span><span>меню варпа к станциям, вратам, поясам</span>
@@ -1216,9 +1348,50 @@ function updateSkillProgress() {
   setHTML(el, h);
 }
 
+function storyHTML() {
+  const v = S.prof.story;
+  if (!v) return '';
+  let h = '<h3>Кампания «Неизвестный сигнал»</h3>';
+  if (v.done) h += `<div class="mission story"><div class="mt">Кампания завершена</div><div>${esc(v.epilogue || '')}</div></div>`;
+  else {
+    h += `<div class="mission story"><div class="mt">Акт ${v.act} · Миссия ${v.n} из ${v.total}: ${esc(v.title)}</div>
+      <div class="muted">От: ${esc(v.from)}${v.ally ? ` · Союзник: ${esc(v.rep.find(r => r.id === v.ally).name)}` : ''}</div>
+      ${v.state === 'active' ? `<div>Этап ${v.stage} из ${v.stages}: <b>${esc(v.text)}</b></div>` : '<div>Новая передача ждёт ответа.</div>'}
+      ${v.failed ? `<div class="bad">Провал: ${esc(v.failed)}</div>` : ''}
+      <div class="btn2">${v.state === 'offer' ? '<button class="primary" data-a="storyBrief">Открыть передачу</button>' : '<button data-a="storyBrief2">Перечитать брифинг</button>'}
+      ${v.sys && v.state === 'active' ? `<button data-a="route" data-sys="${v.sys}">Маршрут</button>` : ''}</div></div>`;
+  }
+  h += '<h3>Репутация фракций</h3><div class="rep-list">' + v.rep.map(r => `<div class="rep" title="${esc(r.desc)}"><div class="rep-h"><span style="color:${r.color}">${esc(r.name)}</span><span>${r.v > 0 ? '+' : ''}${r.v} · ${esc(r.tier)}</span></div>
+    <div class="rep-bar"><i style="left:${r.v < 0 ? 50 + r.v / 2 : 50}%;width:${Math.abs(r.v) / 2}%;background:${r.v < 0 ? '#d65' : r.color}"></i></div></div>`).join('') +
+    '</div><div class="muted small">Репутация растёт за сюжетные миссии и контракты агентов. Высокая репутация даёт скидку до 10% на станциях фракции, вражда — наценку.</div>';
+  return h;
+}
+function renderStoryTrack() {
+  const el = $('#story-track'), v = S.prof && S.prof.story;
+  if (!el) return;
+  if (!v || v.done) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = v.state === 'active'
+    ? `<div class="st-t">◆ ${esc(v.title)} <span class="muted">${v.stage}/${v.stages}</span></div><div class="st-x">${esc(v.text)}</div>${v.failed ? '<div class="st-f">Провал — вернитесь к точке</div>' : ''}`
+    : `<div class="st-t">◆ Входящая передача</div><div class="st-x">${esc(v.title)} — нажмите, чтобы открыть</div>`;
+}
+// Окно передачи: брифинг миссии, выбор союзника, итог
+function showDialog(m) {
+  const lines = (m.lines || []).map(l => `<p>${esc(l)}</p>`).join('');
+  const choices = m.choices ? `<div class="dlg-choices">${m.choices.map(c => `<button class="dlg-choice" data-c="${c.id}"><b>${esc(c.text)}</b><span>${esc(c.desc)}</span></button>`).join('')}</div>` : '';
+  const html = `<div class="dlg"><div class="dlg-from">Входящая передача · ${esc(m.from || '')}</div><div class="dlg-title">${esc(m.title)}</div>${lines}
+    ${m.reward ? `<div class="muted">Награда: <span class="isk">${esc(m.reward)}</span></div>` : ''}${choices}</div>`;
+  Sound.beep && Sound.beep(520, 780, 0.06);
+  if (m.kind === 'brief') modal(html, [['Позже', null], ['Принять миссию', () => send({ t: 'storyAccept' }), 'primary']]);
+  else if (m.kind === 'choice') {
+    modal(html, [['Подумать', null]]);
+    $('#modal-body').querySelectorAll('.dlg-choice').forEach(b => b.onclick = () => { $('#modal').classList.add('hidden'); send({ t: 'storyChoice', id: b.dataset.c }); });
+  } else modal(html, [['Понятно', null, 'primary']]);
+}
+
 function missionsHTML(withOffers) {
   const p = S.prof;
-  let html = '<h3>Активные задания</h3>';
+  let html = storyHTML() + '<h3>Контракты</h3>';
   if (!p.missions.length) html += '<div class="muted">Нет активных заданий. Возьмите их у агентов на любой станции.</div>';
   for (const ms of p.missions) {
     const prog = ms.type === 'kill' ? `Прогресс: ${ms.progress} / ${ms.count}` : `Пункт назначения: ${esc(S.stationById[ms.dest].name)}`;
@@ -1305,7 +1478,7 @@ function checkTutorial() {
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
   if (p.training || Object.keys(p.skills).length) markTut('skill');
-  if (S.anoms && S.anoms.some(a => a.akind !== 'black')) markTut('scan');
+  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story')) markTut('scan');
   renderTutorial();
 }
 function renderTutorial() {
@@ -1663,6 +1836,8 @@ function onActionClick(e) {
     case 'placeOrder': send({ t: 'placeOrder', item: $('#po-item').value, qty: +$('#po-qty').value, price: +$('#po-price').value }); break;
     case 'train': send({ t: 'train', skill: d.skill }); break;
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
+    case 'storyBrief': send({ t: 'storyBrief' }); break;
+    case 'storyBrief2': send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
     case 'pilotsRefresh': send({ t: 'aiList' }); break;
@@ -1672,6 +1847,7 @@ function onActionClick(e) {
 
 function onProfile() {
   updateWallet();
+  renderStoryTrack();
   if (S.docked) renderStation();
   renderWin();
 }
@@ -1807,12 +1983,14 @@ function loop(now) {
     sample(S.meRec, rt);
     for (const e of S.ents.values()) sample(e, rt);
   }
+  manualTick(dt, now);
   R.frame(viewState(), dt, now / 1000);
   autoQuality(now, dt);
   updateBrackets();
   if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;
+    if (!MOBILE) { const tu = $('#tut'); if (tu && !tu.classList.contains('hidden')) tu.style.top = ($('#sysinfo').getBoundingClientRect().bottom + 8) + 'px'; }
     if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (S.docked && S.stTab === 'factory') updateJobs();
