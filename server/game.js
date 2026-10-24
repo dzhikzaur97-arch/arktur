@@ -711,6 +711,7 @@ class Game {
     this.npcSpawns();
     this.anomTick();
     this.blackTick();
+    this.eventsTick();
     if (!this._slow || now - this._slow > 1000) { this._slow = now; this.slowTick(); }
     this.broadcastState();
   }
@@ -1111,6 +1112,7 @@ class Game {
     this.structTick();
     this.foundryTick();
     this.storyTick();
+    this.contractTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1599,5 +1601,6 @@ function fmt(n) { return Math.round(n).toLocaleString('ru-RU'); }
 require('./features')(Game);
 require('./ai')(Game);
 require('./story')(Game);
+require('./contracts')(Game);
 
 module.exports = { Game };

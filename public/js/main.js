@@ -397,11 +397,11 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия']
 };
-const ANOM_TYPE = { story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
+const ANOM_TYPE = { contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
-  if (o.kind === 'anomaly' && o.akind === 'story') return '◈';
+  if (o.kind === 'anomaly' && (o.akind === 'story' || o.akind === 'contract')) return '◈';
   if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
   return (KIND[o.kind] || ['•'])[0];
 }
@@ -862,7 +862,7 @@ function updateBrackets() {
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' ? 'story' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' ? 'event' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -1394,15 +1394,17 @@ function missionsHTML(withOffers) {
   let html = storyHTML() + '<h3>Контракты</h3>';
   if (!p.missions.length) html += '<div class="muted">Нет активных заданий. Возьмите их у агентов на любой станции.</div>';
   for (const ms of p.missions) {
-    const prog = ms.type === 'kill' ? `Прогресс: ${ms.progress} / ${ms.count}` : `Пункт назначения: ${esc(S.stationById[ms.dest].name)}`;
-    html += `<div class="mission"><div class="mt">${esc(ms.title)}</div><div>${esc(ms.text)}</div><div class="muted">${prog} · Награда: <span class="isk">${isk(ms.reward)}</span></div>
-      <button data-a="route" data-sys="${ms.type === 'kill' ? ms.sys : S.stationById[ms.dest].sys}">Маршрут</button> <button data-a="abandon" data-id="${ms.id}" class="danger">Отказаться</button></div>`;
+    const prog = ms.type === 'kill' ? `Прогресс: ${ms.progress} / ${ms.count}` : ms.type === 'recon' && ms.prog ? `Разведка: ${Math.round(ms.prog / ms.secs * 100)}%`
+      : ms.type === 'rescue' && S.prof.ship.cargo.q_pod ? `Капсула на борту — везите на «${esc(S.stationById[ms.dest].name)}»` : `Цель: ${esc(ms.goal || (ms.dest ? S.stationById[ms.dest].name : ''))}`;
+    const rsys = (ms.type === 'rescue' && S.prof.ship.cargo.q_pod) || (!ms.sys && ms.dest) ? S.stationById[ms.dest].sys : ms.sys;
+    html += `<div class="mission"><div class="mt">${ms.typeName ? `<span class="ctype">${esc(ms.typeName)}</span> ` : ''}${esc(ms.title)}</div><div>${esc(ms.text)}</div><div class="muted">${prog} · Награда: <span class="isk">${isk(ms.reward)}</span></div>
+      <button data-a="route" data-sys="${rsys}">Маршрут</button> <button data-a="abandon" data-id="${ms.id}" class="danger">Отказаться</button></div>`;
   }
   if (withOffers) {
     html += '<h3>Предложения агентов этой станции</h3>';
     if (!S.agents) html += '<div class="muted">Загрузка…</div>';
     else if (!S.agents.length) html += '<div class="muted">Новых предложений нет. Загляните позже.</div>';
-    else for (const o of S.agents) html += `<div class="mission"><div class="mt">${esc(o.title)}</div><div>${esc(o.text)}</div><div class="muted">Награда: <span class="isk">${isk(o.reward)}</span></div><button class="primary" data-a="accept" data-id="${o.id}">Принять</button></div>`;
+    else for (const o of S.agents) html += `<div class="mission"><div class="mt">${o.typeName ? `<span class="ctype">${esc(o.typeName)}</span> ` : ''}${esc(o.title)}</div><div>${esc(o.text)}</div><div class="muted">Награда: <span class="isk">${isk(o.reward)}</span></div><button class="primary" data-a="accept" data-id="${o.id}">Принять</button></div>`;
   }
   return html;
 }
@@ -1478,7 +1480,7 @@ function checkTutorial() {
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
   if (p.training || Object.keys(p.skills).length) markTut('skill');
-  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story')) markTut('scan');
+  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event')) markTut('scan');
   renderTutorial();
 }
 function renderTutorial() {

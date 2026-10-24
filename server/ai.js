@@ -178,7 +178,7 @@ module.exports = function install(Game) {
   // Гражданские: бегство под огнём, охотники отвечают ударом
   // ======================================================================
   P.civTick = function (e) {
-    if (e.storyHold) { e.cmd = { type: 'stop' }; return; } // сюжетный транспорт стоит на месте
+    if (e.storyHold) { e.cmd = e.escortDir ? { type: 'dir', dir: e.escortDir } : { type: 'stop' }; return; } // сюжетный транспорт стоит или идёт по маршруту сопровождения
     // охотник держит бой, пока противник жив и рядом
     if (e.civ === 'hunter') {
       if (e.lastHitAt && this.now - e.lastHitAt < 6000 && e.lastAttacker) e.engage = e.lastAttacker;

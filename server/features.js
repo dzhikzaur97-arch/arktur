@@ -320,7 +320,7 @@ module.exports = function install(Game) {
   P.knownAnoms = function (p, sysId) {
     const known = p.known || (p.known = {});
     for (const id of Object.keys(known)) if (!this.anoms || !this.anoms.has(id)) delete known[id];
-    return this.anoms ? [...this.anoms.values()].filter(a => a.sys === sysId && known[a.id] && (!a.owner || a.owner === p.name)) : [];
+    return this.anoms ? [...this.anoms.values()].filter(a => a.sys === sysId && (known[a.id] || a.public) && (!a.owner || a.owner === p.name)) : [];
   };
 
   P.sendAnoms = function (s) {
@@ -347,7 +347,7 @@ module.exports = function install(Game) {
     const known = p.known || (p.known = {});
     let found = 0;
     for (const a of this.anoms.values()) {
-      if (a.owner || a.sys !== e.sys || known[a.id]) continue;
+      if (a.owner || a.public || a.sys !== e.sys || known[a.id]) continue;
       if (Math.random() < clamp(a.sig * (0.7 + 0.1 * (p.skills.scanning || 0)) * (1 + (e.stats.scanBonus || 0) * 2), 0.1, 1)) { known[a.id] = true; found++; }
     }
     const total = this.knownAnoms(p, e.sys).length;
@@ -362,8 +362,10 @@ module.exports = function install(Game) {
     const e = s.ent;
     if (!e || e.warp || !this.anoms) return;
     for (const a of this.anoms.values()) {
-      if (a.owner) continue; // сюжетные точки обрабатывает story.js
-      if (a.sys !== e.sys || a.triggered || dist(a.pos, e.pos) > 150000) continue;
+      if (a.owner || a.kind === 'event') continue; // сюжетные точки, контракты и события обрабатываются отдельно
+      if (a.sys !== e.sys || dist(a.pos, e.pos) > 150000) continue;
+      if ((s.player.known || {})[a.id] && dist(a.pos, e.pos) < 30000) this.contractAnomalyVisited(s, a);
+      if (a.triggered) continue;
       a.triggered = true;
       const sec = this.U.byId[a.sys].sec;
       if (a.kind === 'combat') {
