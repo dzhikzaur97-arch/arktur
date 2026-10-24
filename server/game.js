@@ -93,6 +93,7 @@ class Game {
     } else if (this.hashPass(pass, p.salt) !== p.pass) {
       return sess.send({ t: 'loginErr', msg: 'Неверный пароль' });
     }
+    this.repairLocation(p);
     sess.player = p;
     this.sessions.add(sess);
     this.checkSkills(p);
@@ -110,6 +111,15 @@ class Game {
     else this.spawnInSpace(sess, p.loc.sys, p.loc.pos);
     this.broadcastSys(this.playerSys(p), { t: 'chat', ch: 'local', from: '*', text: `${p.name} входит в систему` });
     this.sendProfile(sess);
+  }
+
+  // Если сохранение ссылается на станцию или систему, которой больше нет, — возвращаем пилота домой
+  repairLocation(p) {
+    const isStation = (id) => this.U.celestials[id] && this.U.celestials[id].kind === 'station';
+    if (!isStation(p.home)) p.home = 'arktur:st1';
+    if (p.loc.docked && !isStation(p.loc.docked)) p.loc = { docked: p.home };
+    if (!p.loc.docked && (!this.U.systems[p.loc.sys] || !Array.isArray(p.loc.pos) || p.loc.pos.some(x => !isFinite(x)))) p.loc = { docked: p.home };
+    if (!p.ship || !SHIPS[p.ship.type]) p.ship = this.newShip('iskra', true);
   }
 
   newPlayer(name, pass) {

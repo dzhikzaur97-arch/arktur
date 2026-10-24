@@ -41,7 +41,8 @@ function buildUniverse() {
     const add = (c) => { c.sys = def.id; sys.celestials.push(c); celestials[c.id] = c; return c; };
 
     const reg = REGIONS[def.region] || REGIONS.core;
-    const star = def.star || reg.stars[Math.floor(r() * reg.stars.length)];
+    // отдельный генератор для звезды — чтобы не сдвигать раскладку планет и станций, сохранённую у игроков
+    const star = def.star || reg.stars[Math.floor(rng('star:' + def.id)() * reg.stars.length)];
     const sr = { yellow: 1, white: 0.5, blue: 2.2, orange: 0.9, red: 0.6, blackhole: 0.35 }[star];
     add({ id: def.id + ':sun', kind: 'sun', star, name: def.name + ' — ' + STAR_TYPES[star].name.toLowerCase(), pos: [0, 0, 0], radius: (4e8 + r() * 4e8) * sr, landing: 2e9 * Math.max(1, sr) });
 
