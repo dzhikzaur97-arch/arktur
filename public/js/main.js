@@ -339,7 +339,7 @@ function onMsg(m) {
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
-      R.prewarm(m.data.ships);
+      R.prewarm(m.data.ships, m.data.drones);
       addChat('local', '*', `Добро пожаловать, пилот ${m.name}! Нажмите H или «?» слева, чтобы узнать управление.`);
       break;
     case 'system':
@@ -2442,11 +2442,18 @@ mc.addEventListener('wheel', (e) => { map.z = Math.max(0.5, Math.min(6, map.z * 
 function mapPt(s) { return [(s.x - map.x) * map.z + (MOBILE ? innerWidth : innerWidth - 340) / 2, (s.y - map.y) * map.z + (MOBILE ? innerHeight * 0.38 : innerHeight / 2)]; }
 $('#map-zoom').onclick = (e) => { const d = e.target.dataset.z; if (!d) return; map.z = Math.max(0.5, Math.min(6, map.z * (d === '+' ? 1.3 : 1 / 1.3))); drawMap(); };
 
+// Перерисовка карты не чаще раза за кадр (мышь шлёт десятки событий за кадр); холст пересоздаётся только при смене размера
+let mapQueued = false;
 function drawMap() {
-  const dpr = devicePixelRatio || 1;
-  mc.width = innerWidth * dpr; mc.height = innerHeight * dpr;
+  if (mapQueued) return;
+  mapQueued = true;
+  requestAnimationFrame(() => { mapQueued = false; if (!$('#map').classList.contains('hidden')) drawMapNow(); });
+}
+function drawMapNow() {
+  const dpr = devicePixelRatio || 1, W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  if (mc.width !== W || mc.height !== H) { mc.width = W; mc.height = H; }
   const g = mc.getContext('2d');
-  g.scale(dpr, dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, innerWidth, innerHeight);
   // подложки регионов: мягкие пятна цвета региона и подпись в центре
   const byReg = {};
@@ -2538,11 +2545,15 @@ function loop(now) {
     for (const e of S.ents.values()) sample(e, rt);
   }
   manualTick(dt, now);
-  R.frame(viewState(), dt, now / 1000);
-  autoQuality(now, dt);
-  updateBrackets();
-  updateThreats();
-  if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
+  // карта закрывает весь экран — 3D-сцену под ней не рисуем
+  const mapOpen = !$('#map').classList.contains('hidden');
+  if (!mapOpen) {
+    R.frame(viewState(), dt, now / 1000);
+    autoQuality(now, dt);
+    updateBrackets();
+    updateThreats();
+    if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
+  } else fps.t0 = 0;
   if (now - lastUi > 200) {
     lastUi = now;
     // боевая музыка: в нас целятся или стреляют, либо идёт перегрев/сюжетная оборона

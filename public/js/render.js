@@ -22,18 +22,27 @@ let stationView = null;
 const GU = { time: { value: 0 } }; // общие uniform-переменные шейдеров
 
 let quality = 'high';
-// Прогрев: заранее строим модели и текстуры кораблей маленькими порциями, чтобы не было пауз в бою
-export function prewarm(ships) {
+// Прогрев: заранее строим модели и текстуры кораблей маленькими порциями, а затем в фоне компилируем
+// их шейдеры — иначе первая встреча с новым кораблём (пиратская волна, прыжок) даёт заметный фриз
+export function prewarm(ships, drones = {}) {
   const jobs = [];
   for (const [type, t] of Object.entries(ships)) {
-    jobs.push([type, t.color, 'player'], [type, 0x4a3a38, 'pirate']);
+    if (t.role) jobs.push([type, t.color, 'player']);
+    jobs.push([type, 0x4a3a38, 'pirate']);
   }
   jobs.push(['molot', 0xd8e4f0, 'guard']);
+  const built = [];
   const step = () => {
     const j = jobs.shift();
-    if (!j) return;
-    shipModel(j[0], j[1], 50, j[2]);
-    (window.requestIdleCallback || ((f) => setTimeout(f, 30)))(step, { timeout: 400 });
+    if (j) {
+      built.push(shipModel(j[0], j[1], 50, j[2]));
+      (window.requestIdleCallback || ((f) => setTimeout(f, 30)))(step, { timeout: 400 });
+      return;
+    }
+    const g = new THREE.Group();
+    for (const m of built) g.add(m);
+    for (const [id, d] of Object.entries(drones)) g.add(droneModel(id, d));
+    if (renderer && renderer.compileAsync) renderer.compileAsync(g, camera, scene).catch(() => {});
   };
   setTimeout(step, 300);
 }
@@ -271,10 +280,14 @@ function plumeTexture() {
 
 // Полный PBR-набор обшивки: цвет с покраской и маркировкой, карта нормалей (швы, заклёпки),
 // шероховатость и металличность (G/B каналы), светящиеся окна
+// Рельеф, металл и огни зависят только от фракции — их считаем один раз (карта нормалей — дорогая:
+// чтение пикселей и фильтр Собеля), а для каждой окраски перерисовываем лишь цветовую карту
+const hullShared = new Map();
 function hullSet(paint, accent, faction, seed) {
-  const W = 512, r = seeded(seed);
-  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = W; return [c, c.getContext('2d')]; };
-  const [cc, cg] = mk(), [hc, hg] = mk(), [oc, og] = mk(), [ec, eg] = mk();
+  const W = 512, r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
+  const mk = (size = W, read = false) => { const c = document.createElement('canvas'); c.width = c.height = size; return [c, c.getContext('2d', read ? { willReadFrequently: true } : undefined)]; };
+  // если общие карты уже есть, рисуем их на холстах 1×1 — вызовы те же (та же последовательность случайных чисел), но почти бесплатно
+  const [cc, cg] = mk(), [hc, hg] = mk(shared ? 1 : W, true), [oc, og] = mk(shared ? 1 : W), [ec, eg] = mk(shared ? 1 : W);
   const P = new THREE.Color(paint), A = new THREE.Color(accent);
   const rgb = (c, k = 1) => `rgb(${Math.min(255, c.r * 255 * k) | 0},${Math.min(255, c.g * 255 * k) | 0},${Math.min(255, c.b * 255 * k) | 0})`;
   const gray = (v) => `rgb(${v | 0},${v | 0},${v | 0})`;
@@ -361,6 +374,13 @@ function hullSet(paint, accent, faction, seed) {
     cg.fillStyle = `rgba(200,205,210,${r() * 0.18})`;
     cg.fillRect(r() * W, r() * W, 1 + r() * 14, 1);
   }
+  const tex = (c, srgb) => {
+    const t = new THREE.CanvasTexture(c);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+    return t;
+  };
+  if (shared) return { map: tex(cc, true), ...shared };
   // карта нормалей из карты высот (оператор Собеля)
   const hd = hg.getImageData(0, 0, W, W).data;
   const nd = hg.createImageData(W, W), nn = nd.data;
@@ -375,13 +395,9 @@ function hullSet(paint, accent, faction, seed) {
     nn[i] = (nx * 0.5 + 0.5) * 255; nn[i + 1] = (ny * 0.5 + 0.5) * 255; nn[i + 2] = (nz * 0.5 + 0.5) * 255; nn[i + 3] = 255;
   }
   const [nc, ng] = mk(); ng.putImageData(nd, 0, 0);
-  const tex = (c, srgb) => {
-    const t = new THREE.CanvasTexture(c);
-    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
-    return t;
-  };
-  return { map: tex(cc, true), normalMap: tex(nc, false), ormMap: tex(oc, false), emissiveMap: tex(ec, true) };
+  const common = { normalMap: tex(nc, false), ormMap: tex(oc, false), emissiveMap: tex(ec, true) };
+  hullShared.set(faction + ':' + accent + ':' + seed, common);
+  return { map: tex(cc, true), ...common };
 }
 
 // Раскладка UV «кубической проекцией» по нормали каждого треугольника — текстура не растягивается на корпусах
@@ -623,7 +639,7 @@ const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, da
 function pbrMat(paint, faction, opts = {}) {
   const key = paint + ':' + faction;
   if (matCache.has(key)) return matCache.get(key);
-  const set = hullSet(paint, FACTION_ACCENT[faction] || 0x2a8fd0, faction, (paint ^ strSeed(faction)) >>> 0);
+  const set = hullSet(paint, FACTION_ACCENT[faction] || 0x2a8fd0, faction, strSeed(faction) >>> 0);
   const m = new THREE.MeshPhysicalMaterial({
     map: set.map, normalMap: set.normalMap, normalScale: new THREE.Vector2(1.1, 1.1),
     roughnessMap: set.ormMap, metalnessMap: set.ormMap, roughness: 1, metalness: 1,
@@ -1945,9 +1961,9 @@ export function init(canvas) {
         if (L.z <= 0.001) return vec3(0.0);
         vec3 o = vec3(0.0);
         if (rays > 0.5) {
-          vec2 delta = (L.xy - vUv) / 40.0; vec2 uv = vUv; float decay = 1.0; float acc = 0.0;
-          for (int i = 0; i < 40; i++) { uv += delta; acc += max(lum(texture2D(tDiffuse, uv).rgb) - 1.2, 0.0) * decay; decay *= 0.955; }
-          o += col * acc * 0.03 * L.z / (1.0 + length((vUv - L.xy) * vec2(aspect, 1.0)) * 2.2);
+          vec2 delta = (L.xy - vUv) / 30.0; vec2 uv = vUv; float decay = 1.0; float acc = 0.0;
+          for (int i = 0; i < 30; i++) { uv += delta; acc += max(lum(texture2D(tDiffuse, uv).rgb) - 1.2, 0.0) * decay; decay *= 0.94; }
+          o += col * acc * 0.04 * L.z / (1.0 + length((vUv - L.xy) * vec2(aspect, 1.0)) * 2.2);
         }
         float v = vis(L.xy) * L.z;
         if (v > 0.002) {
@@ -2089,7 +2105,7 @@ export function frame(view, dt, time) {
   if (starField) starField.position.copy(camera.position);
   if (skyDome) skyDome.position.copy(camera.position);
 
-  if (view.docked) { godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; stationFrame(view, dt, time); return; }
+  if (view.docked) { godRays.enabled = false; stationFrame(view, dt, time); return; }
   if (stationView) { scene.remove(stationView); stationView = null; celGroup.visible = entGroup.visible = true; dust.visible = true; }
 
   // направление на звезду
@@ -2148,6 +2164,7 @@ export function frame(view, dt, time) {
 
   // лучи: до двух звёзд на экране
   godRays.uniforms.aspect.value = innerWidth / innerHeight;
+  godRays.enabled = rays.length > 0; // звёзд в кадре нет — проход не нужен вовсе
   for (let i = 0; i < 2; i++) {
     const L = godRays.uniforms['l' + i].value, r = rays[i];
     if (r) { L.set(r.x, r.y, r.w); godRays.uniforms['c' + i].value.set(r.c); } else L.set(0, 0, 0);
