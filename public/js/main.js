@@ -1848,6 +1848,18 @@ function savesHTML() {
     <table class="tbl">${rows}</table>
     <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>`;
 }
+// Экспорт сохранения: на claude.ai — через разрешение на скачивание, в обычном браузере — ссылкой
+async function exportSave() {
+  const filename = 'void-frontier-save-' + new Date().toISOString().slice(0, 10) + '.json', text = window.VF_SAVES.exportText();
+  const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename, data: text }); note('Сохранение экспортировано в файл', 'good'); }
+    catch (e) { note(e && e.code === 'declined' ? 'Экспорт отменён' : 'Экспорт недоступен здесь: ' + ((e && e.message) || ''), 'warn'); }
+    return;
+  }
+  const u = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const l = document.createElement('a'); l.href = u; l.download = filename; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
+}
 function applyCfg() {
   R.setQuality(CFG.quality);
   $('#ui').style.zoom = CFG.ui;
@@ -2118,7 +2130,7 @@ function onActionClick(e) {
     case 'slotSave': { const r = window.VF_SAVES.save(d.id); note(r.ok ? 'Игра сохранена' : 'Не удалось сохранить: ' + r.msg, r.ok ? 'good' : 'bad'); renderWin(); break; }
     case 'slotLoad': modal('<p>Загрузить это сохранение? Текущий прогресс будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => { const r = window.VF_SAVES.load(d.id); if (!r.ok) note(r.msg, 'bad'); }, 'primary']]); break;
     case 'slotDel': window.VF_SAVES.del(d.id); renderWin(); break;
-    case 'saveExport': { const blob = new Blob([window.VF_SAVES.exportText()], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = 'void-frontier-save-' + new Date().toISOString().slice(0, 10) + '.json'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); break; }
+    case 'saveExport': exportSave(); break;
     case 'storyBrief2': send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
