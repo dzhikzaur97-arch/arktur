@@ -701,7 +701,8 @@ function greebles(g, R, count, mat, region) {
 
 // Базовый радиус модели каждого корабля (модель строится в этих единицах, потом масштабируется)
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
-  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300 };
+  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
+  gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400 };
 
 
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
@@ -1005,6 +1006,81 @@ function buildShip(type, color, faction) {
       addLights(g, [[R * 0.44, R * 0.15, R * 0.9, R * 0.015], [-R * 0.44, R * 0.15, R * 0.9, R * 0.015], [R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [-R * 0.44, R * 0.15, -R * 0.4, R * 0.015], [0, R * 0.8, -R * 0.45, R * 0.015]], faction === 'guard' ? 0x80c0ff : 0xff2020);
       break;
     }
+    case 'gadyuka': {
+      // ракетный фрегат: стреловидный корпус, две ракетные кассеты по бортам, длинный нос с сенсором
+      fighterBase(g, R, M, D, eng, { guns: 0, long: 1.15 });
+      const pod = pbrMat(0x343a30, 'dark');
+      for (const sd of [1, -1]) {
+        add(rbox(R * 0.22, R * 0.16, R * 0.75), pod, sd * R * 0.48, R * 0.04, -R * 0.1);
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) add(new THREE.CylinderGeometry(R * 0.035, R * 0.035, R * 0.02, 8), glowMat(0xffa040, 1.6), sd * R * (0.42 + c * 0.06), R * (0.0 + r * 0.07), R * 0.28).rotation.x = Math.PI / 2;
+      }
+      add(new THREE.SphereGeometry(R * 0.06, 12, 8), glowMat(0x80ff80, 3), 0, R * 0.05, R * 1.7);
+      break;
+    }
+    case 'burya': {
+      // ракетный крейсер: массивный клиновидный корпус, вертикальные пусковые шахты на хребте, рубка
+      add(lathe(R * 2.1, R * 0.42, [[0, 0.7], [0.15, 1], [0.6, 0.95], [0.85, 0.6], [1, 0.1]], 8), M, 0, 0, 0, 1.5, 0.6, 1);
+      add(rbox(R * 0.7, R * 0.28, R * 1.1), M, 0, R * 0.22, -R * 0.15);
+      for (let i = 0; i < 6; i++) for (const sd of [1, -1]) {
+        add(rbox(R * 0.14, R * 0.08, R * 0.14), D, sd * R * 0.2, R * 0.4, R * (0.25 - i * 0.15));
+        add(new THREE.CircleGeometry(R * 0.04, 10), glowMat(0xff7030, 1.8), sd * R * 0.2, R * 0.441, R * (0.25 - i * 0.15)).rotation.x = -Math.PI / 2;
+      }
+      add(rbox(R * 0.3, R * 0.25, R * 0.3), M, 0, R * 0.48, -R * 0.65);
+      add(rbox(R * 0.32, R * 0.03, R * 0.1), glowMat(0xffd9a0, 1.4), 0, R * 0.5, -R * 0.5);
+      for (const sd of [1, -1]) { add(lathe(R * 1.0, R * 0.17, [[0, 0.7], [0.15, 1], [0.8, 1], [1, 0.4]], 14), M, sd * R * 0.62, -R * 0.05, -R * 0.45); addEngine(g, sd * R * 0.62, -R * 0.05, -R * 0.97, R * 0.14, eng); }
+      addEngine(g, 0, R * 0.05, -R * 1.05, R * 0.18, eng);
+      greebles(g, R, 40, D, [R * 0.9, R * 0.2, R * 1.4]);
+      addLights(g, [[R * 0.85, 0, -R * 0.2, R * 0.025], [-R * 0.85, 0, -R * 0.2, R * 0.025]], 0xff3020);
+      break;
+    }
+    case 'bastion': {
+      // линкор обороны: широкий бронированный корпус, щитовые пластины-«крылья», купола ПРО, ангар турелей
+      add(rbox(R * 0.9, R * 0.4, R * 1.9), M, 0, 0, 0);
+      add(rbox(R * 0.7, R * 0.32, R * 0.5), M, 0, -R * 0.03, R * 1.1).rotation.x = -0.12;
+      for (const sd of [1, -1]) {
+        const plate = add(rbox(R * 0.06, R * 0.42, R * 1.2), pbrMat(0x5a6068, 'dark'), sd * R * 0.56, R * 0.02, R * 0.1); plate.rotation.z = sd * 0.45;
+        for (const z of [0.6, 0, -0.6]) { add(new THREE.SphereGeometry(R * 0.11, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(), sd * R * 0.3, R * 0.2, R * z); }
+      }
+      add(rbox(R * 0.5, R * 0.2, R * 0.8), M, 0, R * 0.3, -R * 0.2);
+      add(rbox(R * 0.4, R * 0.12, R * 0.05), glowMat(0x60d0ff, 1.6), 0, -R * 0.15, R * 0.96);
+      for (let i = 0; i < 3; i++) for (const sd of [1, -1]) addTurret(g, sd * R * 0.22, R * 0.2, R * (0.7 - i * 0.45), R * 0.13, D);
+      add(rbox(R * 1.0, R * 0.55, R * 0.3), M, 0, 0, -R * 1.05);
+      for (const [x, y] of [[0.3, 0.12], [-0.3, 0.12], [0.3, -0.12], [-0.3, -0.12], [0, 0]]) addEngine(g, R * x, R * y, -R * 1.22, R * 0.11, eng);
+      greebles(g, R, 70, D, [R * 0.8, R * 0.22, R * 1.7]);
+      addLights(g, [[R * 0.7, R * 0.4, R * 0.7, R * 0.015], [-R * 0.7, R * 0.4, R * 0.7, R * 0.015], [0, R * 0.45, -R * 0.2, R * 0.015]], 0x60c0ff);
+      break;
+    }
+    case 'matka': {
+      // авианосец: длинная плоская палуба, ангарные проёмы с тёплым светом, островная надстройка
+      add(rbox(R * 0.75, R * 0.22, R * 2.1), M, 0, 0, 0);
+      add(rbox(R * 0.5, R * 0.3, R * 1.6), M, 0, -R * 0.22, -R * 0.1);
+      const bay = glowMat(0xffb070, 1.3);
+      for (const sd of [1, -1]) for (let i = 0; i < 5; i++) add(new THREE.PlaneGeometry(R * 0.26, R * 0.14), bay, sd * R * 0.376, -R * 0.02, R * (0.7 - i * 0.35)).rotation.y = sd * Math.PI / 2;
+      add(rbox(R * 0.18, R * 0.4, R * 0.45), M, R * 0.25, R * 0.3, -R * 0.35);
+      add(rbox(R * 0.2, R * 0.05, R * 0.3), glowMat(0xffd9a0, 1.4), R * 0.25, R * 0.42, -R * 0.3);
+      for (let i = 0; i < 9; i++) add(rbox(R * 0.02, R * 0.005, R * 0.1), glowMat(0x60ff90, 2), 0, R * 0.115, R * (0.9 - i * 0.2));
+      add(rbox(R * 0.85, R * 0.45, R * 0.3), M, 0, -R * 0.05, -R * 1.15);
+      for (const [x, y] of [[0.28, 0.1], [-0.28, 0.1], [0.28, -0.16], [-0.28, -0.16]]) addEngine(g, R * x, R * y, -R * 1.32, R * 0.11, eng);
+      greebles(g, R, 60, D, [R * 0.7, R * 0.14, R * 1.9]);
+      addLights(g, [[R * 0.4, R * 0.12, R * 1.0, R * 0.015], [-R * 0.4, R * 0.12, R * 1.0, R * 0.015]], 0xff3020);
+      break;
+    }
+    case 'fortress': {
+      // пиратская крепость: шипастое тёмное кольцо, центральная башня с красным оком, орудийные башни
+      const PM = pbrMat(0x3a2a28, 'pirate');
+      add(new THREE.TorusGeometry(R * 0.7, R * 0.09, 12, 64), PM, 0, 0, 0).rotation.x = Math.PI / 2;
+      add(lathe(R * 1.4, R * 0.25, [[0, 0.3], [0.2, 1], [0.6, 0.8], [0.9, 0.4], [1, 0.1]], 8), PM, 0, 0, 0).rotation.x = -Math.PI / 2;
+      add(new THREE.SphereGeometry(R * 0.08, 16, 12), glowMat(0xff2010, 4), 0, R * 0.42, 0);
+      for (let i = 0; i < 12; i++) {
+        const a = i * Math.PI / 6;
+        const sp = add(new THREE.ConeGeometry(R * 0.03, R * 0.35, 6), D, Math.cos(a) * R * 0.78, 0, Math.sin(a) * R * 0.78);
+        sp.rotation.z = -Math.PI / 2; sp.rotation.y = -a;
+        if (i % 2 === 0) addTurret(g, Math.cos(a) * R * 0.7, R * 0.09, Math.sin(a) * R * 0.7, R * 0.05, D);
+      }
+      for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.4; add(new THREE.CylinderGeometry(R * 0.012, R * 0.012, R * 0.7, 6), D, Math.cos(a) * R * 0.35, 0, Math.sin(a) * R * 0.35).rotation.z = Math.PI / 2; }
+      addLights(g, Array.from({ length: 16 }, (_, i) => [Math.cos(i / 16 * Math.PI * 2) * R * 0.82, 0, Math.sin(i / 16 * Math.PI * 2) * R * 0.82, R * 0.012]), 0xff2a10);
+      break;
+    }
     case 'begemot': {
       // SC-02 «Бегемот»: длинный индустриальный корпус, два спиральных бура на носу,
       // литейный цех с трубами и дымом в середине, кормовой блок с восемью двигателями
@@ -1217,6 +1293,7 @@ function asteroidModel(radius, seed, ore) {
 function stationModel(style) {
   if (style === 4) return solarStationModel();
   if (style === 5) return hubStationModel();
+  if (style === 6) return defenseStationModel();
   const T = sharedTextures();
   const g = new THREE.Group();
   const tint = [0xb8c0c8, 0xc8b8a0, 0xa8b8a8, 0xc89060][style || 0];
@@ -1338,6 +1415,26 @@ function hubStationModel() {
   greebles(g, 2400, 80, D, [1600, 900, 1600]);
   applyBoxUV(g, 450, false);
   g.userData.spinY = 0.01;
+  return g;
+}
+
+// Оборонная платформа: бронированный диск, четыре орудийные башни, купол ПРО и прожекторы
+function defenseStationModel() {
+  const g = new THREE.Group(), M = pbrMat(0x7a8490, 'station'), D = darkMetal();
+  const disk = new THREE.Mesh(new THREE.CylinderGeometry(2200, 2600, 700, 8), M); g.add(disk);
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(1400, 2000, 400, 8), M); top.position.y = 550; g.add(top);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(700, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x60c8ff, transparent: true, opacity: 0.35, emissive: 0x2080c0, emissiveIntensity: 0.8 }));
+  dome.position.y = 750; g.add(dome);
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + Math.PI / 4;
+    const tw = new THREE.Mesh(new THREE.CylinderGeometry(300, 380, 600, 10), M); tw.position.set(Math.cos(a) * 1900, 600, Math.sin(a) * 1900); g.add(tw);
+    addTurret(g, Math.cos(a) * 1900, 950, Math.sin(a) * 1900, 380, D);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2650, 60, 8, 64), glowMat(0x60c0ff, 2)); ring.rotation.x = Math.PI / 2; g.add(ring);
+  addLights(g, Array.from({ length: 8 }, (_, i) => [Math.cos(i / 8 * Math.PI * 2) * 2700, 0, Math.sin(i / 8 * Math.PI * 2) * 2700, 50]), 0xff4030);
+  greebles(g, 2400, 60, D, [2600, 300, 2600]);
+  applyBoxUV(g, 450, false);
+  g.userData.spinY = 0.006;
   return g;
 }
 
@@ -2009,7 +2106,7 @@ export function addFx(fx, view) {
     fxGroup.add(glow, core);
     const muzzle = sprite(col, 3); fxGroup.add(muzzle);
     const miss = fx.hit === false ? new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(entRadius(view, fx.to) * 8) : null;
-    fxList.push({ glow, core, muzzle, from: fx.from, to: fx.to, t: 0, dur: fx.dur || 1, kind: fx.k, miss });
+    fxList.push({ glow, core, muzzle, from: fx.from, to: fx.to, fromPos: fx.fromPos, t: 0, dur: fx.dur || 1, kind: fx.k, miss });
     if (fx.hit) {
       const p = entRel(view, fx.to, origin);
       if (p) {
@@ -2084,7 +2181,8 @@ function updateFx(view, dt, origin) {
     const k = f.t / f.dur;
     if (k >= 1) { disposeFx(f); fxList.splice(i, 1); continue; }
     if (f.glow) {
-      const a = entRel(view, f.from, origin), b = entRel(view, f.to, origin);
+      // выстрел со станции (оборонная платформа, крепость) задаётся абсолютной точкой
+      const a = entRel(view, f.from, origin) || (f.fromPos ? new THREE.Vector3(f.fromPos[0] - origin[0], f.fromPos[1] - origin[1], f.fromPos[2] - origin[2]) : null), b = entRel(view, f.to, origin);
       if (!a || !b) { f.t = f.dur; continue; }
       if (f.miss) b.add(f.miss);
       const mid = a.clone().add(b).multiplyScalar(0.5), d = a.distanceTo(b);
@@ -2175,6 +2273,40 @@ export function screenDir(x, y) {
   const v = new THREE.Vector3((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1, 0.5).unproject(camera);
   v.sub(camera.position).normalize();
   return [v.x, v.y, v.z];
+}
+
+// Портрет корабля для магазина: корабль крупным планом на фоне текущего неба (используется инструментами сборки)
+export function shipPortrait(type, w = 960, h = 523) {
+  const ps = new THREE.Scene();
+  // фон: тёмная туманность и звёзды
+  const bg = document.createElement('canvas'); bg.width = w; bg.height = h;
+  const c = bg.getContext('2d'), rr = seeded(type.length * 131);
+  const grd = c.createRadialGradient(w * 0.62, h * 0.4, 10, w * 0.6, h * 0.45, w * 0.75);
+  grd.addColorStop(0, '#1c2a4a'); grd.addColorStop(0.45, '#0c1428'); grd.addColorStop(1, '#03050b');
+  c.fillStyle = grd; c.fillRect(0, 0, w, h);
+  for (let i = 0; i < 22; i++) { const x = rr() * w, y = rr() * h, g2 = c.createRadialGradient(x, y, 0, x, y, 60 + rr() * 160); g2.addColorStop(0, `rgba(${80 + rr() * 80},${60 + rr() * 60},${140 + rr() * 90},0.10)`); g2.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g2; c.fillRect(0, 0, w, h); }
+  for (let i = 0; i < 700; i++) { const b = rr(); c.fillStyle = `rgba(255,255,255,${0.2 + b * 0.8})`; c.fillRect(rr() * w, rr() * h, b > 0.97 ? 2 : 1, b > 0.97 ? 2 : 1); }
+  const bgTex = new THREE.CanvasTexture(bg); bgTex.colorSpace = THREE.SRGBColorSpace;
+  ps.background = bgTex; ps.environment = scene.environment; ps.environmentIntensity = 0.9;
+  const t = SHIP_BASE_R[type] || 50;
+  const m = shipModel(type, 0x5a6068, t, 'player');
+  ps.add(m);
+  setEngines(m, 0.9, 1);
+  // кадрирование по габаритам модели
+  const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
+  const key = new THREE.DirectionalLight(0xfff1dc, 3.6); key.position.set(-size * 2, size * 1.6, size * 1.8); ps.add(key);
+  const rim = new THREE.DirectionalLight(0x6f8cff, 2.2); rim.position.set(size * 2, size * 0.4, -size * 2.2); ps.add(rim);
+  ps.add(new THREE.AmbientLight(0x9aa6c0, 0.55));
+  const cam = new THREE.PerspectiveCamera(30, w / h, size * 0.01, size * 100);
+  const dir = new THREE.Vector3(1.0, 0.42, 1.05).normalize();
+  cam.position.copy(ctr).addScaledVector(dir, size * 1.25); cam.lookAt(ctr);
+  const prev = renderer.getSize(new THREE.Vector2()), exp = renderer.toneMappingExposure;
+  renderer.setSize(w, h, false); renderer.toneMappingExposure = 1.35;
+  renderer.render(ps, cam);
+  const url = renderer.domElement.toDataURL('image/jpeg', 0.9);
+  renderer.setSize(prev.x, prev.y, false); renderer.toneMappingExposure = exp;
+  bgTex.dispose();
+  return url;
 }
 
 // Для отладки рендера из консоли браузера

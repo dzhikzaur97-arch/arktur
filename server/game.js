@@ -929,9 +929,9 @@ class Game {
         if (bs.npcs.size > 0 || this.now < bs.nextSpawn) continue;
         const group = [];
         if (sec >= 0.5) { for (let i = 0; i < 1 + (Math.random() < 0.5 ? 1 : 0); i++) group.push('raider'); }
-        else if (sec > 0) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) group.push('raider'); if (Math.random() < 0.5) group.push('reaper'); if (Math.random() < 0.4) group.push('hunter'); }
-        else if (sec <= -0.8) { group.push('warlord', 'reaper', 'reaper', 'hunter'); if (Math.random() < 0.25) group.push('dreadlord'); }
-        else { group.push('reaper', 'hunter'); if (Math.random() < 0.6) group.push('reaper'); group.push('raider', 'raider'); if (Math.random() < 0.2) group.push('warlord'); if (Math.random() < 0.05) group.push('dreadlord'); }
+        else if (sec > 0) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) group.push('raider'); if (Math.random() < 0.5) group.push('reaper'); if (Math.random() < 0.4) group.push('hunter'); if (Math.random() < 0.45) group.push('corsair'); }
+        else if (sec <= -0.8) { group.push('warlord', 'reaper', 'corsair', 'corsair', 'hunter'); if (Math.random() < 0.25) group.push('dreadlord'); if (Math.random() < 0.2) group.push('brood'); }
+        else { group.push('reaper', 'hunter', 'corsair'); if (Math.random() < 0.6) group.push('reaper'); group.push('raider', 'raider'); if (Math.random() < 0.2) group.push('warlord'); if (Math.random() < 0.08) group.push('brood'); if (Math.random() < 0.05) group.push('dreadlord'); }
         for (const type of group) {
           const e = this.spawnNpc(type, sysId, add(b.pos, [rnd(-15000, 15000), rnd(-3000, 3000), rnd(-15000, 15000)]));
           e.belt = b.id; e.home = b.pos;
@@ -1188,6 +1188,7 @@ class Game {
     this.storyTick();
     this.contractTick();
     this.infraTick();
+    this.piratesSlowTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1715,5 +1716,6 @@ require('./story')(Game);
 require('./contracts')(Game);
 require('./infra')(Game);
 require('./combat')(Game);
+require('./pirates')(Game);
 
 module.exports = { Game };

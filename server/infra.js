@@ -160,7 +160,7 @@ module.exports = function install(Game) {
     }
     p.credits -= cfg.buildCost;
     const n = this.infraOf(p, type).length + 1;
-    const st = { id: 'ps_' + uid(), type, owner: p.name, name: type === 'solar' ? `Солнечная станция «${p.name}»${n > 1 ? ' ' + n : ''}` : `Транспортный хаб «${p.name}»`,
+    const st = { id: 'ps_' + uid(), type, owner: p.name, name: type === 'solar' ? `Солнечная станция «${p.name}»${n > 1 ? ' ' + n : ''}` : type === 'defense' ? `Оборонная платформа «${p.name}»${n > 1 ? ' ' + n : ''}` : `Транспортный хаб «${p.name}»`,
       sys: e.sys, pos: e.pos.map(x => x + rnd(-1, 1) * 4000), level: 1, jobs: [], buildUntil: this.now + cfg.buildTime * 1000, created: this.now };
     if (type === 'solar') { st.acc = 0; st.produced = 0; }
     if (type === 'hub') { st.transports = []; st.routes = []; }
@@ -358,7 +358,9 @@ module.exports = function install(Game) {
     const stations = [...ids].filter(id => this.U.celestials[id]).map(id => ({ id, name: this.U.celestials[id].name, sys: this.U.celestials[id].sys }));
     const sys = s.ent ? this.U.systems[s.ent.sys] : null;
     const here = s.ent && sys ? { sys: sys.id, star: sys.celestials[0].star, au: Math.round(dist(s.ent.pos, sys.celestials[0].pos) / AU * 10) / 10 } : null;
-    s.send({ t: 'infra', cfg: { solar: INFRA.solar, hub: INFRA.hub, transports: INFRA.transports, starPower: STAR_POWER, routeItems: ROUTE_ITEMS, jumpCells: INFRA.jumpCells(p.ship.type) },
+    const defenses = this.infraOf(p, 'defense').map(st => ({ ...view(st), raid: !!st.raid }));
+    const raids = (this.db.structures || []).filter(x => x.owner === p.name && x.raid).map(x => ({ id: x.id, name: x.name, sys: x.sys, left: Math.max(0, x.raid.start + 90000 - this.now) }));
+    s.send({ t: 'infra', defenses, raids, cfg: { defense: INFRA.defense, solar: INFRA.solar, hub: INFRA.hub, transports: INFRA.transports, starPower: STAR_POWER, routeItems: ROUTE_ITEMS, jumpCells: INFRA.jumpCells(p.ship.type) },
       solars, hub, stations, here, now: this.now });
   };
 };

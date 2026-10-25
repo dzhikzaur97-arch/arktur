@@ -505,12 +505,13 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия'], missile: ['➹', 'Ракета'], turret: ['⛫', 'Турель']
 };
-const ANOM_TYPE = { contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
+const ANOM_TYPE = { fortress: 'Пиратская крепость', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
   if (o.kind === 'anomaly' && (o.akind === 'story' || o.akind === 'contract')) return '◈';
   if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
+  if (o.kind === 'anomaly' && o.akind === 'fortress') return '☠';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
@@ -627,6 +628,7 @@ function toggleModule(slot) {
 // ======================================================================
 const canvas = $('#scene');
 R.init(canvas);
+window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 applyCfg();
 let drag = null;
 canvas.addEventListener('mousedown', (e) => {
@@ -1059,7 +1061,7 @@ function updateBrackets() {
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' ? 'event' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' || o.akind === 'fortress' ? 'event' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -1742,7 +1744,7 @@ function checkTutorial() {
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
   if (p.training || Object.keys(p.skills).length) markTut('skill');
-  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event')) markTut('scan');
+  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event' && a.akind !== 'fortress')) markTut('scan');
   renderTutorial();
 }
 function renderTutorial() {
@@ -1780,8 +1782,8 @@ function pilotsHTML() {
 }
 function buildHTML() {
   const tab = S.buildTab || 0;
-  const tabs = `<div class="set-tabs">${['⚙ Завод', '☀ Энергия', '⇄ Логистика'].map((t, i) => `<button data-a="buildTab" data-id="${i}" class="${tab === i ? 'on' : ''}">${t}</button>`).join('')}</div>`;
-  return tabs + (tab === 0 ? refineryHTML() : tab === 1 ? solarHTML() : hubHTML());
+  const tabs = `<div class="set-tabs">${['⚙ Завод', '☀ Энергия', '⇄ Логистика', '🛡 Оборона'].map((t, i) => `<button data-a="buildTab" data-id="${i}" class="${tab === i ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  return tabs + (tab === 0 ? refineryHTML() : tab === 1 ? solarHTML() : tab === 2 ? hubHTML() : defenseHTML());
 }
 const STAR_NAME = { blue: 'голубая', white: 'белая', yellow: 'жёлтая', orange: 'оранжевая', red: 'красная', blackhole: 'чёрная дыра' };
 function solarHTML() {
@@ -1806,6 +1808,22 @@ function solarHTML() {
     ${h ? `<p>Здесь: звезда ${STAR_NAME[h.star]}, ${h.au} а.е. → станция ур.1 даст <b>${(lv[1].rate * k).toFixed(1)} ячеек/мин</b>.</p>` : ''}
     ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="buildInfra" data-id="solar" ${S.prof.credits < C.buildCost || I.solars.length >= C.max ? 'disabled' : ''}>Построить электростанцию здесь — ${isk(C.buildCost)}</button>`}
     <h3>Ваши электростанции</h3>${list || '<div class="muted">Пока нет.</div>'}`;
+}
+function defenseHTML() {
+  const I = S.infra;
+  if (!I || !I.cfg.defense) return '<div class="muted">Загрузка…</div>';
+  const C = I.cfg.defense, lv = C.levels, now = I.now + (performance.now() - (S.infraAt || 0));
+  const raids = (I.raids || []).map(r => `<div class="mission" style="border-left:3px solid var(--bad)"><div class="mt bad">⚠ Налёт на «${esc(r.name)}»</div><div>${esc(S.sysById[r.sys].name)} · ${r.left > 0 ? `грабёж склада через ${fmtTime(r.left / 1000)}` : 'склад грабят!'}</div>
+    ${S.sys && S.sys.id !== r.sys ? `<button data-a="route" data-sys="${r.sys}">Маршрут на защиту</button>` : ''}</div>`).join('');
+  const list = (I.defenses || []).map(st => { const next = lv[st.level + 1]; return `<div class="mission"><div class="mt">🛡 ${esc(st.name)} · ур. ${st.level}</div>
+    <div class="muted">${esc(S.sysById[st.sys].name)} · урон ${lv[st.level].dmg} за 1.5 с · радиус ${lv[st.level].range / 1000} км · сбивает ракеты рядом</div>
+    ${st.building ? `<div>Строится… ${fmtTime((st.building - I.now) / 1000)}</div>` : ''}
+    <div class="btn2">${next ? `<button data-a="infraUp" data-id="${st.id}">Улучшить до ${st.level + 1}: урон ${next.dmg}, радиус ${next.range / 1000} км — ${isk(next.cost)}</button>` : '<span class="sk-max">Максимальный уровень</span>'}</div></div>`; }).join('');
+  return `${raids}<p>Пираты Скверны совершают налёты на станции игроков в системах с безопасностью ниже 0.7: если за 90 секунд их не отбить, они выкачают четверть склада (энергоячейки, руду, материалы). <b>Оборонная платформа</b> сама бьёт пиратов и преступников в своём радиусе и сбивает ракеты, летящие в ваши корабли и постройки.</p>
+    <div class="kv"><span>Стоимость</span><span class="isk">${isk(C.buildCost)} · до ${C.max} платформ</span><span>Уровни</span><span>${lv.slice(1).map((l, i) => `ур.${i + 1}: ${l.dmg} урона, ${l.range / 1000} км`).join(' · ')}</span>
+    <span>Совет</span><span>ставьте платформу рядом со своими станциями — ближе 40 км; турели «Страж-Т» и дроны в режиме «Защита» помогут отбить налёт</span></div>
+    ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="buildInfra" data-id="defense" ${S.prof.credits < C.buildCost || (I.defenses || []).length >= C.max ? 'disabled' : ''}>Построить платформу здесь — ${isk(C.buildCost)}</button>`}
+    <h3>Ваши платформы</h3>${list || '<div class="muted">Пока нет.</div>'}`;
 }
 const TR_STATE = { idle: 'ожидает груз', moving: 'летит за грузом', hauling: 'везёт груз', repair: 'на ремонте' };
 function hubHTML() {

@@ -330,7 +330,7 @@ module.exports = function install(Game) {
 
   P.sendAnoms = function (s) {
     const sysId = s.ent ? s.ent.sys : this.playerSys(s.player);
-    const list = this.knownAnoms(s.player, sysId).map(a => ({ id: a.id, kind: 'anomaly', akind: a.kind, name: a.name, pos: a.pos, radius: 0, done: !!a.done }));
+    const list = this.knownAnoms(s.player, sysId).map(a => ({ id: a.id, kind: 'anomaly', akind: a.fortress ? 'fortress' : a.kind, name: a.name, pos: a.pos, radius: 0, done: !!a.done }));
     // контрабандисты видны всем в системе как метка для варпа
     for (const d of this.ents.values()) if (d.dealer && d.sys === sysId) list.push({ id: 'bm_' + d.id, dealer: d.id, kind: 'anomaly', akind: 'black', name: 'Чёрный рынок: ' + d.name, pos: d.pos, radius: 0 });
     s.send({ t: 'anoms', list });

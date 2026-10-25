@@ -97,7 +97,7 @@ module.exports = function install(Game) {
       return;
     }
     const hullFrac = e.hull / e.stats.hull;
-    if (!e.fled && hullFrac < 0.3 && e.scrambledUntil < this.now && Math.random() < 0.65) {
+    if (!e.fled && !e.fortress && hullFrac < 0.3 && e.scrambledUntil < this.now && Math.random() < 0.65) {
       const sys = this.U.systems[e.sys];
       const spots = sys.celestials.filter(c => (c.kind === 'planet' || c.kind === 'belt') && dist(c.pos, e.pos) > MIN_WARP * 3);
       if (spots.length) {
