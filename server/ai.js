@@ -418,7 +418,7 @@ module.exports = function install(Game) {
     }));
     for (const o of this.sessions) {
       const q = o.player;
-      list.push({ name: q.name, player: true, roleName: 'Игрок', ship: q.ship.type, sys: this.playerSys(q), credits: q.credits, kills: q.stats.kills + q.stats.npcKills, deaths: q.stats.deaths, worth: q.credits + SHIPS[q.ship.type].price });
+      list.push({ name: q.name, player: !q.bot, bot: !!q.bot, roleName: q.bot ? 'ИИ-ученик (обучается)' : 'Игрок', ship: q.ship.type, sys: this.playerSys(q), credits: q.credits, kills: q.stats.kills + q.stats.npcKills, deaths: q.stats.deaths, worth: q.credits + SHIPS[q.ship.type].price });
     }
     list.sort((a, b) => b.worth - a.worth);
     s.send({ t: 'aiList', list });

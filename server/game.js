@@ -41,7 +41,7 @@ class Game {
     this.beltState = {};
     this.initBelts();
     this.loadStructures();
-    this.initAI();
+    this.initAI(); this.initBots();
     this.rollPrices();
     setInterval(() => this.rollPrices(), 10 * 60 * 1000);
   }
@@ -383,7 +383,7 @@ class Game {
     const rl = sess.rl || (sess.rl = { t: 0, n: 0, warn: 0 });
     const sec = Math.floor(Date.now() / 1000);
     if (rl.t !== sec) { rl.t = sec; rl.n = 0; }
-    if (++rl.n > 40) { if (Date.now() - rl.warn > 10000) { rl.warn = Date.now(); if (sess.player) this.notify(sess, 'Слишком много запросов — часть команд отброшена', 'warn'); } return; }
+    if (++rl.n > 40 && !sess.isBot) { if (Date.now() - rl.warn > 10000) { rl.warn = Date.now(); if (sess.player) this.notify(sess, 'Слишком много запросов — часть команд отброшена', 'warn'); } return; }
     // идемпотентность: повтор команды с тем же tx (повторная отправка после сбоя) не исполняется второй раз
     // журнал tx хранится по пилоту, поэтому повтор после переподключения тоже отсекается
     if (typeof msg.tx === 'string' && msg.tx.length <= 40 && sess.player) {
@@ -1189,6 +1189,7 @@ class Game {
     this.contractTick();
     this.infraTick();
     this.piratesSlowTick();
+    this.botTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1642,6 +1643,7 @@ class Game {
       if (o.owner) {
         v.o = o.owner;
         const p = this.db.players[o.owner];
+        if (p.bot) v.lb = 1; // ИИ-ученик
         if (p.criminalUntil > this.now) v.cr = 1; else if (p.suspectUntil > this.now) v.su = 1;
       }
       if (viewer && (o.locks.has(viewer.id) || o.locking.has(viewer.id))) v.tg = 1; // нацелен на вас
@@ -1717,5 +1719,6 @@ require('./contracts')(Game);
 require('./infra')(Game);
 require('./combat')(Game);
 require('./pirates')(Game);
+require('./bot')(Game);
 
 module.exports = { Game };

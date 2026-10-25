@@ -1,3 +1,16 @@
+/* Обучение ИИ-пилотов */
+.bot-card { margin-bottom: 10px; }
+.bot-cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-top: 6px; }
+.q-row { display: grid; grid-template-columns: 150px 1fr 70px 34px; gap: 6px; align-items: center; font-size: 12px; }
+.q-bar { position: relative; height: 8px; background: rgba(255,255,255,.05); }
+.q-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: rgba(255,255,255,.3); }
+.q-bar i { position: absolute; top: 0; bottom: 0; }
+.q-bar i.pos { background: #4fd08a; } .q-bar i.neg { background: #e0604a; }
+.bot-log { font-size: 11px; max-height: 120px; overflow-y: auto; color: #b8c8d8; }
+.bot-log div { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.spark { display: block; background: rgba(0,20,40,.4); }
+body.mobile .bot-cols { grid-template-columns: 1fr; }
+
 :root {
   --bg: rgba(8, 14, 20, 0.82);
   --bg2: rgba(20, 32, 44, 0.85);

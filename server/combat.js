@@ -40,6 +40,9 @@ module.exports = function install(Game) {
     if (n.pd) e.modules.push({ id: n.pd, active: true, cycleEnd: 0, target: null, npcPd: true });
     if (n.swarm) e.swarmLeft = n.swarm;
     if (type === 'fortress') { e.fortress = true; e.npcSpeedMul = 0; }
+    // сила пиратов зависит от безопасности: в Ядре мягче (новичкам есть где учиться), на окраинах — жёстче
+    const sec = this.U.byId[sysId].sec;
+    e.npcDmgMul *= sec >= 0.8 ? 0.6 : sec >= 0.5 ? 0.8 : sec > 0 ? 1 : 1.2;
     return e;
   };
 

@@ -384,6 +384,7 @@ function onMsg(m) {
       break;
     case 'stationAdd': if (!S.stationById[m.station.id]) { S.data.stations.push(m.station); S.stationById[m.station.id] = m.station; } break;
     case 'dialog': showDialog(m); break;
+    case 'bots': S.bots = m; if (S.win === 'bots') renderWin(); break;
     case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -516,7 +517,7 @@ function iconOf(o) {
 }
 function typeOf(o) {
   if (o.kind === 'ship' && o.dl) return 'Контрабандист';
-  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.ai ? 'ИИ-пилот · ' : '') + (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
+  if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.lb ? 'ИИ-ученик · ' : '') + (o.ai ? 'ИИ-пилот · ' : '') + (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
   if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
   if (o.kind === 'drone') return o.o === S.name ? 'Ваш дрон' : 'Дрон: ' + o.o;
@@ -1411,10 +1412,11 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
+  if (name === 'bots' && S.win !== 'bots') send({ t: 'botInfo' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1442,6 +1444,7 @@ function renderWin() {
     return;
   }
   if (S.win === 'pilots') return setHTML(el, pilotsHTML());
+  if (S.win === 'bots') return setHTML(el, botsHTML());
 }
 onTap($('#win-body'), onActionClick);
 
@@ -1762,6 +1765,37 @@ onTap($('#tut'), (e) => { if (e.target.dataset.tut === 'hide') { tut.hidden = tr
 // Дроны
 // ======================================================================
 // ---------- Своя перерабатывающая станция ----------
+// Самообучающиеся ИИ-пилоты: что делают сейчас и чему научились (Q-оценки занятий, предпочтения, журнал)
+const BAND_NAME = { hi: 'безопасные (0.8+)', mid: 'средние (0.5–0.8)', low: 'опасные (<0.5)', calm: '0.5–0.8', edge: '0.3–0.5', wild: '<0.3', border: 'Пограничье', low_: 'Тёмный рубеж', null: 'Бездна' };
+const PHASE_NAME = { start: 'подготовка', travel: 'перелёт', belt: 'к поясу', mining: 'добыча', fight: 'бой', return: 'возвращение', sell: 'продажа', toCore: 'в Ядро за товаром', dockCore: 'стыковка', buy: 'закупка', clear: 'ищет место для стройки' };
+const bandName = (kind, b) => BAND_NAME[kind === 'trade' && b === 'low' ? 'low_' : b] || b;
+function sparkline(pts, w = 220, h = 40) {
+  if (!pts || pts.length < 2) return '';
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${((p[0] - x0) / (x1 - x0 || 1) * w).toFixed(1)},${(h - (p[1] - y0) / (y1 - y0 || 1) * (h - 4) - 2).toFixed(1)}`).join('');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><path d="${d}" fill="none" stroke="#4fd0ff" stroke-width="1.5"/></svg>`;
+}
+function botsHTML() {
+  const B = S.bots;
+  if (!B) return '<div class="muted">Загрузка…</div>';
+  if (!B.list.length) return '<div class="muted">ИИ-пилоты отключены на этом сервере.</div>';
+  const intro = `<p class="muted">Ученики — полноценные пилоты: летают, копают, воюют, торгуют, улучшают модули, покупают корабли и строят станции теми же командами, что и вы. Чем заняться, они решают сами и учатся на результатах: награда — рост капитала в минуту, гибель корабля — штраф. Чем больше опыта, тем реже они экспериментируют (ε).</p>`;
+  return intro + B.list.map(b => {
+    const mx = Math.max(1, ...b.table.map(r => Math.abs(r.q)));
+    const rows = b.table.map(r => `<div class="q-row"><span>${esc(r.name)}</span><span class="q-bar"><i class="${r.q < 0 ? 'neg' : 'pos'}" style="width:${Math.abs(r.q) / mx * 50}%;${r.q < 0 ? 'right:50%' : 'left:50%'}"></i></span><span class="r">${r.n ? num(r.q) : '—'}</span><span class="muted r">${r.n}×</span></div>`).join('');
+    const subs = Object.entries(b.sub).map(([k, arr]) => `<div class="small"><b>${{ mine: 'Где копать', hunt: 'Где охотиться', trade: 'Куда везти ячейки' }[k] || k}:</b> ${arr.map(x => `<span class="${x.q >= 0 ? 'req-ok' : 'bad'}">${esc(bandName(k, x.b))} ${x.n ? num(x.q) : '?'}</span>`).join(' · ')}</div>`).join('');
+    const hist = b.history.map(h => `<tr><td>${esc((B.actions[h.a] || {}).name || h.a)}${h.band ? ` <span class="muted">(${esc(bandName(h.a, h.band))})</span>` : ''}</td><td class="r">${h.mins} мин</td><td class="r ${h.r >= 0 ? 'req-ok' : 'bad'}">${num(h.r)}</td><td>${h.died ? '💥' : ''}</td></tr>`).join('');
+    const sys = S.sysById[b.sys];
+    return `<div class="mission bot-card"><div class="mt">🎓 ${esc(b.name)} ${b.online ? '<span class="req-ok small">в сети</span>' : '<span class="muted small">не в сети</span>'}</div>
+      <div class="muted">${b.ship ? esc(S.data.ships[b.ship].name) : '—'} · ${sys ? esc(sys.name) : '—'} · капитал <span class="isk">${isk(b.worth)}</span> · занятий ${b.episodes} · ε=${b.eps} · построек ${b.structures}</div>
+      <div>${b.doing ? `Сейчас: <b>${esc(b.doing.a)}</b>${b.doing.band ? ` (${esc(bandName(b.doing.aKey, b.doing.band))})` : ''} — ${esc(PHASE_NAME[b.doing.phase] || b.doing.phase)}, ${fmtTime(b.doing.secs)}` : 'Выбирает занятие…'}</div>
+      <div class="bot-cols"><div><div class="small muted">Ценность занятий (Q) в состоянии «${esc(b.state || '')}»</div>${rows}${subs}</div>
+      <div><div class="small muted">Капитал во времени</div>${sparkline(b.worthHist) || '<div class="muted small">Мало данных</div>'}
+      <div class="small muted" style="margin-top:6px">Мысли</div><div class="bot-log">${b.log.map(l => `<div>${esc(l.text)}</div>`).join('')}</div></div></div>
+      ${hist ? `<details><summary class="small">Последние занятия и награды</summary><table class="tbl">${hist}</table></details>` : ''}</div>`;
+  }).join('');
+}
+
 // Рейтинг пилотов: ИИ-капитаны (зарабатывают и строят себе корабли) и игроки онлайн
 const ROLE_ICON = { miner: '⛏', hunter: '✠', trader: '⚖', pirate: '☠' };
 function pilotsHTML() {
@@ -2446,6 +2480,7 @@ function loop(now) {
     if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (S.docked && S.stTab === 'factory') updateJobs();
+    if (S.win === 'bots' && now - (S.botReq || 0) > 3000) { S.botReq = now; send({ t: 'botInfo' }); }
     if (S.win === 'build' && (S.buildTab || 0) > 0 && now - (S.infraReq || 0) > 3000) { S.infraReq = now; send({ t: 'infraInfo' }); }
     if (S.win === 'black' && S.black) { const t = document.querySelector('.bm-timer'); if (t) t.textContent = fmtTime(Math.max(0, (S.black.expires - S.serverNow()) / 1000)); }
     if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }

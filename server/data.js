@@ -187,7 +187,7 @@ const ITEMS = {
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
   salv_relic:    { name: 'Древняя реликвия', cat: 'Трофеи', vol: 5, base: 40000 },
   courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true },
-  energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.2, base: 250, consumable: true },
+  energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.5, base: 250, consumable: true },
   msl_std:       { name: 'Ракета «Игла»', cat: 'Боеприпасы', vol: 0.5, base: 150, consumable: true },
   msl_torp:      { name: 'Торпеда «Гром»', cat: 'Боеприпасы', vol: 2.5, base: 1100, consumable: true },
   turret_kit:    { name: 'Развёртываемая турель «Страж-Т»', cat: 'Оборона', vol: 20, base: 45000, consumable: true }

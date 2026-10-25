@@ -59,13 +59,33 @@ module.exports = function install(Game) {
   };
 
   // ---------- энергоячейки в экономике ----------
+  // цена ячеек: вдали от Ядра дороже, но умеренно; массовые продажи насыщают рынок станции (восстанавливается со временем)
+  const regionK = (st) => 1 + 0.3 * (incomeOf(this_sys(st)) - 1);
+  let this_sys = null;
+  P.cellGlut = function (st) {
+    const g = this.cellSold || (this.cellSold = {}), r = g[st];
+    if (!r) return 0;
+    r.v *= Math.pow(0.5, (this.now - r.t) / (20 * 60000)); r.t = this.now; // половина «насыщения» уходит за 20 мин
+    return r.v;
+  };
   P.priceOf = function (st, item) {
     if (item !== 'energy_cell') return basePriceOf.call(this, st, item);
-    return Math.round(ITEMS.energy_cell.base * incomeOf(this.U.celestials[st].sys) * ((this.prices[st] || {})[item] || 1));
+    this_sys = (id) => this.U.celestials[id].sys;
+    return Math.round(ITEMS.energy_cell.base * regionK(st) * ((this.prices[st] || {})[item] || 1) / (1 + this.cellGlut(st) / 1500));
   };
   P.buyPriceOf = function (st, item) {
     if (item !== 'energy_cell') return baseBuyPriceOf.call(this, st, item);
-    return Math.round(ITEMS.energy_cell.base * 1.25 * incomeOf(this.U.celestials[st].sys));
+    this_sys = (id) => this.U.celestials[id].sys;
+    return Math.round(ITEMS.energy_cell.base * 1.15 * regionK(st));
+  };
+  const baseSell = P.c_sell;
+  P.c_sell = function (s, m, p) {
+    const before = (this.hangar(p, s.docked || p.home).items.energy_cell) || 0;
+    baseSell.call(this, s, m, p);
+    if (m.item === 'energy_cell' && s.docked) {
+      const sold = before - ((this.hangar(p, s.docked).items.energy_cell) || 0);
+      if (sold > 0) { this.cellGlut(s.docked); const g = this.cellSold[s.docked] || (this.cellSold[s.docked] = { v: 0, t: this.now }); g.v += sold; }
+    }
   };
   // расходники (энергоячейки, ракеты, торпеды, турели) продаются поштучно на любой станции
   P.c_buy = function (s, m, p) {
