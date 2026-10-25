@@ -104,6 +104,41 @@ const SHIPS = {
     cargo: 900, slots: { high: 8, mid: 5, low: 5 }, maxLocks: 7, lockRange: 80000, lockTime: 5,
     bonus: { damage: 0.35 }, desc: 'Летающая крепость. +35% урона, восемь орудийных портов.', req: { gunnery: 4, shields: 2 }
   },
+  gadyuka: {
+    name: 'Гадюка', cls: 'Ракетный фрегат', price: 95000, color: 0x3d4a3a,
+    maxSpeed: 360, align: 3, warpSpeed: 5, sig: 38, radius: 42,
+    shield: 520, armor: 420, hull: 460, cap: 380, capRegen: 9,
+    cargo: 250, slots: { high: 3, mid: 2, low: 2 }, maxLocks: 3, lockRange: 40000, lockTime: 2,
+    bonus: { missile: 0.3 }, desc: 'Быстрый ракетный фрегат: +30% урона ракет. Бьёт издалека и уходит.', req: { gunnery: 1 }
+  },
+  burya: {
+    name: 'Буря', cls: 'Ракетный крейсер', price: 780000, color: 0x46423a,
+    maxSpeed: 230, align: 6, warpSpeed: 3, sig: 140, radius: 105,
+    shield: 3200, armor: 2600, hull: 2800, cap: 1600, capRegen: 22,
+    cargo: 600, slots: { high: 5, mid: 4, low: 3 }, maxLocks: 5, lockRange: 60000, lockTime: 3,
+    bonus: { missile: 0.35, missileSpeed: 0.25 }, desc: 'Ракетный крейсер: +35% урона и +25% скорости ракет. Встроенный запас ракет на 3 залпа больше.', req: { gunnery: 3 }
+  },
+  bastion: {
+    name: 'Бастион', cls: 'Линкор обороны', price: 4200000, color: 0x4a5058,
+    maxSpeed: 105, align: 13, warpSpeed: 1.8, sig: 420, radius: 280,
+    shield: 16000, armor: 18000, hull: 14000, cap: 6000, capRegen: 60,
+    cargo: 1500, slots: { high: 6, mid: 6, low: 4 }, maxLocks: 6, lockRange: 70000, lockTime: 5,
+    bonus: { turrets: 3, turretDmg: 0.5, pd: 0.5 }, desc: 'Линкор обороны: +3 развёртываемые турели, урон турелей +50%, ПРО перезаряжается вдвое быстрее. Держит позицию, пока союзники работают.', req: { gunnery: 4, shields: 3 }
+  },
+  matka: {
+    name: 'Матка', cls: 'Авианосец', price: 6500000, color: 0x45484e,
+    maxSpeed: 95, align: 15, warpSpeed: 1.6, sig: 480, radius: 300,
+    shield: 14000, armor: 15000, hull: 15000, cap: 5500, capRegen: 55,
+    cargo: 1200, slots: { high: 3, mid: 6, low: 5 }, maxLocks: 8, lockRange: 80000, lockTime: 5,
+    bonus: { drones: 0.6 }, desc: 'Авианосец: отсек на 800 м³ и до 10 дронов в космосе одновременно, +60% урона дронов.', req: { drones: 4, gunnery: 2 }
+  },
+  fortress: {
+    name: 'Пиратская крепость', cls: 'Станция Скверны', price: 0, color: 0x3a2a28,
+    maxSpeed: 0, align: 99, warpSpeed: 0, sig: 6000, radius: 2400,
+    shield: 120000, armor: 140000, hull: 160000, cap: 99999, capRegen: 999,
+    cargo: 0, slots: { high: 0, mid: 0, low: 0 }, maxLocks: 8, lockRange: 90000, lockTime: 2,
+    desc: 'Укреплённая база Скверны. Орудийные башни, ракетные батареи и ПРО. В одиночку не взять.'
+  },
   begemot: {
     name: 'Бегемот', cls: 'Индустриальный дредноут', price: 18000000, color: 0x3a3c40, code: 'SC-02',
     maker: 'Орион-Хэви-Индастриз', length: 4200, crew: '450 + 1500 технологов',
@@ -152,7 +187,10 @@ const ITEMS = {
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
   salv_relic:    { name: 'Древняя реликвия', cat: 'Трофеи', vol: 5, base: 40000 },
   courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true },
-  energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.2, base: 250 }
+  energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.2, base: 250, consumable: true },
+  msl_std:       { name: 'Ракета «Игла»', cat: 'Боеприпасы', vol: 0.5, base: 150, consumable: true },
+  msl_torp:      { name: 'Торпеда «Гром»', cat: 'Боеприпасы', vol: 2.5, base: 1100, consumable: true },
+  turret_kit:    { name: 'Развёртываемая турель «Страж-Т»', cat: 'Оборона', vol: 20, base: 45000, consumable: true }
 };
 // Элитные модули — только на чёрном рынке
 Object.assign(MODULES, {
@@ -163,6 +201,15 @@ Object.assign(MODULES, {
   dmg_x:    { name: 'Нейроусилитель «Ярость»', slot: 'low', kind: 'passive', price: 480000, passive: { damage: 0.3 }, vol: 5, elite: true },
   speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true }
 });
+// Ракеты, ПРО: ракеты — отдельные снаряды (летят, их можно сбить), урон зависит от сигнатуры цели
+Object.assign(MODULES, {
+  ml_light: { name: 'Ракетная установка «Игла»', slot: 'high', kind: 'launcher', price: 14000, dmg: 70, cycle: 5, cap: 3, range: 32000, speed: 3200, explR: 60, ammo: 'msl_std', color: 0xffa040, vol: 5 },
+  ml_heavy: { name: 'Торпедный аппарат «Гром»', slot: 'high', kind: 'launcher', price: 110000, dmg: 380, cycle: 12, cap: 8, range: 45000, speed: 1700, explR: 320, ammo: 'msl_torp', color: 0xff5020, vol: 20 },
+  ml_x:     { name: 'Ракетный рой «Шторм»', slot: 'high', kind: 'launcher', price: 560000, dmg: 90, cycle: 6, cap: 6, range: 38000, speed: 3800, explR: 70, salvo: 3, ammo: 'msl_std', color: 0xff70d0, vol: 10, elite: true },
+  pd_1:     { name: 'Система ПРО «Заслон»', slot: 'mid', kind: 'pd', price: 18000, cycle: 1.5, cap: 4, range: 7000, shots: 1, vol: 5 },
+  pd_2:     { name: 'Тяжёлая ПРО «Купол»', slot: 'mid', kind: 'pd', price: 90000, cycle: 1.2, cap: 8, range: 12000, shots: 2, vol: 15 }
+});
+
 // ---------- Улучшение модулей до 5 уровня ----------
 // Каждый уровень — отдельный предмет «<id>_l<N>»: его можно ставить, хранить, продавать и выставлять на биржу,
 // поэтому весь остальной код работает с ним как с обычным модулем.
@@ -227,7 +274,8 @@ Object.assign(ITEMS, {
 });
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
 const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
-  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5] };
+  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5],
+  gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
 
 // Какие руды встречаются при данном уровне безопасности
@@ -241,17 +289,24 @@ function oresForSec(sec) {
 
 // ---------- Пираты ----------
 const NPCS = {
-  raider: { name: 'Рейдер Скверны', ship: 'klinok', bounty: 9000, dmgMul: 0.55, hpMul: 0.7, weapon: 'laser_s', guns: 2, speedMul: 0.9,
+  raider: { name: 'Рейдер Скверны', ship: 'klinok', bounty: 9000, dmgMul: 0.8, hpMul: 0.7, weapon: 'laser_s', guns: 2, speedMul: 0.9,
             loot: [['salv_scrap', 0.7, 1, 3], ['salv_core', 0.08, 1, 1]] },
-  reaper: { name: 'Жнец Скверны', ship: 'strazh', bounty: 45000, dmgMul: 0.5, hpMul: 0.8, weapon: 'rail_s', guns: 3, speedMul: 0.9,
+  reaper: { name: 'Жнец Скверны', ship: 'strazh', bounty: 45000, dmgMul: 0.75, hpMul: 0.9, weapon: 'rail_s', guns: 3, speedMul: 0.9, launchers: ['ml_light'],
             loot: [['salv_scrap', 0.9, 2, 6], ['salv_core', 0.3, 1, 2], ['laser_m', 0.1, 1, 1]] },
-  hunter: { name: 'Охотник Скверны', ship: 'vihr', bounty: 28000, dmgMul: 0.5, hpMul: 0.75, weapon: 'laser_s', guns: 4, speedMul: 0.9,
+  hunter: { name: 'Охотник Скверны', ship: 'vihr', bounty: 28000, dmgMul: 0.75, hpMul: 0.8, weapon: 'laser_s', guns: 4, speedMul: 0.9,
             loot: [['salv_scrap', 0.9, 1, 4], ['salv_core', 0.2, 1, 1], ['laser_s', 0.15, 1, 1]] },
-  dreadlord: { name: 'Владыка Скверны', ship: 'citadel', bounty: 750000, dmgMul: 0.5, hpMul: 0.8, weapon: 'rail_l', guns: 4, speedMul: 0.8,
+  dreadlord: { name: 'Владыка Скверны', ship: 'citadel', bounty: 750000, dmgMul: 0.8, hpMul: 1, weapon: 'rail_l', guns: 4, speedMul: 0.8, launchers: ['ml_heavy', 'ml_light'], pd: 'pd_1',
             loot: [['salv_relic', 1, 1, 3], ['salv_core', 1, 3, 6], ['rail_l', 0.5, 1, 2], ['shield_booster_l', 0.4, 1, 1], ['drone_heavy', 0.4, 1, 2]] },
-  outlaw: { name: 'Преступник', ship: 'klinok', bounty: 60000, dmgMul: 0.7, hpMul: 0.9, weapon: 'laser_m', guns: 3, speedMul: 1,
+  outlaw: { name: 'Преступник', ship: 'klinok', bounty: 60000, dmgMul: 0.95, hpMul: 1, weapon: 'laser_m', guns: 3, speedMul: 1,
             loot: [['salv_core', 0.6, 1, 2], ['salv_scrap', 0.8, 2, 5], ['laser_m', 0.25, 1, 1], ['afterburner', 0.25, 1, 1], ['drone_light', 0.3, 1, 2]] },
-  warlord:{ name: 'Полководец Скверны', ship: 'molot', bounty: 220000, dmgMul: 0.55, hpMul: 1, weapon: 'rail_l', guns: 3, speedMul: 0.8,
+  corsair:{ name: 'Корсар Скверны', ship: 'gadyuka', bounty: 35000, dmgMul: 0.85, hpMul: 0.9, weapon: 'ml_light', guns: 3, speedMul: 1.05,
+            loot: [['msl_std', 0.8, 10, 40], ['salv_core', 0.3, 1, 2], ['ml_light', 0.15, 1, 1]] },
+  brood:  { name: 'Матка Скверны', ship: 'matka', bounty: 400000, dmgMul: 0.7, hpMul: 0.6, weapon: 'laser_m', guns: 2, speedMul: 0.9, swarm: 6, pd: 'pd_1',
+            loot: [['salv_core', 1, 3, 6], ['drone_heavy', 0.5, 1, 3], ['salv_relic', 0.4, 1, 2], ['pd_2', 0.2, 1, 1]] },
+  swarm:  { name: 'Рой Скверны', ship: 'strizh', bounty: 3000, dmgMul: 0.6, hpMul: 0.4, weapon: 'laser_s', guns: 1, speedMul: 1.3, loot: [['salv_scrap', 0.3, 1, 1]] },
+  fortress:{ name: 'Пиратская крепость', ship: 'fortress', bounty: 4000000, dmgMul: 1, hpMul: 1, weapon: 'rail_l', guns: 6, speedMul: 0, launchers: ['ml_heavy', 'ml_heavy', 'ml_light', 'ml_light'], pd: 'pd_2',
+            loot: [['salv_relic', 1, 4, 8], ['salv_core', 1, 8, 15], ['laser_x', 0.3, 1, 1], ['rail_x', 0.3, 1, 1], ['ml_x', 0.4, 1, 1], ['shield_x', 0.25, 1, 1], ['mat_xcore', 1, 3, 8]] },
+  warlord:{ name: 'Полководец Скверны', ship: 'molot', bounty: 220000, dmgMul: 0.85, hpMul: 1.15, weapon: 'rail_l', guns: 3, speedMul: 0.8, launchers: ['ml_light', 'ml_light'], pd: 'pd_1',
             loot: [['salv_core', 1, 2, 5], ['salv_relic', 0.3, 1, 1], ['rail_l', 0.2, 1, 1], ['shield_booster_l', 0.2, 1, 1]] }
 };
 

@@ -456,7 +456,7 @@ class Game {
   c_lock(s, m, p, e) {
     if (!e || e.warp) return;
     const t = this.ents.get(m.id);
-    if (!t || t.sys !== e.sys || t === e || !['ship', 'asteroid', 'wreck', 'drone'].includes(t.type)) return;
+    if (!t || t.sys !== e.sys || t === e || !['ship', 'asteroid', 'wreck', 'drone', 'turret'].includes(t.type)) return;
     if (t.dealer) return this.notify(s, 'Контрабандиста нельзя захватить — подлетите и нажмите «Торговать»', 'warn');
     if (t.civ && this.U.byId[e.sys].sec >= 0.5) return this.notify(s, 'Гражданское судно под защитой Стражей — захват невозможен', 'warn');
     if (e.locks.has(t.id) || e.locking.has(t.id)) return;
@@ -478,11 +478,11 @@ class Game {
     const def = MODULES[mod.id];
     if (def.kind === 'passive') return;
     if (mod.active) { mod.active = false; return; }
-    if (['weapon', 'miner', 'scram'].includes(def.kind)) {
+    if (['weapon', 'miner', 'scram', 'launcher'].includes(def.kind)) {
       const t = this.ents.get(m.target);
       if (!t || !e.locks.has(t.id)) return this.notify(s, 'Нужна захваченная цель', 'warn');
       if (def.kind === 'miner' && t.type !== 'asteroid') return this.notify(s, 'Буровой лазер работает только по астероидам', 'warn');
-      if (def.kind !== 'miner' && t.type !== 'ship') return this.notify(s, 'Цель должна быть кораблём', 'warn');
+      if (def.kind !== 'miner' && t.type !== 'ship' && t.type !== 'turret') return this.notify(s, 'Цель должна быть кораблём', 'warn');
       const range = def.kind === 'weapon' ? def.optimal + def.falloff * 2 : def.range;
       if (this.surfaceDist(e, t) > range) return this.notify(s, `Цель слишком далеко (дальность ${(range / 1000).toFixed(1)} км)`, 'warn');
       if (t.type === 'ship' && t.owner && e.owner && !this.canAttack(e, t, s, m.confirm)) return;
@@ -742,6 +742,8 @@ class Game {
     const now = this.now;
     for (const e of this.ents.values()) {
       if (e.type === 'drone') { this.droneTick(e); if (this.ents.has(e.id)) this.physics(e, dt); continue; }
+      if (e.type === 'missile') { this.missileTick(e, dt); continue; }
+      if (e.type === 'turret') { this.turretTick(e); continue; }
       if (e.type !== 'ship') {
         if (e.type === 'wreck' && e.expires < now) this.removeEntity(e);
         continue;
@@ -1139,7 +1141,7 @@ class Game {
       else if (e.cmd.type !== 'orbit') { e.cmd = { type: 'stop' }; }
       return;
     }
-    const def = MODULES[e.modules[0].id];
+    const def0 = MODULES[e.modules[0].id], def = def0.kind === 'launcher' ? { optimal: def0.range * 0.6, falloff: def0.range * 0.3 } : def0; // ракетчики держат дистанцию
     if (e.cmd.type !== 'orbit' || e.cmd.target !== t.id) e.cmd = { type: 'orbit', target: t.id, range: def.optimal * 0.6 };
     if (!e.locks.has(t.id) && !e.locking.has(t.id)) e.locking.set(t.id, this.now + 2500);
     if (e.locks.has(t.id)) {
@@ -1251,7 +1253,8 @@ class Game {
     const orders = this.db.orders.map(o => ({ ...o, stationName: this.U.celestials[o.station].name, sysName: this.U.byId[this.U.celestials[o.station].sys].name }));
     const drones = {};
     for (const id of Object.keys(DRONES)) if (!DRONES[id].elite) drones[id] = this.buyPriceOf(st, id);
-    s.send({ t: 'market', sell, buy, drones, ships, tax, orders, cell: this.buyPriceOf(st, 'energy_cell') });
+    s.send({ t: 'market', sell, buy, drones, ships, tax, orders, cell: this.buyPriceOf(st, 'energy_cell'),
+      consumables: Object.fromEntries(Object.keys(ITEMS).filter(id => ITEMS[id].consumable).map(id => [id, this.buyPriceOf(st, id)])) });
   }
 
   c_sell(s, m, p) {
@@ -1675,6 +1678,7 @@ class Game {
         mods: e.modules.map(m => m ? { id: m.id, a: m.active, s: m.cycleStart || 0, e: m.cycleEnd, t: m.target, d: m.damagedUntil > this.now ? m.damagedUntil : 0 } : null),
         heat: Math.round(e.heat || 0), oh: e.overheatUntil > this.now ? e.overheatUntil : 0, eng: e.hull < e.stats.hull * 0.35 ? 1 : 0,
         scram: e.scrambledUntil > this.now, ap: e.autopilot ? e.autopilot.dest : null,
+        msl: [...this.ents.values()].filter(x => x.type === 'missile' && x.target === e.id).length, dm: e.droneMode || s.player.droneMode || 'defensive',
         invuln: e.invulnUntil > this.now,
         scan: e.scanUntil > this.now ? (this.now - e.scanStart) / (e.scanUntil - e.scanStart) : null
       };
@@ -1710,5 +1714,6 @@ require('./ai')(Game);
 require('./story')(Game);
 require('./contracts')(Game);
 require('./infra')(Game);
+require('./combat')(Game);
 
 module.exports = { Game };

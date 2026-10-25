@@ -67,15 +67,20 @@ module.exports = function install(Game) {
     if (item !== 'energy_cell') return baseBuyPriceOf.call(this, st, item);
     return Math.round(ITEMS.energy_cell.base * 1.25 * incomeOf(this.U.celestials[st].sys));
   };
+  // расходники (энергоячейки, ракеты, торпеды, турели) продаются поштучно на любой станции
   P.c_buy = function (s, m, p) {
-    if (m.item !== 'energy_cell') return baseBuy.call(this, s, m, p);
+    if (!ITEMS[m.item] || !ITEMS[m.item].consumable) return baseBuy.call(this, s, m, p);
     const st = this.requireDocked(s); if (!st) return;
     const qty = Math.max(1, Math.min(100000, Math.floor(+m.qty) || 1));
-    const cost = this.buyPriceOf(st, 'energy_cell') * qty;
+    const cost = this.buyPriceOf(st, m.item) * qty;
     if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
     p.credits -= cost;
-    const h = this.hangar(p, st); h.items.energy_cell = (h.items.energy_cell || 0) + qty;
-    this.notify(s, `Куплено энергоячеек: ${fmt(qty)} за ${fmt(cost)} ISK (в ангаре станции)`, 'good');
+    // сразу в трюм, если влезает, иначе в ангар
+    const stats = this.calcStats(p, p.ship), free = stats.cargo - this.cargoUsed(p.ship.cargo);
+    const toCargo = Math.min(qty, Math.floor(free / ITEMS[m.item].vol + 1e-9));
+    if (toCargo) p.ship.cargo[m.item] = (p.ship.cargo[m.item] || 0) + toCargo;
+    if (qty > toCargo) { const h = this.hangar(p, st); h.items[m.item] = (h.items[m.item] || 0) + qty - toCargo; }
+    this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${fmt(qty)} за ${fmt(cost)} ISK${toCargo === qty ? ' (в трюме)' : toCargo ? ` (${fmt(toCargo)} в трюме, остальное в ангаре)` : ' (в ангаре)'}`, 'good');
     this.sendProfile(s); this.c_market(s, m, p);
   };
 

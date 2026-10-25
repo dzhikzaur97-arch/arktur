@@ -1371,6 +1371,40 @@ function gateModel() {
   return g;
 }
 
+// Ракета: корпус, стабилизаторы, светящийся факел двигателя; торпеда крупнее
+function missileModel(color, torp) {
+  const key = 'missile:' + color + ':' + (torp ? 1 : 0);
+  if (!shipCache.has(key)) {
+    const g = new THREE.Group(), R = torp ? 14 : 7;
+    const M = pbrMat(0x9aa0a8, 'dark');
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.35, R * 0.35, R * 3, 10), M); body.rotation.x = Math.PI / 2; g.add(body);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(R * 0.35, R * 0.9, 10), glowMat(color, 1.5)); nose.rotation.x = Math.PI / 2; nose.position.z = R * 1.9; g.add(nose);
+    for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.BoxGeometry(R * 0.06, R * 0.9, R * 0.6), darkMetal()); f.rotation.z = i * Math.PI / 2; f.translateY(R * 0.45); f.position.z = -R * 1.2; g.add(f); }
+    addEngine(g, 0, 0, -R * 1.6, R * 0.3, color, 1.6);
+    shipCache.set(key, g);
+  }
+  return shipCache.get(key).clone();
+}
+// Развёртываемая турель: опорная платформа, вращающаяся башня со спаренными стволами, огни
+function turretModel() {
+  const key = 'turret';
+  if (!shipCache.has(key)) {
+    const g = new THREE.Group(), R = 45;
+    const M = pbrMat(0x6a7480, 'player'), D = darkMetal();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.9, R * 1.1, R * 0.5, 8), M); g.add(base);
+    for (let i = 0; i < 3; i++) { const leg = new THREE.Mesh(new THREE.BoxGeometry(R * 0.15, R * 0.15, R * 1.6), D); leg.rotation.y = i * Math.PI * 2 / 3; leg.translateZ(R * 0.9); leg.position.y = -R * 0.2; g.add(leg); }
+    const head = new THREE.Group();
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.55, 16, 10), M));
+    for (const sd of [1, -1]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.08, R * 0.1, R * 1.6, 8), D); b.rotation.x = Math.PI / 2; b.position.set(sd * R * 0.22, 0, R * 0.9); head.add(b); }
+    head.position.y = R * 0.6; g.add(head); g.userData.head = head;
+    addLights(g, [[R, 0, 0, R * 0.08], [-R, 0, 0, R * 0.08]], 0x60d0ff);
+    shipCache.set(key, g);
+  }
+  const o = shipCache.get(key).clone();
+  o.userData.head = o.children.find(c => c.type === 'Group');
+  return o;
+}
+
 function wreckModel(radius) {
   const g = new THREE.Group();
   const D = darkMetal();
@@ -1708,6 +1742,8 @@ function makeEnt(e, data) {
   } else if (e.k === 'd') obj = droneModel(e.item);
   else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
   else if (e.k === 'w') obj = wreckModel(e.r || 60);
+  else if (e.k === 'm') obj = missileModel(e.c || 0xffa040, e.tp);
+  else if (e.k === 't') obj = turretModel();
   else return null;
   entGroup.add(obj);
   const rec = { obj, kind: e.k, seen: 0 };
@@ -1826,7 +1862,12 @@ export function frame(view, dt, time) {
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1, time);
-    } else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
+    } else if (e.k === 'm') {
+      if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
+      setEngines(rec.obj, 1.2, time);
+      if (quality !== 'low' && Math.hypot(...rel) < 80000) updateTrail(e.id, e.dp, e.dh || e.h || [0, 0, 1], e.tp ? 14 : 8, 1, e.c || 0xffa040, origin, time, false);
+    } else if (e.k === 't') { const head = rec.obj.userData.head; if (head) head.rotation.y = time * 0.6; setEngines(rec.obj, 0.2, time); }
+    else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
     else if (e.k === 'w') rec.obj.userData.flicker.material.opacity = 0.5 + 0.5 * Math.random();
   }
   for (const [id, rec] of [...entMeshes]) if (!rec.seen) removeEnt(id);

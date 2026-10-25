@@ -57,7 +57,7 @@ module.exports = function install(Game) {
     let best = null, bestScore = 0;
     for (const o of this.ents.values()) {
       if (o.sys !== e.sys || o === e || o.warp) continue;
-      if (o.type !== 'ship' && o.type !== 'drone') continue;
+      if (o.type !== 'ship' && o.type !== 'drone' && o.type !== 'turret') continue;
       if (o.npc || o.guardian || o.dealer) continue;
       if (o.invulnUntil && o.invulnUntil > this.now) continue;
       if (o.civ && sec >= 0.5) continue; // в безопасных системах гражданских не трогают
@@ -136,7 +136,7 @@ module.exports = function install(Game) {
     if (!t) return baseAiTick.call(this, Object.assign(e, { nextThink: 0 })); // бродить / возвращаться домой
 
     // дистанция под своё оружие: дальнобойные держат дистанцию, ближние кружат
-    const def = MODULES[e.modules[0].id];
+    const def0 = MODULES[e.modules[0].id], def = def0.kind === 'launcher' ? { optimal: def0.range * 0.6, falloff: def0.range * 0.3 } : def0; // ракетчики держат дистанцию
     const d = this.surfaceDist(e, t);
     const longRange = def.optimal >= 20000;
     const want = def.optimal * (longRange ? 0.8 : 0.5);
@@ -151,8 +151,11 @@ module.exports = function install(Game) {
     if (!e.locks.has(t.id) && !e.locking.has(t.id)) e.locking.set(t.id, this.now + 2000);
     if (e.locks.has(t.id)) {
       for (const m of e.modules) {
+        const md = MODULES[m.id];
+        if (md.kind === 'pd') continue; // ПРО работает сама
         if (m.target !== t.id) m.active = false;
-        if (!m.active && d < def.optimal + def.falloff) { m.target = t.id; m.active = true; if (this.now >= m.cycleEnd) this.startCycle(e, m); }
+        const range = md.kind === 'launcher' ? md.range * 0.9 : md.optimal + md.falloff;
+        if (!m.active && d < range) { m.target = t.id; m.active = true; if (this.now >= m.cycleEnd) this.startCycle(e, m); }
       }
     }
     // подкрепление, если группа несёт потери

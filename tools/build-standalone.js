@@ -9,7 +9,7 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
 
 // --- серверные модули в мини-загрузчике CommonJS ---
-const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(`server/${name}.js`)}\n}`).join(',\n');
 
 const serverBundle = `

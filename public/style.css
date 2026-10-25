@@ -565,3 +565,7 @@ button.upg { border-color: #4a8; color: #8fd; margin-right: 4px; }
 .route-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; margin-top: 6px; }
 .route-form label { display: flex; flex-direction: column; font-size: 11px; gap: 2px; }
 .route-form select { max-width: 200px; }
+
+#hud-status .msl { animation: thr .5s infinite alternate; }
+.dr-mode button { font-size: 10px; }
+.dr-mode button.on { border-color: var(--accent); color: var(--accent); }
