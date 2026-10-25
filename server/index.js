@@ -11,9 +11,19 @@ const ROOT = path.join(__dirname, '..');
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, 'data', 'db.json');
 const TICK = 100; // мс, 10 тиков в секунду
 
+// Загрузка: основной файл → резервная копия. Повреждённый файл не перезаписывается, а откладывается в сторону.
 let db = { players: {}, orders: [] };
-try { db = Object.assign(db, JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))); console.log(`База загружена: ${Object.keys(db.players).length} пилотов`); }
-catch { console.log('Создаётся новая база данных'); }
+function tryLoad(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+if (fs.existsSync(DB_FILE)) {
+  try { db = Object.assign(db, tryLoad(DB_FILE)); console.log(`База загружена: ${Object.keys(db.players).length} пилотов`); }
+  catch (err) {
+    const bad = DB_FILE + '.corrupt-' + Date.now();
+    fs.copyFileSync(DB_FILE, bad);
+    console.error(`Файл базы повреждён (${err.message}). Копия сохранена в ${bad}.`);
+    try { db = Object.assign(db, tryLoad(DB_FILE + '.bak')); console.log(`Восстановлено из резервной копии: ${Object.keys(db.players).length} пилотов`); }
+    catch { console.error('Резервной копии нет или она тоже повреждена — запуск с пустой базой. Повреждённый файл сохранён.'); }
+  }
+} else console.log('Создаётся новая база данных');
 
 let dirty = false, lastSave = 0;
 function save(force) {
@@ -24,10 +34,18 @@ function save(force) {
 function flush() {
   if (!dirty) return;
   dirty = false; lastSave = Date.now();
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db));
-  fs.renameSync(tmp, DB_FILE);
+  // атомарная запись: временный файл → проверка → прежний файл становится .bak → замена
+  try {
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+    const tmp = DB_FILE + '.tmp', data = JSON.stringify(db);
+    fs.writeFileSync(tmp, data);
+    if (fs.statSync(tmp).size !== Buffer.byteLength(data)) throw new Error('файл записан не полностью');
+    if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, DB_FILE + '.bak');
+    fs.renameSync(tmp, DB_FILE);
+  } catch (err) {
+    dirty = true; // не считаем сохранение успешным — повторим позже
+    console.error('ОШИБКА СОХРАНЕНИЯ:', err.code === 'ENOSPC' ? 'нет места на диске' : err.message, '— рабочий файл не тронут');
+  }
 }
 setInterval(() => { dirty = true; flush(); }, 20000);
 

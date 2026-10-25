@@ -25,6 +25,7 @@ const JUMP_RANGE = 2500;
 const LOOT_RANGE = 2500;
 const MIN_WARP = 150000;
 const CRIME_TIME = 15 * 60 * 1000;
+const RECONNECT_GRACE = 120 * 1000; // корабль ждёт пилота после обрыва связи
 const BASE_TAX = 0.06;
 
 class Game {
@@ -84,15 +85,18 @@ class Game {
     pass = String(pass || '');
     if (!/^[\p{L}\p{N}_\- ]{3,20}$/u.test(name)) return sess.send({ t: 'loginErr', msg: 'Имя: 3–20 символов (буквы, цифры, _ -)' });
     if (pass.length < 3) return sess.send({ t: 'loginErr', msg: 'Пароль слишком короткий (минимум 3 символа)' });
-    for (const s of this.sessions) if (s.player && s.player.name === name) return sess.send({ t: 'loginErr', msg: 'Этот пилот уже в игре' });
-
     let p = this.db.players[name];
+    if (p && this.hashPass(pass, p.salt) !== p.pass) return sess.send({ t: 'loginErr', msg: 'Неверный пароль' });
+    // повторный вход того же пилота (например, после обрыва связи) вытесняет старую сессию
+    for (const s of [...this.sessions]) if (s.player && s.player.name === name) {
+      s.send({ t: 'kicked', msg: 'Выполнен вход с другого устройства или после переподключения' });
+      this.logout(s, true);
+      if (s.ws && s.ws.close) try { s.ws.close(); } catch (e) {}
+    }
     if (!p) {
       p = this.newPlayer(name, pass);
       this.db.players[name] = p;
       this.save(true);
-    } else if (this.hashPass(pass, p.salt) !== p.pass) {
-      return sess.send({ t: 'loginErr', msg: 'Неверный пароль' });
     }
     this.repairLocation(p);
     sess.player = p;
@@ -142,25 +146,46 @@ class Game {
     return { uid: uid(), type, fit, cargo: {}, drones: {}, hp: { shield: 1, armor: 1, hull: 1 } };
   }
 
-  logout(sess) {
+  logout(sess, replaced) {
     if (!this.sessions.has(sess)) return;
     this.sessions.delete(sess);
     const p = sess.player;
     if (sess.ent) {
       const e = sess.ent;
-      // Если корабль в бою — оставим его в космосе ещё на 30 секунд
+      // Обрыв связи: корабль остаётся в космосе до 120 с под защитным ИИ (и может погибнуть) — можно вернуться.
+      // Осознанный выход вне боя («bye») убирает корабль сразу.
       const fighting = e.lastHitAt && this.now - e.lastHitAt < 30000;
       this.scoopAll(e);
       this.storeShipState(p, e);
       p.loc = { sys: e.sys, pos: e.warp ? e.warp.to : e.pos.slice() };
-      if (fighting) {
-        e.session = null; e.cmd = { type: 'stop' };
-        e.logoffAt = this.now + 30000;
+      if (fighting || replaced || !sess.bye) {
+        e.session = null; if (e.cmd.type === 'manual') e.cmd = { type: 'stop' };
+        e.logoffAt = this.now + RECONNECT_GRACE;
       } else this.ents.delete(e.id);
     }
     this.broadcastSys(this.playerSys(p), { t: 'chat', ch: 'local', from: '*', text: `${p.name} покидает систему` });
     this.save(true);
   }
+
+  // Защитный ИИ корабля без пилота (обрыв связи): отвечает огнём нападающему и включает ремонт
+  guardTick(e) {
+    if (this.now < (e.nextGuard || 0)) return;
+    e.nextGuard = this.now + 1000;
+    const att = e.lastAttacker && this.ents.get(e.lastAttacker);
+    const threatened = att && att.sys === e.sys && !att.warp && this.now - (e.lastHitAt || 0) < 15000;
+    for (const m of e.modules) {
+      if (!m) continue;
+      const def = MODULES[m.id];
+      if (def.kind === 'shieldRep' || def.kind === 'armorRep') {
+        if (threatened && !m.active) { m.active = true; if (this.now >= m.cycleEnd) this.startCycle(e, m); }
+        else if (!threatened) m.active = false;
+      } else if (def.kind === 'weapon' && threatened && (!m.active || m.target !== att.id) && this.surfaceDist(e, att) <= def.optimal + def.falloff * 2) {
+        e.locks.add(att.id); m.target = att.id; m.active = true;
+        if (this.now >= m.cycleEnd) this.startCycle(e, m);
+      }
+    }
+  }
+  c_bye(s) { s.bye = true; }
 
   playerSys(p) {
     if (p.loc.docked) return this.U.celestials[p.loc.docked].sys;
@@ -354,6 +379,20 @@ class Game {
   // Обработка команд клиента
   // ======================================================================
   handle(sess, msg) {
+    // ограничение частоты: не больше 40 сообщений в секунду (ручной полёт шлёт ~11)
+    const rl = sess.rl || (sess.rl = { t: 0, n: 0, warn: 0 });
+    const sec = Math.floor(Date.now() / 1000);
+    if (rl.t !== sec) { rl.t = sec; rl.n = 0; }
+    if (++rl.n > 40) { if (Date.now() - rl.warn > 10000) { rl.warn = Date.now(); if (sess.player) this.notify(sess, 'Слишком много запросов — часть команд отброшена', 'warn'); } return; }
+    // идемпотентность: повтор команды с тем же tx (повторная отправка после сбоя) не исполняется второй раз
+    // журнал tx хранится по пилоту, поэтому повтор после переподключения тоже отсекается
+    if (typeof msg.tx === 'string' && msg.tx.length <= 40 && sess.player) {
+      const all = this.txSeen || (this.txSeen = new Map());
+      const seen = all.get(sess.player.name) || all.set(sess.player.name, new Map()).get(sess.player.name);
+      if (seen.has(msg.tx)) return;
+      seen.set(msg.tx, Date.now());
+      if (seen.size > 300) seen.delete(seen.keys().next().value);
+    }
     const p = sess.player;
     if (!p) { if (msg.t === 'login') this.login(sess, msg.name, msg.pass); return; }
     const e = sess.ent;
@@ -385,7 +424,7 @@ class Game {
     if (!e || e.warp) return;
     const t = this.findTarget(e, m.id);
     if (!t) return;
-    this.startAlignWarp(e, t, +m.range || 0);
+    this.startAlignWarp(e, t, clamp(+m.range || 0, 0, 100000));
   }
   c_dock(s, m, p, e) {
     if (!e || e.warp) return;
@@ -705,7 +744,10 @@ class Game {
         if (e.type === 'wreck' && e.expires < now) this.removeEntity(e);
         continue;
       }
-      if (e.logoffAt && e.logoffAt < now && !e.session) { this.ents.delete(e.id); continue; }
+      if (e.logoffAt && !e.session) {
+        if (e.logoffAt < now) { const p = this.db.players[e.owner]; if (p) { this.storeShipState(p, e); p.loc = { sys: e.sys, pos: e.pos.slice() }; } this.ents.delete(e.id); continue; }
+        this.guardTick(e);
+      }
       if (e.npc || e.guardian) this.aiTick(e, dt);
       else if (e.civ) this.civTick(e);
       this.physics(e, dt);
@@ -1225,7 +1267,7 @@ class Game {
 
   c_buy(s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
-    const qty = Math.floor(+m.qty) || 1;
+    const qty = clamp(Math.floor(+m.qty) || 1, 1, 10000); // отрицательное количество не должно превращать покупку в доход
     if (ITEMS[m.item] && ITEMS[m.item].elite) return this.notify(s, 'Этот товар продаётся только на чёрном рынке', 'warn');
     if (MODULES[m.item] || DRONES[m.item]) {
       const cost = this.buyPriceOf(st, m.item) * qty;
@@ -1377,7 +1419,7 @@ class Game {
     const o = this.db.orders.find(x => x.id === m.id);
     if (!o) return this.notify(s, 'Ордер уже исполнен', 'warn');
     if (o.seller === p.name) return;
-    const qty = Math.min(o.qty, Math.floor(+m.qty) || 1);
+    const qty = Math.min(o.qty, clamp(Math.floor(+m.qty) || 1, 1, 1e9));
     const cost = qty * o.price;
     if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
     p.credits -= cost;

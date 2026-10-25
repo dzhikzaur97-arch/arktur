@@ -39,7 +39,10 @@ const S = {
 };
 
 const MOVE_CMDS = new Set(['approach', 'orbit', 'keep', 'warp', 'dock', 'jump', 'dir', 'stop', 'autopilot']);
+// Экономические команды получают уникальный tx: сервер не исполнит один и тот же tx дважды
+const TX_CMDS = new Set(['buy', 'sell', 'buyOrder', 'placeOrder', 'cancelOrder', 'blackBuy', 'blackSell', 'build', 'upgrade', 'refine', 'board', 'fit', 'unfit', 'load', 'unload', 'jettison', 'acceptMission', 'storyAccept', 'storyChoice', 'loot', 'train', 'sethome']);
 function send(msg) {
+  if (TX_CMDS.has(msg.t) && !msg.tx) msg.tx = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   if (typeof MAN !== 'undefined' && MAN.on && MOVE_CMDS.has(msg.t)) manualToggle(false, true);
   if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(msg));
 }
@@ -201,11 +204,29 @@ function connect() {
   };
   S.ws.onmessage = (ev) => onMsg(JSON.parse(ev.data));
   S.ws.onclose = () => {
-    if (S.data) { $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#lg-err').textContent = 'Соединение с сервером потеряно'; S.data = null; }
     S.ws = null;
+    // обрыв во время игры: корабль ждёт 120 с — пробуем переподключиться автоматически
+    if (S.data && !S.kicked) return startReconnect();
+    if (S.data) { $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#lg-err').textContent = S.kicked || 'Соединение с сервером потеряно'; S.data = null; }
   };
 }
-$('#lg-go').onclick = () => { Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {} if (S.ws) S.ws.close(); connect(); };
+const RC = { tries: 0, timer: null, until: 0 };
+function startReconnect() {
+  if (!RC.until) { RC.until = Date.now() + 120000; RC.tries = 0; }
+  const left = Math.max(0, Math.ceil((RC.until - Date.now()) / 1000));
+  let el = $('#reconnect');
+  if (!el) { el = document.createElement('div'); el.id = 'reconnect'; document.body.appendChild(el); }
+  el.innerHTML = `<div class="panel rc-box"><b>Связь с сервером потеряна</b><div>Переподключение… попытка ${RC.tries + 1}. Ваш корабль остаётся в космосе под защитным ИИ ещё ~${left} с.</div>
+    <div class="btns"><button id="rc-now" class="primary">Повторить сейчас</button><button id="rc-quit">Выйти в меню</button></div></div>`;
+  $('#rc-now').onclick = () => { clearTimeout(RC.timer); RC.tries++; connect(); };
+  $('#rc-quit').onclick = () => { clearTimeout(RC.timer); stopReconnect(); $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); S.data = null; };
+  if (Date.now() > RC.until) { stopReconnect(); $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#lg-err').textContent = 'Не удалось восстановить связь. Войдите снова.'; S.data = null; return; }
+  clearTimeout(RC.timer);
+  RC.timer = setTimeout(() => { RC.tries++; connect(); }, Math.min(8000, 1500 + RC.tries * 1000));
+}
+function stopReconnect() { RC.until = 0; clearTimeout(RC.timer); const el = $('#reconnect'); if (el) el.remove(); }
+addEventListener('beforeunload', () => { try { send({ t: 'bye' }); } catch {} });
+$('#lg-go').onclick = () => { S.kicked = null; Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {} if (S.ws) S.ws.close(); connect(); };
 $('#lg-pass').onkeydown = (e) => { if (e.key === 'Enter') $('#lg-go').click(); };
 try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 (function loginSlides() {
@@ -227,8 +248,12 @@ try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 
 function onMsg(m) {
   switch (m.t) {
-    case 'loginErr': $('#lg-err').textContent = m.msg; S.ws.close(); break;
+    case 'kicked': S.kicked = m.msg; break;
+    case 'loginErr':
+      if (RC.until) { stopReconnect(); $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); S.data = null; }
+      $('#lg-err').textContent = m.msg; S.ws.close(); break;
     case 'welcome':
+      if (RC.until) { stopReconnect(); note('Связь восстановлена', 'good'); }
       S.data = m.data; S.name = m.name;
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));

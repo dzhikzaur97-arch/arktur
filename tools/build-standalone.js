@@ -41,15 +41,80 @@ function __require(name) {
 const { Game: __Game } = __require('./game');
 
 // Локальное «соединение» с сервером, работающим в этой же вкладке
-const DB_KEY = 'void-frontier-db';
-let __db = { players: {}, orders: [] };
-try { const s = localStorage.getItem(DB_KEY); if (s) __db = Object.assign(__db, JSON.parse(s)); } catch {}
-let __lastSave = 0;
-function __save(force) {
-  if (!force && Date.now() - __lastSave < 5000) return;
-  __lastSave = Date.now();
-  try { localStorage.setItem(DB_KEY, JSON.stringify(__db)); } catch {}
+// Сохранения: основной слот + резервная копия, 3 циклических автосохранения, 5 ручных слотов.
+// Повреждённое сохранение не перезаписывает исправное: при ошибке чтения берётся резервная копия.
+const DB_KEY = 'void-frontier-db', BAK_KEY = DB_KEY + '.bak', SLOT = (i) => 'vf-slot-' + i, AUTO = (i) => 'vf-auto-' + i;
+const __ls = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { localStorage.setItem(k, v); }, del(k) { try { localStorage.removeItem(k); } catch {} } };
+let __db = { players: {}, orders: [] }, __noSave = false;
+window.VF_SAVE_STATUS = { ok: true, msg: '' };
+(function load() {
+  const raw = __ls.get(DB_KEY);
+  if (!raw) return;
+  try { __db = Object.assign(__db, JSON.parse(raw)); }
+  catch {
+    try { __ls.set(DB_KEY + '.corrupt', raw); } catch {}
+    try { __db = Object.assign(__db, JSON.parse(__ls.get(BAK_KEY))); window.VF_SAVE_STATUS = { ok: true, msg: 'Основное сохранение было повреждено — загружена резервная копия.' }; }
+    catch { window.VF_SAVE_STATUS = { ok: false, msg: 'Сохранение повреждено, резервной копии нет. Повреждённые данные отложены, начата новая игра.' }; }
+  }
+})();
+let __lastSave = 0, __lastAuto = Date.now(), __autoIdx = 0;
+function __write(key, data) {
+  __ls.set(key, data);
+  if (__ls.get(key) !== data) throw new Error('проверка записи не прошла');
 }
+function __save(force) {
+  if (__noSave) return false;
+  if (!force && Date.now() - __lastSave < 5000) return false;
+  __lastSave = Date.now();
+  const data = JSON.stringify({ ...__db, savedAt: Date.now() });
+  try {
+    const prev = __ls.get(DB_KEY);
+    if (prev) __ls.set(BAK_KEY, prev);
+    __write(DB_KEY, data);
+    if (Date.now() - __lastAuto > 5 * 60000) { __lastAuto = Date.now(); __write(AUTO(__autoIdx), data); __autoIdx = (__autoIdx + 1) % 3; }
+    window.VF_SAVE_STATUS = { ok: true, msg: '' };
+    return true;
+  } catch (err) {
+    // нет места или запись не удалась: честно сообщаем, исправные данные не трогаем
+    window.VF_SAVE_STATUS = { ok: false, msg: 'Не удалось сохранить игру: ' + (err && err.name === 'QuotaExceededError' ? 'нет места в хранилище браузера' : (err && err.message || 'ошибка записи')) + '. Освободите место или экспортируйте сохранение в файл.' };
+    return false;
+  }
+}
+function __meta(raw) { try { const d = JSON.parse(raw); const ps = Object.values(d.players || {}); return { when: d.savedAt || 0, pilots: ps.map(p => p.name), credits: ps.reduce((a, p) => a + (p.credits || 0), 0) }; } catch { return null; } }
+window.VF_SAVES = {
+  list() {
+    const out = [];
+    for (let i = 1; i <= 5; i++) { const r = __ls.get(SLOT(i)); out.push({ id: 'slot' + i, kind: 'manual', n: i, meta: r ? __meta(r) : null }); }
+    for (let i = 0; i < 3; i++) { const r = __ls.get(AUTO(i)); if (r) out.push({ id: 'auto' + i, kind: 'auto', n: i + 1, meta: __meta(r) }); }
+    return out;
+  },
+  key(id) { return id.startsWith('slot') ? SLOT(+id.slice(4)) : AUTO(+id.slice(4)); },
+  save(id) {
+    for (const s of GAME.sessions) if (s.ent) GAME.storeShipState(s.player, s.ent);
+    try { __write(this.key(id), JSON.stringify({ ...__db, savedAt: Date.now() })); return { ok: true }; }
+    catch (err) { return { ok: false, msg: err && err.name === 'QuotaExceededError' ? 'нет места в хранилище браузера' : String(err && err.message) }; }
+  },
+  load(id) {
+    const raw = __ls.get(this.key(id));
+    if (!raw || !__meta(raw)) return { ok: false, msg: 'Слот пуст или повреждён' };
+    __noSave = true;
+    try { const prev = __ls.get(DB_KEY); if (prev) __ls.set(BAK_KEY, prev); __write(DB_KEY, raw); } catch (err) { __noSave = false; return { ok: false, msg: 'Не удалось записать: ' + err.message }; }
+    location.reload();
+    return { ok: true };
+  },
+  del(id) { __ls.del(this.key(id)); },
+  exportText() { return JSON.stringify({ ...__db, savedAt: Date.now() }); },
+  importText(text) {
+    const m = __meta(text);
+    if (!m || !m.pilots.length) return { ok: false, msg: 'Файл не похож на сохранение Void Frontier' };
+    __noSave = true;
+    try { const prev = __ls.get(DB_KEY); if (prev) __ls.set(BAK_KEY, prev); __write(DB_KEY, text); } catch (err) { __noSave = false; return { ok: false, msg: err.message }; }
+    location.reload();
+    return { ok: true };
+  },
+  status() { return window.VF_SAVE_STATUS; },
+  flush() { return __save(true); }
+};
 const GAME = new __Game(__db, __save);
 let __last = Date.now();
 setInterval(() => { const n = Date.now(); GAME.tick(Math.min(0.5, (n - __last) / 1000)); __last = n; }, 100);
