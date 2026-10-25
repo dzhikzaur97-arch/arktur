@@ -79,7 +79,9 @@ module.exports = function install(Game) {
 
   P.aiTick = function (e) {
     if (this.now < e.nextThink) return;
-    e.nextThink = this.now + 500;
+    // скорость реакции зависит от сложности пилота-цели: История — медленнее, Опытный — быстрее
+    const tp = e.npcTarget && this.ents.get(e.npcTarget), dif = tp && tp.owner && (this.db.players[tp.owner] || {}).difficulty;
+    e.nextThink = this.now + (dif === 'story' ? 900 : dif === 'veteran' ? 300 : 500);
     if (e.guardian) return this.guardianTick(e);
     if (e.warp || e.cmd.type === 'align') return;
 

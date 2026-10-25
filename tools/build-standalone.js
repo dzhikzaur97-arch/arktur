@@ -10,9 +10,13 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 
 // --- серверные модули в мини-загрузчике CommonJS ---
 const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'game'].map(name =>
-  `'./${name}': function (module, exports, require) {\n${read(`server/${name}.js`)}\n}`).join(',\n');
+  `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(`server/${name}.js`)}\n}`).join(',\n');
 
 const serverBundle = `
+// Игровые часы сервера: на паузе (Esc) время симуляции замирает — таймеры модулей, навыков и событий не идут
+const __RealDate = Date;
+let __pausedTotal = 0, __pauseStart = 0;
+class __VDate extends __RealDate { static now() { const r = __RealDate.now(); return r - __pausedTotal - (__pauseStart ? r - __pauseStart : 0); } }
 const __mods = {\n${serverMods}\n};
 const __cache = {};
 const __crypto = {
@@ -117,7 +121,12 @@ window.VF_SAVES = {
 };
 const GAME = new __Game(__db, __save);
 let __last = Date.now();
-setInterval(() => { const n = Date.now(); GAME.tick(Math.min(0.5, (n - __last) / 1000)); __last = n; }, 100);
+setInterval(() => {
+  const n = Date.now();
+  if (window.VF_PAUSED) { if (!__pauseStart) __pauseStart = n; __last = n; return; }
+  if (__pauseStart) { __pausedTotal += n - __pauseStart; __pauseStart = 0; }
+  GAME.tick(Math.min(0.5, (n - __last) / 1000)); __last = n;
+}, 100);
 setInterval(() => __save(true), 15000);
 
 class LocalSocket {

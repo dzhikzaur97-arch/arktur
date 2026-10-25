@@ -202,7 +202,7 @@ module.exports = function install(Game) {
     }
     for (const id of [...a.npcs]) if (!this.ents.has(id)) a.npcs.delete(id);
     if (a.wave < a.waves.length && (this.now >= a.nextWave || (!a.npcs.size && this.now >= a.nextWave - 6000))) {
-      for (const type of a.waves[a.wave]) this.spawnStoryNpc(a, type, t.id);
+      for (const type of this.diffEnemies(p, a.waves[a.wave])) this.spawnStoryNpc(a, type, t.id);
       a.wave++; a.nextWave = this.now + 40000;
       this.notify(s, `Волна ${a.wave} из ${a.waves.length}!`, 'bad');
     }

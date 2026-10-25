@@ -527,3 +527,24 @@ body.mobile #b-manual { display: none; }
 #reconnect { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; }
 .rc-box { padding: 18px 20px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
 .rc-box .btns { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Настройки, Esc-меню */
+.set-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.set-tabs button.on { border-color: var(--accent); color: var(--accent); }
+.set-p { display: flex; flex-direction: column; gap: 8px; }
+.kb { display: flex; flex-direction: column; gap: 3px; max-height: 300px; overflow-y: auto; }
+.kb-g { margin-top: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
+.kb-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+.kb-row button { min-width: 90px; padding: 2px 6px; }
+.kb-row.conf span, .kb-row.conf button { color: var(--bad); border-color: var(--bad); }
+.btnlike { display: inline-block; border: 1px solid var(--line); padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.small { font-size: 11px; }
+#escmenu { position: fixed; inset: 0; z-index: 45; background: rgba(0,4,10,.6); display: flex; align-items: center; justify-content: center; }
+.esc-box { padding: 22px 26px; display: flex; flex-direction: column; gap: 8px; min-width: 300px; }
+.esc-title { font-size: 20px; letter-spacing: 6px; text-align: center; color: var(--accent); margin-bottom: 4px; }
+#esc-pause { text-align: center; font-size: 12px; min-height: 14px; }
+/* режим для дальтоников: враги оранжевые с обводкой, свои синие */
+body.cb .br.hostile .bi, body.cb .br.outlaw .bi { color: #ffb000; text-shadow: 0 0 0 #000, 0 0 3px #fff; }
+body.cb .ov-row.hostile { color: #ffb000; text-decoration: underline; }
+body.cb .br.player .bi { color: #3aa0ff; }
+body.cb .threat { border-left-color: #ffb000; }

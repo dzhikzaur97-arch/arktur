@@ -1936,6 +1936,8 @@ function shieldFlash(id, r) {
   fxList.push({ shield: m, follow: id, t: 0, dur: 0.6, kind: 'shield' });
 }
 
+let flashK = 1; // вспышки взрывов можно приглушить в настройках
+export function setFlash(on) { flashK = on ? 1 : 0.2; }
 function explosion(pos, size) {
   const parts = [];
   const flash = sprite(0xfff0d0, 6); fxGroup.add(flash);
@@ -1987,7 +1989,7 @@ function updateFx(view, dt, origin) {
     } else if (f.kind === 'boom') {
       const c = new THREE.Vector3(f.abs[0] - origin[0], f.abs[1] - origin[1], f.abs[2] - origin[2]);
       const s = f.size;
-      f.flash.position.copy(c); f.flash.scale.setScalar(s * (2 + k * 8)); f.flash.material.opacity = Math.max(0, 1 - k * 4);
+      f.flash.position.copy(c); f.flash.scale.setScalar(s * (2 + k * 8)); f.flash.material.opacity = Math.max(0, 1 - k * 4) * flashK;
       for (const p of f.parts) {
         p.s.position.copy(c).add(p.off.clone().multiplyScalar(0.3 + k * 1.5));
         p.s.scale.setScalar(s * p.grow * (0.6 + Math.sqrt(k) * 2.5));

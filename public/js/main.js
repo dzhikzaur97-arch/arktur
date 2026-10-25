@@ -69,7 +69,8 @@ function togglePanel(name, force) {
 // ======================================================================
 // Настройки игрока (хранятся только в этом браузере)
 // ======================================================================
-const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, ui: 1, labels: false, sens: 1 };
+const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, vSfx: 1, vUi: 1, vMusic: 0.5, ui: 1, labels: false, sens: 1,
+  invX: false, invY: false, flash: true, threats: true, cb: false, keys: {} };
 let CFG = { ...CFG_DEFAULT };
 try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
 function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
@@ -89,13 +90,17 @@ const Sound = {
     this.master.gain.value = this.muted ? 0 : CFG.volume;
     const comp = this.ctx.createDynamicsCompressor();
     this.master.connect(comp); comp.connect(this.ctx.destination);
+    // отдельные шины громкости: эффекты, интерфейс, музыка
+    for (const [k, v] of [['sfx', CFG.vSfx], ['ui', CFG.vUi], ['music', CFG.vMusic]]) { this[k] = this.ctx.createGain(); this[k].gain.value = v; this[k].connect(this.master); }
     const len = this.ctx.sampleRate * 2;
     this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.startAmbient();
+    Music.start();
   },
   setVolume(v) { if (this.master && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
+  setBus(k, v) { if (this[k] && this.ctx) this[k].gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
   toggle() {
     this.init();
     this.muted = !this.muted;
@@ -108,7 +113,7 @@ const Sound = {
   noise(t, dur) { const n = this.ctx.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true; n.start(t, Math.random()); n.stop(t + dur); return n; },
   startAmbient() {
     // низкий гул корабля и космоса
-    const c = this.ctx, g = c.createGain(); g.gain.value = 0.06; g.connect(this.master);
+    const c = this.ctx, g = c.createGain(); g.gain.value = 0.06; g.connect(this.sfx);
     for (const f of [41, 55.3, 82.1]) { const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.5; o.connect(og); og.connect(g); o.start(); }
     const n = this.noise(c.currentTime, 1e6); const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
     const ng = c.createGain(); ng.gain.value = 0.6; n.connect(lp); lp.connect(ng); ng.connect(g);
@@ -120,16 +125,16 @@ const Sound = {
     o.type = 'sawtooth'; o.frequency.setValueAtTime(1400 + Math.random() * 300, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.28);
     f.type = 'lowpass'; f.frequency.value = 3500;
     this.env(g, t, 0.005, 0.25 * vol, 0.3);
-    o.connect(f); f.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.4);
+    o.connect(f); f.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + 0.4);
   },
   rail(vol) {
     if (!this.ok() || vol <= 0) return;
     const c = this.ctx, t = c.currentTime;
     const n = this.noise(t, 0.5), bp = c.createBiquadFilter(), g = c.createGain();
     bp.type = 'bandpass'; bp.frequency.setValueAtTime(2500, t); bp.frequency.exponentialRampToValueAtTime(300, t + 0.4); bp.Q.value = 0.8;
-    this.env(g, t, 0.003, 0.5 * vol, 0.4); n.connect(bp); bp.connect(g); g.connect(this.master);
+    this.env(g, t, 0.003, 0.5 * vol, 0.4); n.connect(bp); bp.connect(g); g.connect(this.sfx);
     const o = c.createOscillator(), og = c.createGain(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.3);
-    this.env(og, t, 0.003, 0.5 * vol, 0.35); o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.45);
+    this.env(og, t, 0.003, 0.5 * vol, 0.35); o.connect(og); og.connect(this.sfx); o.start(t); o.stop(t + 0.45);
   },
   mine(vol, dur) {
     if (!this.ok() || vol <= 0) return;
@@ -138,16 +143,16 @@ const Sound = {
     lfo.connect(lg); lg.connect(o.frequency);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09 * vol, t + 0.3);
     g.gain.setValueAtTime(0.09 * vol, t + dur - 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(this.master); o.start(t); lfo.start(t); o.stop(t + dur); lfo.stop(t + dur);
+    o.connect(g); g.connect(this.sfx); o.start(t); lfo.start(t); o.stop(t + dur); lfo.stop(t + dur);
   },
   boom(vol, big) {
     if (!this.ok() || vol <= 0) return;
     const c = this.ctx, t = c.currentTime, dur = big ? 3 : 1.8;
     const n = this.noise(t, dur), lp = c.createBiquadFilter(), g = c.createGain();
     lp.type = 'lowpass'; lp.frequency.setValueAtTime(3000, t); lp.frequency.exponentialRampToValueAtTime(80, t + dur);
-    this.env(g, t, 0.01, 0.9 * vol, dur); n.connect(lp); lp.connect(g); g.connect(this.master);
+    this.env(g, t, 0.01, 0.9 * vol, dur); n.connect(lp); lp.connect(g); g.connect(this.sfx);
     const o = c.createOscillator(), og = c.createGain(); o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(25, t + dur);
-    this.env(og, t, 0.01, 0.8 * vol, dur * 0.8); o.connect(og); og.connect(this.master); o.start(t); o.stop(t + dur);
+    this.env(og, t, 0.01, 0.8 * vol, dur * 0.8); o.connect(og); og.connect(this.sfx); o.start(t); o.stop(t + dur);
   },
   whoosh(vol, up = true, dur = 2.5) {
     if (!this.ok() || vol <= 0) return;
@@ -155,18 +160,93 @@ const Sound = {
     bp.type = 'bandpass'; bp.Q.value = 1.5;
     bp.frequency.setValueAtTime(up ? 150 : 2500, t); bp.frequency.exponentialRampToValueAtTime(up ? 2800 : 120, t + dur);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35 * vol, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    n.connect(bp); bp.connect(g); g.connect(this.master);
+    n.connect(bp); bp.connect(g); g.connect(this.sfx);
   },
   beep(f1 = 880, f2 = 1320, vol = 0.12) {
     if (!this.ok()) return;
     const c = this.ctx, t = c.currentTime;
     [[f1, 0], [f2, 0.09]].forEach(([f, dt]) => {
       const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = f;
-      this.env(g, t + dt, 0.005, vol, 0.07); o.connect(g); g.connect(this.master); o.start(t + dt); o.stop(t + dt + 0.1);
+      this.env(g, t + dt, 0.005, vol, 0.07); o.connect(g); g.connect(this.ui); o.start(t + dt); o.stop(t + dt + 0.1);
     });
   },
   click() { this.beep(1600, 1600, 0.04); },
   alarm() { this.beep(520, 390, 0.14); }
+};
+
+// ======================================================================
+// Адаптивная музыка (синтез на лету): спокойные пэды и арпеджио в исследовании,
+// пульс, бочка и бас в бою. Слои плавно переходят друг в друга по границе такта.
+// ======================================================================
+const Music = {
+  on: false, step: 0, next: 0, combat: false,
+  CH: [[220, 261.6, 329.6], [174.6, 220, 261.6], [261.6, 329.6, 392], [196, 246.9, 293.7], [220, 261.6, 329.6], [146.8, 174.6, 220], [164.8, 207.7, 246.9], [164.8, 207.7, 246.9]],
+  start() {
+    if (this.on || !Sound.ctx) return;
+    this.on = true;
+    const c = Sound.ctx;
+    this.pad = c.createGain(); this.pad.gain.value = 1; this.pad.connect(Sound.music);
+    this.cmb = c.createGain(); this.cmb.gain.value = 0; this.cmb.connect(Sound.music);
+    this.dl = c.createDelay(1); this.dl.delayTime.value = 0.375;
+    const fb = c.createGain(); fb.gain.value = 0.38; this.dl.connect(fb); fb.connect(this.dl); this.dl.connect(this.pad);
+    this.next = c.currentTime + 0.3;
+    setInterval(() => this.schedule(), 200);
+  },
+  setCombat(on) {
+    if (!this.on || on === this.combat) return;
+    this.combat = on;
+    const t = Sound.ctx.currentTime;
+    this.cmb.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.6 : 2.5);
+    this.pad.gain.setTargetAtTime(on ? 0.5 : 1, t, 2);
+  },
+  schedule() {
+    const c = Sound.ctx;
+    if (!c || c.state !== 'running' || CFG.vMusic <= 0) { if (c) this.next = c.currentTime + 0.3; return; }
+    while (this.next < c.currentTime + 0.6) { this.beat(this.next, this.step++); this.next += 0.25; } // восьмые при 120 уд/мин
+  },
+  beat(t, step) {
+    const inBar = step % 8, bar = Math.floor(step / 8), chord = this.CH[Math.floor(bar / (this.combat ? 1 : 4)) % this.CH.length];
+    if (step % 32 === 0 || (this.combat && inBar === 0)) this.padChord(t, chord, this.combat ? 2.2 : 8.5);
+    if (!this.combat && inBar % 2 === 0 && Math.random() < 0.28) this.pluck(t, chord[Math.floor(Math.random() * 3)] * (Math.random() < 0.5 ? 2 : 4));
+    if (this.combat || this.cmb.gain.value > 0.02) {
+      if (inBar === 0 || inBar === 4) this.kick(t, 1); else if (inBar === 6 && bar % 2) this.kick(t, 0.6);
+      if (inBar % 2 === 1) this.hat(t);
+      if (inBar === 2 || inBar === 6) this.snare(t);
+      this.bass(t, chord[0] / 2, inBar % 4 === 0 ? 1 : 0.6);
+    }
+  },
+  osc(type, f, t, dur, peak, a, out, filt) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.setValueAtTime(peak, t + Math.max(a, dur - 1.5)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    if (filt) { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = filt; o.connect(lp); lp.connect(g); } else o.connect(g);
+    g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+    return o;
+  },
+  padChord(t, chord, dur) { for (const f of chord) for (const det of [-5, 5]) this.osc('sawtooth', f * Math.pow(2, det / 1200), t, dur, 0.018, 1.4, this.pad, 900); },
+  pluck(t, f) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    o.connect(g); g.connect(this.pad); g.connect(this.dl); o.start(t); o.stop(t + 1);
+  },
+  kick(t, v) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.16);
+    g.gain.setValueAtTime(0.45 * v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g); g.connect(this.cmb); o.start(t); o.stop(t + 0.32);
+  },
+  hat(t) {
+    const c = Sound.ctx, n = Sound.noise(t, 0.06), hp = c.createBiquadFilter(), g = c.createGain();
+    hp.type = 'highpass'; hp.frequency.value = 7000; g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    n.connect(hp); hp.connect(g); g.connect(this.cmb);
+  },
+  snare(t) {
+    const c = Sound.ctx, n = Sound.noise(t, 0.2), bp = c.createBiquadFilter(), g = c.createGain();
+    bp.type = 'bandpass'; bp.frequency.value = 1800; g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    n.connect(bp); bp.connect(g); g.connect(this.cmb);
+  },
+  bass(t, f, v) { this.osc('square', f, t, 0.22, 0.07 * v, 0.01, this.cmb, 420); }
 };
 
 // громкость эффекта по расстоянию от корабля игрока
@@ -396,7 +476,7 @@ function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ents, data: S.data, docked: S.docked,
     dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null,
-    roll: MAN.on ? ((MAN.keys.has('KeyQ') ? 0.9 : 0) - (MAN.keys.has('KeyE') ? 0.9 : 0)) : 0
+    roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0
   };
 }
 
@@ -497,14 +577,14 @@ function actionsFor(o) {
   const d = distTo(o);
   const A = [];
   const far = d > 150000;
-  if (o.kind === 'station') A.push(['dock', '⌂', 'Стыковка', 'D']);
-  if (o.kind === 'gate') A.push(['jump', '⊚', 'Прыжок', 'D']);
-  if (far) A.push(['warp', '»', 'Варп', 'S']);
+  if (o.kind === 'station') A.push(['dock', '⌂', 'Стыковка', keyName(keyOf('dock'))]);
+  if (o.kind === 'gate') A.push(['jump', '⊚', 'Прыжок', keyName(keyOf('dock'))]);
+  if (far) A.push(['warp', '»', 'Варп', keyName(keyOf('warp'))]);
   if (!far || o.kind === 'ship') {
-    A.push(['approach', '→', 'Подлететь', 'Q']);
+    A.push(['approach', '→', 'Подлететь', keyName(keyOf('approach'))]);
     if (o.kind !== 'sun' && o.kind !== 'planet') {
-      A.push(['orbit', '↻', `Орбита ${S.orbitRange / 1000}км`, 'W']);
-      A.push(['keep', '↔', `Дистанция ${S.keepRange / 1000}км`, 'E']);
+      A.push(['orbit', '↻', `Орбита ${S.orbitRange / 1000}км`, keyName(keyOf('orbit'))]);
+      A.push(['keep', '↔', `Дистанция ${S.keepRange / 1000}км`, keyName(keyOf('keep'))]);
     }
   }
   if (o.dl || (o.kind === 'anomaly' && o.akind === 'black')) A.unshift(['black', '¤', 'Торговать', '']);
@@ -631,47 +711,106 @@ const touchEnd = (e) => {
 canvas.addEventListener('pointerup', touchEnd);
 canvas.addEventListener('pointercancel', touchEnd);
 
+// ======================================================================
+// Раскладка клавиш: все действия переназначаются в настройках. Контексты: global — всегда,
+// normal — обычный полёт, manual — ручной полёт (одна клавиша может значить разное в разных режимах).
+// ======================================================================
+const KEY_DEFS = [
+  ['manual', 'Ручной полёт вкл/выкл', 'KeyZ', 'global'],
+  ['m_fwd', 'Тяга вперёд', 'KeyW', 'manual'], ['m_back', 'Тяга назад', 'KeyS', 'manual'],
+  ['m_left', 'Смещение влево', 'KeyA', 'manual'], ['m_right', 'Смещение вправо', 'KeyD', 'manual'],
+  ['m_up', 'Вверх', 'Space', 'manual'], ['m_down', 'Вниз', 'ControlLeft', 'manual'],
+  ['m_rollL', 'Крен влево', 'KeyQ', 'manual'], ['m_rollR', 'Крен вправо', 'KeyE', 'manual'],
+  ['m_boost', 'Форсаж', 'ShiftLeft', 'manual'], ['m_brake', 'Торможение', 'KeyX', 'manual'],
+  ['m_stab', 'Стабилизация вкл/выкл', 'KeyT', 'manual'], ['m_free', 'Свободный обзор (удерживать)', 'AltLeft', 'manual'],
+  ['m_lock', 'Захват цели у прицела', 'Tab', 'manual'],
+  ['approach', 'Подлететь', 'KeyQ', 'normal'], ['orbit', 'Орбита', 'KeyW', 'normal'], ['keep', 'Держать дистанцию', 'KeyE', 'normal'],
+  ['warp', 'Варп', 'KeyS', 'normal'], ['dock', 'Стыковка / прыжок', 'KeyD', 'normal'], ['lock', 'Захватить цель', 'KeyL', 'normal'],
+  ['stop', 'Стоп', 'KeyX', 'normal'], ['cycle', 'Сменить цель', 'Tab', 'normal'], ['drones', 'Дроны: атака/добыча (Shift — выпуск)', 'KeyF', 'normal'],
+  ['scan', 'Сканер', 'KeyV', 'global'], ['map', 'Карта', 'KeyM', 'global'], ['journal', 'Журнал', 'KeyJ', 'global'],
+  ['cargo', 'Трюм', 'KeyC', 'global'], ['skills', 'Навыки', 'KeyK', 'global'], ['pilots', 'Пилоты галактики', 'KeyP', 'global'],
+  ['assets', 'Имущество', 'KeyI', 'global'], ['help', 'Помощь', 'KeyH', 'global'], ['settings', 'Настройки', 'KeyO', 'global'], ['chat', 'Чат', 'Enter', 'global']
+];
+const KEY_GROUPS = { global: 'Общие', normal: 'Полёт (EVE-управление)', manual: 'Ручной полёт' };
+const normCode = (c) => c.replace(/Right$/, 'Left');
+function keyOf(action) { return (CFG.keys && CFG.keys[action]) || (KEY_DEFS.find(d => d[0] === action) || [])[2]; }
+function keyName(code) {
+  if (!code) return '—';
+  return { Space: 'Пробел', ControlLeft: 'Ctrl', ShiftLeft: 'Shift', AltLeft: 'Alt', Enter: 'Enter', Tab: 'Tab', Escape: 'Esc', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\' }[code]
+    || code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '↑').replace(/^Numpad/, 'Num ');
+}
+function actionFor(code, ctx) {
+  code = normCode(code);
+  const hit = KEY_DEFS.find(d => d[3] === ctx && normCode(keyOf(d[0])) === code);
+  return hit ? hit[0] : null;
+}
+function keyConflicts() {
+  const out = new Set();
+  for (const a of KEY_DEFS) for (const b of KEY_DEFS) {
+    if (a === b || normCode(keyOf(a[0])) !== normCode(keyOf(b[0]))) continue;
+    if (a[3] === b[3] || a[3] === 'global' || b[3] === 'global') { out.add(a[0]); out.add(b[0]); }
+  }
+  return out;
+}
+let rebinding = null;
+
 addEventListener('keydown', (e) => {
+  // ожидание новой клавиши в настройках раскладки
+  if (rebinding) {
+    e.preventDefault(); e.stopPropagation();
+    if (e.code !== 'Escape') { CFG.keys = { ...(CFG.keys || {}), [rebinding]: normCode(e.code) }; saveCfg(); }
+    rebinding = null; renderWin(); return;
+  }
   if (!S.data) return;
   const typing = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-  if (e.key === 'Escape') { hideCtx(); closeWin(); $('#map').classList.add('hidden'); $('#modal').classList.add('hidden'); document.activeElement.blur(); return; }
-  if (typing) return;
+  if (e.key === 'Escape') {
+    const anyOpen = !$('#ctx').classList.contains('hidden') || S.win || !$('#map').classList.contains('hidden') || !$('#modal').classList.contains('hidden');
+    hideCtx(); closeWin(); $('#map').classList.add('hidden'); $('#modal').classList.add('hidden'); document.activeElement.blur();
+    if (!anyOpen && !typing) toggleEscMenu();
+    return;
+  }
+  if (typing || S.paused) return;
   const fk = /^F([1-8])$/.exec(e.key);
   if (fk) { e.preventDefault(); toggleModule(moduleOrder()[+fk[1] - 1]); return; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey) { toggleModule(moduleOrder()[+e.key - 1]); return; }
   const k = e.code;
-  if (k === 'KeyZ' && !S.docked) return manualToggle();
   if (MAN.on && !S.docked) {
-    if (MAN_KEYS.has(k)) { e.preventDefault(); MAN.keys.add(k); return; }
-    if (k === 'KeyT') { MAN.stab = !MAN.stab; note(MAN.stab ? 'Стабилизация включена' : 'Стабилизация выключена — полёт по инерции, гасите скорость контртягой (X)'); updateManualHud(); return; }
-    if (k === 'Tab') { e.preventDefault(); manualLockNext(); return; }
+    const ma = actionFor(k, 'manual');
+    if (ma === 'm_stab') { MAN.stab = !MAN.stab; note(MAN.stab ? 'Стабилизация включена' : `Стабилизация выключена — полёт по инерции, гасите скорость контртягой (${keyName(keyOf('m_brake'))})`); updateManualHud(); return; }
+    if (ma === 'm_lock') { e.preventDefault(); manualLockNext(); return; }
+    if (ma) { e.preventDefault(); MAN.keys.add(ma); return; }
   }
-  if (k === 'Enter') { e.preventDefault(); $('#chat-in').focus(); return; }
-  if (k === 'KeyM') return toggleMap();
-  if (k === 'KeyC') return openWin('cargo');
-  if (k === 'KeyK') return openWin('skills');
-  if (k === 'KeyP') return openWin('pilots');
-  if (k === 'KeyJ') return openWin('missions');
-  if (k === 'KeyA' && !e.ctrlKey) return openWin('assets');
-  if (k === 'KeyH') return openWin('help');
-  if (k === 'KeyO') return openWin('settings');
+  const g = actionFor(k, 'global');
+  switch (g) {
+    case 'manual': if (!S.docked) manualToggle(); return;
+    case 'chat': e.preventDefault(); $('#chat-in').focus(); return;
+    case 'map': return toggleMap();
+    case 'cargo': return openWin('cargo');
+    case 'skills': return openWin('skills');
+    case 'pilots': return openWin('pilots');
+    case 'journal': return openWin('missions');
+    case 'assets': return openWin('assets');
+    case 'help': return openWin('help');
+    case 'settings': return openWin('settings');
+    case 'scan': if (!S.docked) send({ t: 'scan' }); return;
+  }
   if (S.docked) return;
   if (k === 'Space' && e.ctrlKey) { e.preventDefault(); return act('stop'); }
-  if (k === 'KeyQ') act('approach');
-  if (k === 'KeyW') act('orbit');
-  if (k === 'KeyE') act('keep');
-  if (k === 'KeyS') act('warp');
-  if (k === 'KeyD') { const o = getObj(S.sel); if (o && o.kind === 'station') act('dock'); else if (o && o.kind === 'gate') act('jump'); }
-  if (k === 'KeyL') act('lock');
-  if (k === 'KeyV') send({ t: 'scan' });
-  if (k === 'KeyF' && e.shiftKey) send({ t: 'droneLaunch' });
-  else if (k === 'KeyF') droneEngage();
+  switch (actionFor(k, 'normal')) {
+    case 'approach': act('approach'); break;
+    case 'orbit': act('orbit'); break;
+    case 'keep': act('keep'); break;
+    case 'warp': act('warp'); break;
+    case 'dock': { const o = getObj(S.sel); if (o && o.kind === 'station') act('dock'); else if (o && o.kind === 'gate') act('jump'); break; }
+    case 'lock': act('lock'); break;
+    case 'stop': act('stop'); break;
+    case 'cycle': e.preventDefault(); cycleTarget(); break;
+    case 'drones': if (e.shiftKey) send({ t: 'droneLaunch' }); else droneEngage(); break;
+  }
   if (k === 'KeyR' && e.shiftKey) send({ t: 'droneRecall' });
-  if (k === 'KeyX') act('stop');
-  if (k === 'Tab') { e.preventDefault(); cycleTarget(); }
 });
 
-addEventListener('keyup', (e) => { if (typeof MAN !== 'undefined') MAN.keys.delete(e.code); });
+addEventListener('keyup', (e) => { if (typeof MAN !== 'undefined') { const a = actionFor(e.code, 'manual'); if (a) MAN.keys.delete(a); } });
 addEventListener('blur', () => MAN.keys.clear());
 
 // ======================================================================
@@ -679,7 +818,6 @@ addEventListener('blur', () => MAN.keys.clear());
 // X — торможение, T — стабилизация, Alt — свободный обзор, Tab — захват цели впереди, ЛКМ — огонь.
 // Нос корабля поворачивает туда, куда смотрит камера. Сервер считает физику сам — клиент шлёт только намерение.
 // ======================================================================
-const MAN_KEYS = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'AltLeft', 'AltRight', 'KeyQ', 'KeyE']);
 const MAN = { on: false, thr: 0, keys: new Set(), stab: true, lastSend: 0, sent: '' };
 function manualToggle(force, silent) {
   const on = force !== undefined ? force : !MAN.on;
@@ -691,7 +829,8 @@ function manualToggle(force, silent) {
     MAN.thr = Math.min(1, v / S.data.ships[S.me.st].maxSpeed);
     R.cam.target = Math.max(R.cam.target, S.data.ships[S.me.st].radius * 6);
     if (!MOBILE && canvas.requestPointerLock) canvas.requestPointerLock();
-    note('Ручное управление: W/S — тяга, A/D — вбок, Space/Ctrl — вверх/вниз, Shift — форсаж, X — тормоз, T — стабилизация, Z — выход');
+    const kn = (a) => keyName(keyOf(a));
+    note(`Ручное управление: ${kn('m_fwd')}/${kn('m_back')} — тяга, ${kn('m_left')}/${kn('m_right')} — вбок, ${kn('m_up')}/${kn('m_down')} — вверх/вниз, ${kn('m_boost')} — форсаж, ${kn('m_brake')} — тормоз, ${kn('m_stab')} — стабилизация, ${kn('manual')} — выход`);
   } else {
     if (document.pointerLockElement) document.exitPointerLock();
     if (!silent) send({ t: 'manual', on: false });
@@ -707,14 +846,14 @@ function manualTick(dt, now) {
   if (!MAN.on) return;
   if (!S.me || S.docked) return manualToggle(false, true);
   if (S.me.warp) return;
-  const k = MAN.keys, has = (...c) => c.some(x => k.has(x));
-  if (has('KeyW')) MAN.thr = Math.min(1, MAN.thr + dt * 0.7);
-  if (has('KeyS')) MAN.thr = Math.max(-0.5, MAN.thr - dt * 0.7);
-  const brake = has('KeyX');
+  const has = (a) => MAN.keys.has(a);
+  if (has('m_fwd')) MAN.thr = Math.min(1, MAN.thr + dt * 0.7);
+  if (has('m_back')) MAN.thr = Math.max(-0.5, MAN.thr - dt * 0.7);
+  const brake = has('m_brake');
   if (brake) MAN.thr = 0;
-  const msg = { t: 'manual', on: true, thr: +MAN.thr.toFixed(2), sx: (has('KeyD') ? 1 : 0) - (has('KeyA') ? 1 : 0),
-    uy: (has('Space') ? 1 : 0) - (has('ControlLeft', 'ControlRight') ? 1 : 0), boost: has('ShiftLeft', 'ShiftRight'), brake, stab: MAN.stab,
-    dir: has('AltLeft', 'AltRight') ? null : camForward().map(x => +x.toFixed(3)) };
+  const msg = { t: 'manual', on: true, thr: +MAN.thr.toFixed(2), sx: (has('m_right') ? 1 : 0) - (has('m_left') ? 1 : 0),
+    uy: (has('m_up') ? 1 : 0) - (has('m_down') ? 1 : 0), boost: has('m_boost'), brake, stab: MAN.stab,
+    dir: has('m_free') ? null : camForward().map(x => +x.toFixed(3)) };
   const key = JSON.stringify(msg);
   if ((key !== MAN.sent && now - MAN.lastSend > 90) || now - MAN.lastSend > 1000) {
     if (S.ws && S.ws.readyState === 1) S.ws.send(key);
@@ -728,7 +867,7 @@ function manualTick(dt, now) {
     if (pt) { nose.style.display = ''; nose.style.left = pt[0] + 'px'; nose.style.top = pt[1] + 'px'; } else nose.style.display = 'none';
   }
   const tb = $('#man-thr-fill');
-  if (tb) { tb.style.height = Math.abs(MAN.thr) * 100 + '%'; tb.classList.toggle('rev', MAN.thr < 0); tb.classList.toggle('boost', has('ShiftLeft', 'ShiftRight')); }
+  if (tb) { tb.style.height = Math.abs(MAN.thr) * 100 + '%'; tb.classList.toggle('rev', MAN.thr < 0); tb.classList.toggle('boost', has('m_boost')); }
 }
 function updateManualHud() {
   const b = $('#b-manual');
@@ -1299,7 +1438,8 @@ const HELP_MOBILE = `<h3>Управление на телефоне</h3><div cla
 <span>☰</span><span>меню: карта, трюм, навыки, задания, настройки</span>
 <span>◫ / » / ◎ / 💬</span><span>обзор / варп / скан / чат</span>
 <span>Круглые кнопки справа внизу</span><span>модули: орудия, бур, щит</span></div>`;
-const HELP = `<h3>Ручное управление (Z)</h3><div class="kv">
+const HELP = `<p class="muted">Здесь клавиши по умолчанию. Любую можно переназначить: Настройки (O) → Управление. Esc — меню и пауза (в одиночной игре время останавливается).</p>
+<h3>Ручное управление (Z)</h3><div class="kv">
 <span>Z</span><span>включить / выключить ручной полёт (мышь захватывается, Esc — отпустить)</span>
 <span>Мышь</span><span>курс: нос корабля поворачивает туда, куда смотрит камера; Alt — свободный обзор</span>
 <span>W / S</span><span>прибавить / убавить тягу (S ниже нуля — задний ход)</span>
@@ -1325,7 +1465,7 @@ const HELP = `<h3>Ручное управление (Z)</h3><div class="kv">
 <span>Shift+F / F / Shift+R</span><span>выпустить дронов / дроны атакуют или копают активную цель / вернуть дронов</span>
 <span>V</span><span>сканировать систему в поисках аномалий</span>
 <span>F1–F8 или 1–8</span><span>включить/выключить модули</span></div>
-<h3>Окна</h3><div class="kv"><span>M</span><span>звёздная карта и автопилот</span><span>C / K / J / A</span><span>трюм / навыки / задания / имущество</span><span>Enter</span><span>чат</span></div>
+<h3>Окна</h3><div class="kv"><span>M</span><span>звёздная карта и автопилот</span><span>C / K / J / I / P</span><span>трюм / навыки / журнал / имущество / пилоты галактики</span><span>Enter</span><span>чат</span></div>
 <h3>С чего начать</h3><p>1) Отстыкуйтесь, щёлкните ПКМ по космосу → «Пояса астероидов» и выберите пояс.<br>
 2) Захватите астероид (Ctrl+щелчок), включите буровой лазер (F2).<br>
 3) Когда трюм заполнится — вернитесь на станцию, разгрузите трюм и продайте руду на рынке.<br>
@@ -1653,30 +1793,103 @@ function blackHTML() {
   return h;
 }
 
+const OFFLINE = !!window.VF_SAVES; // одиночная сборка: сервер работает в этой же вкладке
 function settingsHTML() {
   const opt = (v, cur, label) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${label}</option>`;
+  const rng = (id, label, v, min, max, step, fmtv) => `<label>${label} <span id="${id}-v">${fmtv(v)}</span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}"></label>`;
+  const pct = (v) => Math.round(v * 100) + '%';
+  const chk = (id, v, label) => `<label class="chk"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}> ${label}</label>`;
+  const conf = keyConflicts();
+  const keys = Object.entries(KEY_GROUPS).map(([g, gname]) => `<div class="kb-g">${gname}</div>` + KEY_DEFS.filter(d => d[3] === g).map(d =>
+    `<div class="kb-row ${conf.has(d[0]) ? 'conf' : ''}"><span>${esc(d[1])}</span><button data-a="rebind" data-id="${d[0]}" class="${rebinding === d[0] ? 'primary' : ''}">${rebinding === d[0] ? 'Нажмите клавишу…' : esc(keyName(keyOf(d[0])))}</button></div>`).join('')).join('');
+  const diff = S.prof && S.prof.difficulty || 'normal';
   return `<div class="settings">
-    <label>Качество графики<select id="cfg-quality">${opt('high', CFG.quality, 'Высокое — тени, свечение, следы')}${opt('medium', CFG.quality, 'Среднее — без теней')}${opt('low', CFG.quality, 'Низкое — для слабых компьютеров')}</select></label>
-    <label>Громкость <span id="cfg-vol-v">${Math.round(CFG.volume * 100)}%</span><input type="range" id="cfg-volume" min="0" max="1" step="0.05" value="${CFG.volume}"></label>
-    <label>Масштаб интерфейса<select id="cfg-ui">${[0.85, 1, 1.15, 1.3].map(v => opt(v, CFG.ui, Math.round(v * 100) + '%')).join('')}</select></label>
-    <label>Чувствительность камеры <span id="cfg-sens-v">${CFG.sens.toFixed(1)}</span><input type="range" id="cfg-sens" min="0.3" max="2.5" step="0.1" value="${CFG.sens}"></label>
-    <label class="chk"><input type="checkbox" id="cfg-labels" ${CFG.labels ? 'checked' : ''}> Подписи у всех объектов в космосе</label>
+    <div class="set-tabs">${['Графика', 'Звук', 'Интерфейс', 'Управление', 'Игра'].map((t, i) => `<button data-a="setTab" data-id="${i}" class="${(S.setTab || 0) === i ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="set-p ${(S.setTab || 0) === 0 ? '' : 'hidden'}">
+      <label>Качество графики<select id="cfg-quality">${opt('high', CFG.quality, 'Высокое — тени, свечение, следы')}${opt('medium', CFG.quality, 'Среднее — без теней')}${opt('low', CFG.quality, 'Низкое — для слабых компьютеров')}</select></label>
+      ${chk('cfg-flash', CFG.flash, 'Яркие вспышки взрывов (выключите, если вспышки неприятны)')}
+      ${chk('cfg-labels', CFG.labels, 'Подписи у всех объектов в космосе')}
+    </div>
+    <div class="set-p ${(S.setTab || 0) === 1 ? '' : 'hidden'}">
+      ${rng('cfg-volume', 'Общая громкость', CFG.volume, 0, 1, 0.05, pct)}
+      ${rng('cfg-vMusic', 'Музыка', CFG.vMusic, 0, 1, 0.05, pct)}
+      ${rng('cfg-vSfx', 'Эффекты (выстрелы, взрывы, двигатели)', CFG.vSfx, 0, 1, 0.05, pct)}
+      ${rng('cfg-vUi', 'Интерфейс (сигналы, щелчки)', CFG.vUi, 0, 1, 0.05, pct)}
+      <div class="muted small">Музыка адаптивная: спокойная в исследовании и боевая, когда вас атакуют. Важные звуковые сигналы всегда дублируются текстом на экране.</div>
+    </div>
+    <div class="set-p ${(S.setTab || 0) === 2 ? '' : 'hidden'}">
+      ${rng('cfg-ui', 'Масштаб интерфейса', CFG.ui, 0.8, 1.5, 0.05, pct)}
+      ${chk('cfg-threats', CFG.threats, 'Стрелки направления угрозы у краёв экрана')}
+      ${chk('cfg-cb', CFG.cb, 'Режим для дальтоников: враги — оранжевые с обводкой, свои — синие')}
+    </div>
+    <div class="set-p ${(S.setTab || 0) === 3 ? '' : 'hidden'}">
+      ${rng('cfg-sens', 'Чувствительность мыши / камеры', CFG.sens, 0.3, 2.5, 0.1, (v) => (+v).toFixed(1))}
+      ${chk('cfg-invY', CFG.invY, 'Инвертировать вертикаль (ручной полёт)')}
+      ${chk('cfg-invX', CFG.invX, 'Инвертировать горизонталь (ручной полёт)')}
+      <div class="muted small">Щёлкните по клавише и нажмите новую. Esc — отмена. Красным отмечены конфликты: одна клавиша на два действия в одном режиме.</div>
+      <div class="kb">${keys}</div>
+      <button data-a="resetKeys">Сбросить раскладку</button>
+    </div>
+    <div class="set-p ${(S.setTab || 0) === 4 ? '' : 'hidden'}">
+      <label>Сложность<select id="cfg-diff">${opt('story', diff, 'История — меньше врагов, они медленнее реагируют')}${opt('normal', diff, 'Стандарт')}${opt('veteran', diff, 'Опытный пилот — больше врагов, умнее тактика')}</select></label>
+      <div class="muted small">Сложность меняет число врагов в миссиях и их тактику (реакцию, отступление, фокус огня), а не скрытый урон. Менять можно только вне боя.</div>
+      ${OFFLINE ? savesHTML() : '<div class="muted small">Прогресс сетевой игры хранится на сервере автоматически.</div>'}
+    </div>
   </div>`;
+}
+function savesHTML() {
+  const st = window.VF_SAVES.status();
+  const when = (m) => m && m.when ? new Date(m.when).toLocaleString('ru-RU') : '';
+  const rows = window.VF_SAVES.list().map(x => `<tr><td>${x.kind === 'manual' ? 'Слот ' + x.n : 'Автосохранение ' + x.n}</td>
+    <td class="muted">${x.meta ? esc(x.meta.pilots.join(', ')) + ' · ' + when(x.meta) : 'пусто'}</td>
+    <td>${x.kind === 'manual' ? `<button data-a="slotSave" data-id="${x.id}">Сохранить</button>` : ''} ${x.meta ? `<button data-a="slotLoad" data-id="${x.id}">Загрузить</button>` : ''} ${x.meta && x.kind === 'manual' ? `<button data-a="slotDel" data-id="${x.id}" class="danger">×</button>` : ''}</td></tr>`).join('');
+  return `<h3>Сохранения</h3>${st && st.msg ? `<div class="${st.ok ? 'muted' : 'bad'}">${esc(st.msg)}</div>` : ''}
+    <div class="muted small">Игра сохраняется автоматически каждые несколько секунд (с резервной копией) и раз в 5 минут — в один из трёх автослотов по кругу.</div>
+    <table class="tbl">${rows}</table>
+    <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>`;
 }
 function applyCfg() {
   R.setQuality(CFG.quality);
   $('#ui').style.zoom = CFG.ui;
   Sound.setVolume(CFG.volume);
+  Sound.setBus('sfx', CFG.vSfx); Sound.setBus('ui', CFG.vUi); Sound.setBus('music', CFG.vMusic);
+  R.setFlash && R.setFlash(CFG.flash);
+  document.body.classList.toggle('cb', !!CFG.cb);
 }
 $('#win-body').addEventListener('input', (e) => {
   const id = e.target.id;
   if (!id.startsWith('cfg-')) return;
   if (id === 'cfg-quality') { CFG.quality = e.target.value; CFG.autoQ = false; }
-  if (id === 'cfg-volume') { CFG.volume = +e.target.value; $('#cfg-vol-v').textContent = Math.round(CFG.volume * 100) + '%'; }
-  if (id === 'cfg-ui') CFG.ui = +e.target.value;
-  if (id === 'cfg-sens') { CFG.sens = +e.target.value; $('#cfg-sens-v').textContent = CFG.sens.toFixed(1); }
-  if (id === 'cfg-labels') CFG.labels = e.target.checked;
+  const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1) }[id] || ((v) => Math.round(v * 100) + '%');
+  for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
+  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
+});
+$('#win-body').addEventListener('change', (e) => {
+  if (e.target.id !== 'save-import' || !e.target.files[0]) return;
+  e.target.files[0].text().then(t => { const r = window.VF_SAVES.importText(t); if (!r.ok) note('Импорт не удался: ' + r.msg, 'bad'); });
+});
+
+// ======================================================================
+// Меню по Esc. В одиночной игре — пауза: симуляция полностью останавливается.
+// ======================================================================
+function toggleEscMenu(force) {
+  const open = force !== undefined ? force : $('#escmenu').classList.contains('hidden');
+  $('#escmenu').classList.toggle('hidden', !open);
+  if (OFFLINE) { window.VF_PAUSED = open; S.paused = open; }
+  $('#esc-pause').textContent = OFFLINE ? (open ? 'ПАУЗА — время в игре остановлено' : '') : 'Сетевая игра: пауза недоступна, корабль остаётся в космосе';
+  if (open && MAN.on && document.pointerLockElement) document.exitPointerLock();
+}
+$('#escmenu').addEventListener('click', (e) => {
+  const a = e.target.dataset && e.target.dataset.esc;
+  if (!a) return;
+  if (a === 'resume') toggleEscMenu(false);
+  if (a === 'settings') { toggleEscMenu(false); openWin('settings'); }
+  if (a === 'saves') { toggleEscMenu(false); S.setTab = 4; openWin('settings'); }
+  if (a === 'help') { toggleEscMenu(false); openWin('help'); }
+  if (a === 'journal') { toggleEscMenu(false); openWin('missions'); }
+  if (a === 'quit') { toggleEscMenu(false); if (OFFLINE) window.VF_SAVES.flush(); send({ t: 'bye' }); if (S.ws) S.ws.close(); }
 });
 
 function droneDesc(d) {
@@ -1899,6 +2112,13 @@ function onActionClick(e) {
     case 'train': send({ t: 'train', skill: d.skill }); break;
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
     case 'storyBrief': send({ t: 'storyBrief' }); break;
+    case 'setTab': S.setTab = +d.id; renderWin(); break;
+    case 'rebind': rebinding = d.id; renderWin(); break;
+    case 'resetKeys': CFG.keys = {}; saveCfg(); renderWin(); note('Раскладка сброшена'); break;
+    case 'slotSave': { const r = window.VF_SAVES.save(d.id); note(r.ok ? 'Игра сохранена' : 'Не удалось сохранить: ' + r.msg, r.ok ? 'good' : 'bad'); renderWin(); break; }
+    case 'slotLoad': modal('<p>Загрузить это сохранение? Текущий прогресс будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => { const r = window.VF_SAVES.load(d.id); if (!r.ok) note(r.msg, 'bad'); }, 'primary']]); break;
+    case 'slotDel': window.VF_SAVES.del(d.id); renderWin(); break;
+    case 'saveExport': { const blob = new Blob([window.VF_SAVES.exportText()], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = 'void-frontier-save-' + new Date().toISOString().slice(0, 10) + '.json'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); break; }
     case 'storyBrief2': send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
@@ -2053,6 +2273,11 @@ function loop(now) {
   if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
   if (now - lastUi > 200) {
     lastUi = now;
+    // боевая музыка: в нас целятся или стреляют, либо идёт перегрев/сюжетная оборона
+    let fight = false;
+    if (S.me && !S.docked) for (const e of S.ents.values()) if (e.ag || (e.tg && (e.npc || e.ol))) { fight = true; break; }
+    if (fight) S.fightUntil = now + 8000;
+    Music.setCombat(now < (S.fightUntil || 0));
     if (!MOBILE) { const tu = $('#tut'); if (tu && !tu.classList.contains('hidden')) tu.style.top = ($('#sysinfo').getBoundingClientRect().bottom + 8) + 'px'; }
     if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();

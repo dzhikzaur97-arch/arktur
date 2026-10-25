@@ -579,6 +579,8 @@ class Game {
       if (t.npc && !t.npcTarget) t.npcTarget = src.id;
       else if (t.npc && src.type === 'drone' && Math.random() < 0.12) t.npcTarget = src.id;
     }
+    // на «Истории» пираты наносят игроку меньше урона, а на «Опытном» — те же цифры, но больше врагов и умнее тактика
+    if (t.owner && src && src.npc) { const d = (this.db.players[t.owner] || {}).difficulty; if (d === 'story') dmg *= 0.7; }
     let rest = dmg;
     const s = Math.min(t.shield, rest); t.shield -= s; rest -= s;
     const a = Math.min(t.armor, rest); t.armor -= a; rest -= a;
@@ -1580,7 +1582,7 @@ class Game {
       hangar: st ? this.hangar(p, st) : null,
       assets: Object.entries(p.hangars).filter(([, h]) => Object.keys(h.items).length || h.ships.length)
         .map(([id, h]) => ({ station: id, name: this.U.celestials[id].name, items: h.items, ships: h.ships.map(x => x.type) })),
-      story: this.storyView(p), rep: p.rep, foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
+      story: this.storyView(p), rep: p.rep, difficulty: p.difficulty || 'normal', foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
       suspect: p.suspectUntil > this.now ? p.suspectUntil - this.now : 0,
       myOrders: this.db.orders.filter(o => o.seller === p.name)
     });

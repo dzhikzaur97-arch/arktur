@@ -367,7 +367,7 @@ module.exports = function install(Game) {
         a.triggered = true; a.stageKey = key;
         for (const id of a.npcs) { const n = this.ents.get(id); if (n) this.removeEntity(n); }
         a.npcs.clear();
-        for (const type of stage.enemies) this.spawnStoryNpc(a, type);
+        for (const type of this.diffEnemies(p, stage.enemies)) this.spawnStoryNpc(a, type);
         this.notify(s, `${a.name}: противник на сканере!`, 'bad');
         return;
       }
@@ -412,7 +412,7 @@ module.exports = function install(Game) {
     }
     for (const id of [...a.npcs]) if (!this.ents.has(id)) a.npcs.delete(id);
     if (a.wave < stage.waves.length && (this.now >= a.nextWave || (!a.npcs.size && this.now >= a.nextWave - 6000))) {
-      for (const type of stage.waves[a.wave]) this.spawnStoryNpc(a, type, t.id);
+      for (const type of this.diffEnemies(p, stage.waves[a.wave])) this.spawnStoryNpc(a, type, t.id);
       a.wave++; a.nextWave = this.now + 45000;
       this.notify(s, `Волна ${a.wave} из ${stage.waves.length}!`, 'bad');
       return;
@@ -421,6 +421,22 @@ module.exports = function install(Game) {
       this.removeEntity(t);
       this.advanceStage(s, p);
     }
+  };
+
+  // ---------- сложность ----------
+  // История: на одного врага меньше (не меньше двух), «Жнецы» заменены «Рейдерами»; опытный пилот: +1 рейдер.
+  P.diffEnemies = function (p, list) {
+    const d = p.difficulty || 'normal';
+    if (d === 'story') { const l = list.map(x => x === 'reaper' ? 'raider' : x); return l.length > 2 ? l.slice(0, -1) : l; }
+    if (d === 'veteran') return [...list, 'raider'];
+    return list;
+  };
+  P.c_difficulty = function (s, m, p) {
+    if (!['story', 'normal', 'veteran'].includes(m.v)) return;
+    if (s.ent && s.ent.lastHitAt && this.now - s.ent.lastHitAt < 30000) return this.notify(s, 'Сложность нельзя менять в бою', 'warn');
+    p.difficulty = m.v;
+    this.notify(s, 'Сложность: ' + { story: 'История', normal: 'Стандарт', veteran: 'Опытный пилот' }[m.v], 'good');
+    this.sendProfile(s);
   };
 
   // ---------- хуки игровых событий ----------
