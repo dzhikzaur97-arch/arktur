@@ -106,9 +106,10 @@ class Game {
     sess.send({
       t: 'welcome', name: p.name,
       data: {
-        ships: SHIPS, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
+        ships: SHIPS, shipRoles: D.SHIP_ROLES, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,
         stars: Object.fromEntries(Object.values(this.U.systems).map(x => [x.id, x.celestials[0].star])),
+        stars2: Object.fromEntries(Object.values(this.U.systems).map(x => { const c = x.celestials.find(o => o.companion); return [x.id, c ? c.star : null]; })),
         stations: Object.values(this.U.celestials).filter(c => c.kind === 'station').map(s => ({ id: s.id, name: s.name, sys: s.sys, owner: s.owner }))
       }
     });
@@ -1189,7 +1190,9 @@ class Game {
     this.contractTick();
     this.infraTick();
     this.piratesSlowTick();
+    this.pbasesSlowTick();
     this.botTick();
+    this.autoTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1718,7 +1721,10 @@ require('./story')(Game);
 require('./contracts')(Game);
 require('./infra')(Game);
 require('./combat')(Game);
+require('./drones')(Game);
 require('./pirates')(Game);
+require('./pbases')(Game);
 require('./bot')(Game);
+require('./autoplay')(Game);
 
 module.exports = { Game };

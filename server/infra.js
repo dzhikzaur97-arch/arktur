@@ -160,11 +160,18 @@ module.exports = function install(Game) {
     if (c && st.type === 'hub') c.style = 5;
     return c;
   };
+  // освещённость точки: вклад обеих звёзд двойной системы (сила звезды × близость)
+  P.starLight = function (sysId, pos) {
+    let k = 0;
+    for (const c of this.U.systems[sysId].celestials) {
+      if (c.kind !== 'sun') continue;
+      const d = dist(pos, c.pos) / AU;
+      k += (STAR_POWER[c.star] || 1) * (d < 1 ? 1.5 : d < 3 ? 1.0 : d < 6 ? 0.6 : 0.15);
+    }
+    return k;
+  };
   P.solarRate = function (st) {
-    const sys = this.U.systems[st.sys], sun = sys.celestials[0];
-    const d = dist(st.pos, sun.pos) / AU;
-    const distK = d < 1 ? 1.5 : d < 3 ? 1.0 : 0.6;
-    return INFRA.solar.levels[st.level].rate * (STAR_POWER[sun.star] || 1) * distK; // ячеек в минуту
+    return INFRA.solar.levels[st.level].rate * this.starLight(st.sys, st.pos); // ячеек в минуту
   };
 
   P.c_buildInfra = function (s, m, p, e) {
@@ -364,7 +371,9 @@ module.exports = function install(Game) {
     const view = (st) => ({ id: st.id, type: st.type, name: st.name, sys: st.sys, level: st.level, building: st.buildUntil > this.now ? st.buildUntil : 0 });
     const solars = this.infraOf(p, 'solar').map(st => {
       const sun = this.U.systems[st.sys].celestials[0];
+      const sun2 = this.U.systems[st.sys].celestials.find(c => c.kind === 'sun' && c.companion);
       return { ...view(st), rate: Math.round(this.solarRate(st) * 10) / 10, star: sun.star, au: Math.round(dist(st.pos, sun.pos) / AU * 10) / 10,
+        star2: sun2 && sun2.star, au2: sun2 && Math.round(dist(st.pos, sun2.pos) / AU * 10) / 10,
         stored: this.hangar(p, st.id).items.energy_cell || 0, cap: INFRA.solar.levels[st.level].cap, produced: st.produced || 0 };
     });
     const hubSt = this.infraOf(p, 'hub')[0];
@@ -377,7 +386,9 @@ module.exports = function install(Game) {
     const ids = new Set([p.home, ...(this.db.structures || []).filter(x => x.owner === p.name).map(x => x.id), ...Object.entries(p.hangars).filter(([, h]) => Object.keys(h.items).length).map(([id]) => id)]);
     const stations = [...ids].filter(id => this.U.celestials[id]).map(id => ({ id, name: this.U.celestials[id].name, sys: this.U.celestials[id].sys }));
     const sys = s.ent ? this.U.systems[s.ent.sys] : null;
-    const here = s.ent && sys ? { sys: sys.id, star: sys.celestials[0].star, au: Math.round(dist(s.ent.pos, sys.celestials[0].pos) / AU * 10) / 10 } : null;
+    const suns = sys ? sys.celestials.filter(c => c.kind === 'sun') : [];
+    const here = s.ent && sys ? { sys: sys.id, suns: suns.map(c => ({ star: c.star, au: Math.round(dist(s.ent.pos, c.pos) / AU * 10) / 10 })),
+      rate: Math.round(INFRA.solar.levels[1].rate * this.starLight(sys.id, s.ent.pos) * 10) / 10 } : null;
     const defenses = this.infraOf(p, 'defense').map(st => ({ ...view(st), raid: !!st.raid }));
     const raids = (this.db.structures || []).filter(x => x.owner === p.name && x.raid).map(x => ({ id: x.id, name: x.name, sys: x.sys, left: Math.max(0, x.raid.start + 90000 - this.now) }));
     s.send({ t: 'infra', defenses, raids, cfg: { defense: INFRA.defense, solar: INFRA.solar, hub: INFRA.hub, transports: INFRA.transports, starPower: STAR_POWER, routeItems: ROUTE_ITEMS, jumpCells: INFRA.jumpCells(p.ship.type) },

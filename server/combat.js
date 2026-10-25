@@ -89,10 +89,11 @@ module.exports = function install(Game) {
     for (const o of this.ents.values()) {
       if (o.sys !== m.sys || (o.type !== 'ship' && o.type !== 'turret' && o.type !== 'drone')) continue;
       if (o.type === 'drone') {
-        if (o.ownerEnt !== m.target || DRONES[o.item].kind !== 'combat' || (this.ents.get(o.ownerEnt) || {}).droneMode === 'passive') continue;
-        if (dist(o.pos, m.pos) > 3000 || this.now < (o.pdReady || 0)) continue;
-        o.pdReady = this.now + 2500;
-        if (Math.random() < 0.45) return this.interceptMissile(o, m, 'дрон');
+        const pdc = DRONES[o.item].pd || 0;
+        if (o.ownerEnt !== m.target || !pdc || (this.ents.get(o.ownerEnt) || {}).droneMode === 'passive') continue;
+        if (dist(o.pos, m.pos) > 3000 + o.radius || this.now < (o.pdReady || 0)) continue;
+        o.pdReady = this.now + (DRONES[o.item].cls === 'light' ? 1500 : 2500);
+        if (Math.random() < pdc) return this.interceptMissile(o, m, 'дрон');
         continue;
       }
       if (!(o === t || (o.owner && o.owner === t.owner) || (o.npc && t.npc))) continue;

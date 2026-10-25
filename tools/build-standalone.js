@@ -9,7 +9,7 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
 
 // --- серверные модули в мини-загрузчике CommonJS ---
-const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'pirates', 'bot', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'bot', 'autoplay', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(`server/${name}.js`)}\n}`).join(',\n');
 
 const serverBundle = `
@@ -167,8 +167,12 @@ css = css.replace(':root {', ':root {\n  color-scheme: dark;');
 const artDir = path.join(ROOT, 'public/img/ships');
 const art = {};
 for (const f of fs.existsSync(artDir) ? fs.readdirSync(artDir) : []) if (f.endsWith('.jpg')) art[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(artDir, f)).toString('base64');
+// единая серия фото кораблей (tools/make-photos.js)
+const photoDir = path.join(ROOT, 'public/img/photos');
+const photos = {};
+for (const f of fs.existsSync(photoDir) ? fs.readdirSync(photoDir) : []) if (f.endsWith('.jpg')) photos[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(photoDir, f)).toString('base64');
 const page = `<title>Void Frontier</title>
-<script>window.VF_ART = ${JSON.stringify(art)};</script>
+<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)};</script>
 <style>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }

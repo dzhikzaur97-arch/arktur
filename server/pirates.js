@@ -6,7 +6,7 @@
 // - оборонная платформа игрока защищает свои постройки и транспорты в системе.
 'use strict';
 const crypto = require('crypto');
-const { MODULES, NPCS, ITEMS, AU } = require('./data');
+const { MODULES, NPCS, ITEMS, AU, DRONES } = require('./data');
 const { INFRA } = require('./infra');
 
 const uid = () => crypto.randomBytes(6).toString('hex');
@@ -44,7 +44,7 @@ module.exports = function install(Game) {
       const d = dist(o.pos, e.pos);
       if (d > 80000) continue;
       let s = o.owner ? 1.3 : o.civ === 'miner' || o.civ === 'hauler' || o.transportOf ? 1.5 : o.civ ? 1.0 : 0.5;
-      if (o.type === 'drone') s = 0.5;
+      if (o.type === 'drone') s = (DRONES[o.item] || {}).taunt ? 2.6 : 0.5; // «Монолит» отвлекает пиратов на себя
       if (o.type === 'turret') s = 0.9;
       const hpFrac = (o.shield + o.armor + o.hull) / (o.stats.shield + o.stats.armor + o.stats.hull);
       s *= 1 + (1 - hpFrac) * 1.4;                                   // добивать раненых
@@ -80,6 +80,7 @@ module.exports = function install(Game) {
       for (let i = 0; i < 2 && e.swarmLeft > 0; i++, e.swarmLeft--) {
         const sw = this.spawnNpc('swarm', e.sys, add(e.pos, [rnd(-800, 800), rnd(-300, 300), rnd(-800, 800)]));
         sw.npcTarget = t.id; sw.home = e.home || e.pos; sw.belt = e.belt; sw.anom = e.anom;
+        if (e.pbaseOf) { sw.pbaseOf = e.pbaseOf; const b = this.ents.get(e.pbaseOf); if (b && b.pb) b.pb.waveIds.push(sw.id); } // рой матки — часть волны
         if (e.belt && this.beltState[e.belt]) this.beltState[e.belt].npcs.add(sw.id);
       }
       if (t.session) this.notify(t.session, `${e.name} выпускает рой!`, 'bad');

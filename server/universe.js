@@ -26,6 +26,17 @@ function pickWeighted(r, list) {
   return list[list.length - 1][0];
 }
 
+// компаньоны двойных звёзд: какие звёзды встречаются в паре с основной
+const COMPANIONS = {
+  yellow: [['orange', 0.4], ['red', 0.35], ['white', 0.25]],
+  white: [['yellow', 0.5], ['blue', 0.25], ['red', 0.25]],
+  blue: [['white', 0.45], ['blue', 0.3], ['yellow', 0.25]],
+  orange: [['red', 0.55], ['yellow', 0.3], ['white', 0.15]],
+  red: [['red', 0.6], ['orange', 0.4]],
+  blackhole: [['blue', 0.6], ['white', 0.4]] // рентгеновская двойная: звезда питает аккреционный диск
+};
+const STAR_SIZE = { yellow: 1, white: 0.5, blue: 2.2, orange: 0.9, red: 0.6, blackhole: 0.35 };
+
 function buildUniverse() {
   const byId = {};
   for (const s of SYSTEMS) byId[s.id] = s;
@@ -44,7 +55,7 @@ function buildUniverse() {
     // отдельный генератор для звезды — чтобы не сдвигать раскладку планет и станций, сохранённую у игроков
     const star = def.star || reg.stars[Math.floor(rng('star:' + def.id)() * reg.stars.length)];
     const sr = { yellow: 1, white: 0.5, blue: 2.2, orange: 0.9, red: 0.6, blackhole: 0.35 }[star];
-    add({ id: def.id + ':sun', kind: 'sun', star, name: def.name + ' — ' + STAR_TYPES[star].name.toLowerCase(), pos: [0, 0, 0], radius: (4e8 + r() * 4e8) * sr, landing: 2e9 * Math.max(1, sr) });
+    add({ id: def.id + ':sun', kind: 'sun', star, name: def.name + ' A — ' + STAR_TYPES[star].name.toLowerCase(), pos: [0, 0, 0], radius: (4e8 + r() * 4e8) * sr, landing: 2e9 * Math.max(1, sr) });
 
     const nPlanets = 3 + Math.floor(r() * 4);
     let orbit = 0.4 * AU;
@@ -103,6 +114,16 @@ function buildUniverse() {
       });
       sys.gates.push(g);
     }
+    // Второе солнце: каждая система — двойная. Компаньон строится отдельным генератором и добавляется в конец,
+    // поэтому раскладка планет, станций и врат (и сохранения игроков) не меняется.
+    const r2 = rng('star2:' + def.id);
+    const star2 = pickWeighted(r2, COMPANIONS[star]);
+    const sr2 = STAR_SIZE[star2];
+    const close = r2() < 0.7; // 70% — тесная пара (два солнца рядом на небе), 30% — далёкий компаньон за орбитами планет
+    const d2 = close ? (0.12 + r2() * 0.18) * AU : orbit * (1.45 + r2() * 0.5);
+    const a2 = r2() * Math.PI * 2;
+    add({ id: def.id + ':sun2', kind: 'sun', companion: true, star: star2, name: def.name + ' B — ' + STAR_TYPES[star2].name.toLowerCase(),
+      pos: [Math.cos(a2) * d2, (r2() - 0.5) * 0.04 * d2, Math.sin(a2) * d2], radius: (2.5e8 + r2() * 3e8) * sr2, landing: 2e9 * Math.max(1, sr2) });
     systems[def.id] = sys;
   }
   return { systems, celestials, neighbors, byId };

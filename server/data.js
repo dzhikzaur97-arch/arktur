@@ -139,6 +139,27 @@ const SHIPS = {
     cargo: 0, slots: { high: 0, mid: 0, low: 0 }, maxLocks: 8, lockRange: 90000, lockTime: 2,
     desc: 'Укреплённая база Скверны. Орудийные башни, ракетные батареи и ПРО. В одиночку не взять.'
   },
+  pbase: {
+    name: 'Пиратская база', cls: 'Станция Скверны', price: 0, color: 0x3a2a28,
+    maxSpeed: 0, align: 99, warpSpeed: 0, sig: 3000, radius: 900,
+    shield: 50000, armor: 60000, hull: 70000, cap: 99999, capRegen: 999,
+    cargo: 0, slots: { high: 0, mid: 0, low: 0 }, maxLocks: 6, lockRange: 70000, lockTime: 2,
+    desc: 'Гнездо Скверны в астероидном обломке. При нападении поднимает щит и выпускает пять волн роёв дронов и кораблей.'
+  },
+  pdrone: {
+    name: 'Дрон Скверны', cls: 'Пиратский дрон', price: 0, color: 0x4a2a28,
+    maxSpeed: 750, align: 0.8, warpSpeed: 0, sig: 14, radius: 7,
+    shield: 110, armor: 120, hull: 150, cap: 400, capRegen: 30,
+    cargo: 0, slots: { high: 1, mid: 0, low: 0 }, maxLocks: 1, lockRange: 40000, lockTime: 1,
+    desc: 'Лёгкий боевой дрон пиратов. Нападает роем.'
+  },
+  pdrone_h: {
+    name: 'Тяжёлый дрон Скверны', cls: 'Пиратский дрон', price: 0, color: 0x4a2a28,
+    maxSpeed: 400, align: 1.5, warpSpeed: 0, sig: 45, radius: 16,
+    shield: 700, armor: 1000, hull: 1000, cap: 800, capRegen: 40,
+    cargo: 0, slots: { high: 1, mid: 0, low: 0 }, maxLocks: 1, lockRange: 50000, lockTime: 1.5,
+    desc: 'Бронированный дрон пиратов с тяжёлым лазером.'
+  },
   begemot: {
     name: 'Бегемот', cls: 'Индустриальный дредноут', price: 18000000, color: 0x3a3c40, code: 'SC-02',
     maker: 'Орион-Хэви-Индастриз', length: 4200, crew: '450 + 1500 технологов',
@@ -258,11 +279,31 @@ for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPe
 for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
+// Классы: лёгкие перехватчики → средние → тяжёлые → стационарные «часовые» → огромные бастионы и штурмовики.
+// sig — сигнатура (по маленьким дронам крупные орудия мажут), r — размер, resist — доля поглощаемого урона,
+// regen — восстановление прочности в секунду, pd — шанс сбить ракету, taunt — пираты стреляют по нему в первую очередь
+const DRONE_CLASSES = {
+  light:   { name: 'Лёгкий', desc: 'очень быстрый, сбивает ракеты, по нему трудно попасть' },
+  medium:  { name: 'Средний', desc: 'основа роя: урон и прочность в балансе' },
+  heavy:   { name: 'Тяжёлый', desc: 'медленный, мощный и бронированный' },
+  sentry:  { name: 'Стационарный', desc: 'стоит там, где выпущен, бьёт очень далеко' },
+  bastion: { name: 'Огромный стационарный', desc: 'неподвижная крепость: поглощает урон, чинится и отвлекает пиратов на себя' },
+  super:   { name: 'Огромный штурмовой', desc: 'медленный, почти непробиваемый, страшный урон' },
+  support: { name: 'Ремонтный', desc: 'чинит щит и броню корабля и других ваших дронов' },
+  mining:  { name: 'Шахтёрский', desc: 'добывает руду в трюм' }
+};
 const DRONES = {
-  drone_light: { name: 'Боевой дрон «Оса»', kind: 'combat', price: 8000, vol: 5, dmg: 14, cycle: 2, range: 2500, speed: 2200, hp: 260, color: 0xffb040 },
-  drone_heavy: { name: 'Тяжёлый дрон «Шершень»', kind: 'combat', price: 32000, vol: 10, dmg: 40, cycle: 3, range: 3000, speed: 1400, hp: 750, color: 0xff7040 },
-  drone_mine:  { name: 'Шахтёрский дрон «Крот»', kind: 'mining', price: 9000, vol: 5, yield: 20, cycle: 6, range: 1500, speed: 1200, hp: 220, color: 0x80ff90 },
-  drone_x:     { name: 'Дрон-призрак «Мираж»', kind: 'combat', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, color: 0xd060ff, elite: true }
+  drone_scout:    { name: 'Лёгкий дрон «Комар»', kind: 'combat', cls: 'light', price: 4500, vol: 2.5, dmg: 7, cycle: 1.2, range: 2000, speed: 3600, hp: 140, sig: 10, r: 4, pd: 0.7, color: 0x60e0ff },
+  drone_light:    { name: 'Лёгкий дрон «Оса»', kind: 'combat', cls: 'light', price: 8000, vol: 5, dmg: 14, cycle: 2, range: 2500, speed: 2200, hp: 260, sig: 18, r: 6, pd: 0.45, color: 0xffb040 },
+  drone_heavy:    { name: 'Средний дрон «Шершень»', kind: 'combat', cls: 'medium', price: 32000, vol: 10, dmg: 40, cycle: 3, range: 3000, speed: 1400, hp: 750, sig: 30, r: 8, pd: 0.35, color: 0xff7040 },
+  drone_medic:    { name: 'Ремонтный дрон «Медик»', kind: 'repair', cls: 'support', price: 28000, vol: 10, rep: 70, cycle: 4, range: 2500, speed: 1600, hp: 600, sig: 25, r: 7, color: 0x70ffc0 },
+  drone_goliath:  { name: 'Тяжёлый дрон «Голиаф»', kind: 'combat', cls: 'heavy', price: 90000, vol: 25, dmg: 110, cycle: 4, range: 4000, speed: 700, hp: 2800, sig: 60, r: 13, resist: 0.2, pd: 0.2, color: 0xff5030 },
+  drone_sentry:   { name: 'Стационарный дрон «Часовой»', kind: 'combat', cls: 'sentry', price: 75000, vol: 25, dmg: 85, cycle: 3.5, range: 14000, speed: 0, hp: 2200, sig: 50, r: 11, resist: 0.3, pd: 0.15, color: 0x80b0ff },
+  drone_monolith: { name: 'Дрон-бастион «Монолит»', kind: 'combat', cls: 'bastion', price: 420000, vol: 50, dmg: 140, cycle: 4, range: 10000, speed: 0, hp: 12000, sig: 300, r: 26, resist: 0.55, regen: 40, taunt: true, pd: 0.35, color: 0xffe070 },
+  drone_colossus: { name: 'Штурмовой дрон «Колосс»', kind: 'combat', cls: 'super', price: 650000, vol: 75, dmg: 190, cycle: 4, range: 5000, speed: 450, hp: 16000, sig: 380, r: 30, resist: 0.5, regen: 25, pd: 0.25, color: 0xff4060 },
+  drone_mine:     { name: 'Шахтёрский дрон «Крот»', kind: 'mining', cls: 'mining', price: 9000, vol: 5, yield: 20, cycle: 6, range: 1500, speed: 1200, hp: 220, sig: 20, r: 6, color: 0x80ff90 },
+  drone_mine2:    { name: 'Тяжёлый шахтёрский дрон «Бур»', kind: 'mining', cls: 'mining', price: 60000, vol: 25, yield: 85, cycle: 6, range: 1800, speed: 700, hp: 1200, sig: 50, r: 12, resist: 0.2, color: 0x60e070 },
+  drone_x:        { name: 'Дрон-призрак «Мираж»', kind: 'combat', cls: 'medium', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, sig: 22, r: 8, pd: 0.5, color: 0xd060ff, elite: true }
 };
 for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite };
 // Контрабанда: станции её не покупают, торгуют только контрабандисты
@@ -277,6 +318,20 @@ const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: 
   strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5],
   gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
+// Назначение и класс мощи (I–V) — для каталога флота и единой серии фото
+const SHIP_ROLES = {
+  combat:    { name: 'Боевые', desc: 'истребляют пиратов и держат оборону', color: '#ff6a50' },
+  carrier:   { name: 'Носители дронов', desc: 'воюют роями дронов', color: '#c080ff' },
+  mining:    { name: 'Добыча и промышленность', desc: 'копают руду и плавят металл', color: '#ffb040' },
+  transport: { name: 'Перевозка', desc: 'возят грузы между станциями', color: '#60d890' },
+  explore:   { name: 'Разведка и старт', desc: 'ищут аномалии, первые шаги пилота', color: '#60c8ff' }
+};
+const SHIP_ROLE = { iskra: ['explore', 1], sokol: ['explore', 1], staratel: ['mining', 1], klinok: ['combat', 1], strizh: ['combat', 1], gadyuka: ['combat', 1],
+  vihr: ['combat', 2], tyagach: ['transport', 2], burlak: ['mining', 2],
+  strazh: ['combat', 3], burya: ['combat', 3], piligrim: ['carrier', 3],
+  molot: ['combat', 4], citadel: ['combat', 4], leviafan: ['mining', 4], kit: ['transport', 4],
+  bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5] };
+for (const [id, [role, tier]] of Object.entries(SHIP_ROLE)) { SHIPS[id].role = role; SHIPS[id].tier = tier; }
 
 // Какие руды встречаются при данном уровне безопасности
 function oresForSec(sec) {
@@ -304,6 +359,9 @@ const NPCS = {
   brood:  { name: 'Матка Скверны', ship: 'matka', bounty: 400000, dmgMul: 0.7, hpMul: 0.6, weapon: 'laser_m', guns: 2, speedMul: 0.9, swarm: 6, pd: 'pd_1',
             loot: [['salv_core', 1, 3, 6], ['drone_heavy', 0.5, 1, 3], ['salv_relic', 0.4, 1, 2], ['pd_2', 0.2, 1, 1]] },
   swarm:  { name: 'Рой Скверны', ship: 'strizh', bounty: 3000, dmgMul: 0.6, hpMul: 0.4, weapon: 'laser_s', guns: 1, speedMul: 1.3, loot: [['salv_scrap', 0.3, 1, 1]] },
+  pdrone: { name: 'Дрон Скверны', ship: 'pdrone', bounty: 2500, dmgMul: 0.5, hpMul: 1, weapon: 'laser_s', guns: 1, speedMul: 1.2, loot: [['salv_scrap', 0.2, 1, 1]] },
+  pdrone_h: { name: 'Тяжёлый дрон Скверны', ship: 'pdrone_h', bounty: 9000, dmgMul: 0.7, hpMul: 1, weapon: 'laser_m', guns: 1, speedMul: 1, loot: [['salv_scrap', 0.5, 1, 2], ['salv_core', 0.15, 1, 1]] },
+  pbase:  { name: 'Пиратская база', ship: 'pbase', bounty: 0, dmgMul: 0.9, hpMul: 1, weapon: 'laser_m', guns: 4, speedMul: 0, pd: 'pd_1', loot: [] },
   fortress:{ name: 'Пиратская крепость', ship: 'fortress', bounty: 4000000, dmgMul: 1, hpMul: 1, weapon: 'rail_l', guns: 6, speedMul: 0, launchers: ['ml_heavy', 'ml_heavy', 'ml_light', 'ml_light'], pd: 'pd_2',
             loot: [['salv_relic', 1, 4, 8], ['salv_core', 1, 8, 15], ['laser_x', 0.3, 1, 1], ['rail_x', 0.3, 1, 1], ['ml_x', 0.4, 1, 1], ['shield_x', 0.25, 1, 1], ['mat_xcore', 1, 3, 8]] },
   warlord:{ name: 'Полководец Скверны', ship: 'molot', bounty: 220000, dmgMul: 0.85, hpMul: 1.15, weapon: 'rail_l', guns: 3, speedMul: 0.8, launchers: ['ml_light', 'ml_light'], pd: 'pd_1',
@@ -405,4 +463,4 @@ const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); retur
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };
+module.exports = { AU, SHIPS, SHIP_ROLES, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };

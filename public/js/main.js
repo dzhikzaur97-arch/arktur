@@ -333,6 +333,7 @@ function onMsg(m) {
       if (RC.until) { stopReconnect(); $('#ui').classList.add('hidden'); $('#login').classList.remove('hidden'); S.data = null; }
       $('#lg-err').textContent = m.msg; S.ws.close(); break;
     case 'welcome':
+      S.auto = null; renderAuto();
       if (RC.until) { stopReconnect(); note('Связь восстановлена', 'good'); }
       S.data = m.data; S.name = m.name;
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
@@ -385,6 +386,7 @@ function onMsg(m) {
     case 'stationAdd': if (!S.stationById[m.station.id]) { S.data.stations.push(m.station); S.stationById[m.station.id] = m.station; } break;
     case 'dialog': showDialog(m); break;
     case 'bots': S.bots = m; if (S.win === 'bots') renderWin(); break;
+    case 'auto': S.auto = m.on ? m : null; renderAuto(); break;
     case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -506,13 +508,13 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия'], missile: ['➹', 'Ракета'], turret: ['⛫', 'Турель']
 };
-const ANOM_TYPE = { fortress: 'Пиратская крепость', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
+const ANOM_TYPE = { fortress: 'Пиратская крепость', pbase: 'Пиратская база', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
   if (o.kind === 'anomaly' && (o.akind === 'story' || o.akind === 'contract')) return '◈';
   if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
-  if (o.kind === 'anomaly' && o.akind === 'fortress') return '☠';
+  if (o.kind === 'anomaly' && (o.akind === 'fortress' || o.akind === 'pbase')) return '☠';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
@@ -630,6 +632,8 @@ function toggleModule(slot) {
 const canvas = $('#scene');
 R.init(canvas);
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
+window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
+window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
 applyCfg();
 let drag = null;
 canvas.addEventListener('mousedown', (e) => {
@@ -732,7 +736,7 @@ const KEY_DEFS = [
   ['m_lock', 'Захват цели у прицела', 'Tab', 'manual'],
   ['approach', 'Подлететь', 'KeyQ', 'normal'], ['orbit', 'Орбита', 'KeyW', 'normal'], ['keep', 'Держать дистанцию', 'KeyE', 'normal'],
   ['warp', 'Варп', 'KeyS', 'normal'], ['dock', 'Стыковка / прыжок', 'KeyD', 'normal'], ['lock', 'Захватить цель', 'KeyL', 'normal'],
-  ['stop', 'Стоп', 'KeyX', 'normal'], ['cycle', 'Сменить цель', 'Tab', 'normal'], ['drones', 'Дроны: атака/добыча (Shift — выпуск)', 'KeyF', 'normal'],
+  ['stop', 'Стоп', 'KeyX', 'normal'], ['cycle', 'Сменить цель', 'Tab', 'normal'], ['drones', 'Дроны: атака/добыча (Shift — выпуск)', 'KeyF', 'normal'], ['autoplay', 'Автоигра вкл/выкл', 'KeyY', 'normal'],
   ['scan', 'Сканер', 'KeyV', 'global'], ['map', 'Карта', 'KeyM', 'global'], ['journal', 'Журнал', 'KeyJ', 'global'],
   ['cargo', 'Трюм', 'KeyC', 'global'], ['skills', 'Навыки', 'KeyK', 'global'], ['pilots', 'Пилоты галактики', 'KeyP', 'global'],
   ['assets', 'Имущество', 'KeyI', 'global'], ['help', 'Помощь', 'KeyH', 'global'], ['settings', 'Настройки', 'KeyO', 'global'], ['chat', 'Чат', 'Enter', 'global']
@@ -812,6 +816,7 @@ addEventListener('keydown', (e) => {
     case 'stop': act('stop'); break;
     case 'cycle': e.preventDefault(); cycleTarget(); break;
     case 'drones': if (e.shiftKey) send({ t: 'droneLaunch' }); else droneEngage(); break;
+    case 'autoplay': autoToggle(); break;
   }
   if (k === 'KeyR' && e.shiftKey) send({ t: 'droneRecall' });
 });
@@ -1012,14 +1017,14 @@ brRoot.addEventListener('contextmenu', (e) => { const b = e.target.closest('.br'
 // ---------- всплывающие цифры урона ----------
 const dmgNums = [];
 function damageNumber(fx) {
-  if (fx.k !== 'beam' || !fx.hit || !fx.dmg || !S.me) return;
+  if (fx.k !== 'beam' || !fx.hit || !(fx.dmg || fx.rep) || !S.me) return;
   const fromEnt = S.ents.get(fx.from);
   const mine = fx.from === S.me.id || (fromEnt && fromEnt.k === 'd' && fromEnt.o === S.name);
   const onMe = fx.to === S.me.id;
   if (!mine && !onMe) return;
   const el = document.createElement('div');
-  el.className = 'dmg ' + (onMe ? 'in' : 'out');
-  el.textContent = fx.dmg;
+  el.className = 'dmg ' + (fx.rep ? 'rep' : onMe ? 'in' : 'out');
+  el.textContent = fx.rep ? '+' + fx.rep : fx.dmg;
   brRoot.appendChild(el);
   dmgNums.push({ el, id: fx.to, t0: performance.now(), dx: (Math.random() - 0.5) * 110, dy: (Math.random() - 0.5) * 50 });
   if (dmgNums.length > 40) dmgNums.shift().el.remove();
@@ -1062,7 +1067,7 @@ function updateBrackets() {
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' || o.akind === 'fortress' ? 'event' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' || o.akind === 'fortress' || o.akind === 'pbase' ? 'event' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -1160,6 +1165,8 @@ function renderSelected() {
     extra = `<div class="bars"><div class="bar sh"><i style="width:${o.sh * 100}%"></i></div><div class="bar ar"><i style="width:${o.ar * 100}%"></i></div><div class="bar hu"><i style="width:${o.hu * 100}%"></i></div></div>`;
     if (o.o) extra += `<div class="muted">Пилот: ${esc(o.o)}${o.cr ? ' · <span style="color:var(--bad)">преступник</span>' : o.su ? ' · <span style="color:var(--warn)">подозреваемый</span>' : ''}</div>`;
     if (o.tg) extra += `<div style="color:var(--bad)">⚠ Захватил вас в прицел</div>`;
+    if (o.pbs) extra += `<div class="pb-st ${o.pbs}">${o.pbs === 'idle' ? `Опасность сектора: ${esc(o.pbd)}. Нападите — база поднимет щит и вышлет ${o.pbn} волн роёв.`
+      : o.pbs === 'waves' ? `⛨ Щит активен · волна ${o.pbw}/${o.pbn}` : '⚠ Щит отключён — уничтожьте базу!'}<br><span class="isk">Награда: ${num(o.pbr)} ISK + тайник</span></div>`;
   }
   if (o.kind === 'asteroid') extra = `<div class="muted">Осталось: ${num(o.am)} ед. руды «${esc(S.data.items[o.ore].name)}»</div>`;
   if (o.kind === 'wreck' && o.items) extra = `<div class="muted">${Object.entries(o.items).map(([k, q]) => `${esc(S.data.items[k].name)} ×${q}`).join(', ')}</div>`;
@@ -1278,6 +1285,36 @@ $('#b-full').onclick = () => send({ t: 'speed', v: 1 });
 $('#b-scan').onclick = () => send({ t: 'scan' });
 $('#b-foundry').onclick = () => send({ t: 'foundry' });
 $('#b-manual').onclick = () => manualToggle();
+// ---------- автоигра ----------
+const AUTO_MODES = [['auto', 'Сам', 'Сам решает: копать, охотиться, торговать, улучшать модули'], ['mine', 'Добыча', 'Только добыча руды'], ['hunt', 'Охота', 'Только охота на пиратов'], ['trade', 'Торговля', 'Возить энергоячейки из Ядра на окраины']];
+function autoToggle(mode) {
+  if (S.auto && !mode) { send({ t: 'autoplay', on: false }); return; }
+  if (!S.prof) return;
+  if (MAN.on) manualToggle(false, true);
+  send({ t: 'autoplay', on: true, mode: mode || (S.auto && S.auto.mode) || S.autoMode || 'auto' });
+}
+function renderAuto() {
+  const a = S.auto, el = $('#autoplay');
+  $('#b-auto').classList.toggle('on', !!a);
+  if (!a) { el.classList.add('hidden'); return; }
+  S.autoMode = a.mode;
+  el.classList.remove('hidden');
+  const d = a.doing;
+  const doing = d ? `<b>${esc(d.a)}</b> · ${esc(PHASE_NAME[d.phase] || d.phase)}${d.band ? ` · ${esc(bandName(d.aKey, d.band))}` : ''} · ${Math.floor(d.secs / 60)}:${String(d.secs % 60).padStart(2, '0')}` : 'выбирает занятие…';
+  $('#ap-state').textContent = `${a.episodes} занятий`;
+  setHTML($('#ap-body'), `<div class="ap-doing">${doing}</div>
+    <div class="dr-btns ap-modes">${AUTO_MODES.map(([k, l, t]) => `<button data-ap="${k}" class="${a.mode === k ? 'on' : ''}" title="${t}">${l}</button>`).join('')}</div>
+    <label class="ap-bold" title="Опасные сектора, покупка кораблей и электростанций"><input type="checkbox" data-ap-bold ${a.bold ? 'checked' : ''}> смелый режим</label>
+    <div class="ap-log">${(a.log || []).slice(0, 3).map(x => `<div>${esc(x)}</div>`).join('')}</div>
+    <div class="muted ap-hint">Опыт начат с ИИ-ученика ${esc(a.from || '—')} и дальше копится свой. Любая команда полёта вернёт вам управление.</div>
+    <button class="ap-stop" data-ap="off">■ Выключить автоигру</button>`);
+}
+$('#b-auto').onclick = () => { Sound.click(); autoToggle(); };
+onTap($('#autoplay'), (e) => {
+  const b = e.target.closest('[data-ap]');
+  if (b) { Sound.click(); if (b.dataset.ap === 'off') send({ t: 'autoplay', on: false }); else autoToggle(b.dataset.ap); }
+});
+$('#autoplay').addEventListener('change', (e) => { if (e.target.matches('[data-ap-bold]')) send({ t: 'autoplay', on: true, bold: e.target.checked }); });
 $('#b-turret').onclick = () => send({ t: 'deployTurret' });
 $('#story-track').onclick = () => openWin('missions');
 
@@ -1289,10 +1326,15 @@ function slotType(shipType, idx) {
 // ======================================================================
 // Инфо о системе, уведомления, чат
 // ======================================================================
+// Звезда системы; у двойных — «основная + компаньон»
+function starLine(id) {
+  const a = S.data.starTypes[S.data.stars[id]] || {}, b2 = S.data.stars2 && S.data.starTypes[S.data.stars2[id]];
+  return b2 ? `${a.name || ''} + ${(b2.name || '').toLowerCase()} (двойная)` : (a.name || '');
+}
 // Заставка при входе в новую систему
 function jumpBanner(m) {
   const reg = S.data.regions[m.region] || {};
-  const star = S.data.starTypes[S.data.stars[m.id]] || {};
+  const star = { name: starLine(m.id) };
   const el = $('#jump-banner');
   el.innerHTML = `<div class="jb-region" style="color:${reg.color}">${esc(reg.name || '')}</div>
     <div class="jb-name">${esc(m.name)}</div>
@@ -1412,7 +1454,7 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
@@ -1445,6 +1487,26 @@ function renderWin() {
   }
   if (S.win === 'pilots') return setHTML(el, pilotsHTML());
   if (S.win === 'bots') return setHTML(el, botsHTML());
+  if (S.win === 'fleet') return setHTML(el, fleetHTML());
+}
+// Корабли по назначению; внутри — по классу мощи и цене
+function shipGroups(ids) {
+  const roles = S.data.shipRoles || {};
+  return Object.entries(roles).map(([k, r]) => [r, ids.filter(id => S.data.ships[id].role === k)
+    .sort((a, b) => S.data.ships[a].tier - S.data.ships[b].tier || S.data.ships[a].price - S.data.ships[b].price)]).filter(([, l]) => l.length);
+}
+// Окно «Флот»: фото каждого корабля в единой серии, по назначению и силе
+function fleetHTML() {
+  const all = Object.keys(S.data.ships).filter(id => S.data.ships[id].role);
+  const ehp = (t) => t.shield + t.armor + t.hull;
+  const maxE = Math.max(...all.map(id => ehp(S.data.ships[id])));
+  return `<p class="muted">Все корабли в одной фотосерии. Назначение — цвет подсветки и метки, класс мощи (I–V) — размер в кадре: лёгкие сняты сверху, тяжёлые — снизу во весь кадр.</p>` +
+    shipGroups(all).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div>
+    <div class="grid-cards">${ids.map(id => { const t = S.data.ships[id], mine = S.prof && S.prof.ship.type === id;
+      return `<div class="shipcard${mine ? ' mine' : ''}">${artImg(id)}<div class="sname">${esc(t.name)} <span class="muted">${esc(t.cls)}</span></div>
+        <div class="pw" title="Прочность относительно самого крепкого корабля"><i style="width:${Math.max(4, Math.sqrt(ehp(t) / maxE) * 100).toFixed(0)}%"></i></div>
+        <div class="kv small"><span>Класс мощи</span><span>${ROMAN[t.tier]}</span><span>Прочность</span><span>${num(ehp(t))}</span><span>Скорость</span><span>${num(t.maxSpeed)} м/с</span><span>Трюм</span><span>${num(t.cargo)} м³</span><span>Слоты</span><span>${t.slots.high}/${t.slots.mid}/${t.slots.low}${t.droneBay ? ` · дроны ${t.droneBay} м³` : ''}</span><span>Цена</span><span class="isk">${t.price ? isk(t.price) : 'стартовый'}</span></div>
+        ${mine ? '<div class="muted" style="color:var(--good)">● ваш корабль</div>' : ''}</div>`; }).join('')}</div>`).join('');
 }
 onTap($('#win-body'), onActionClick);
 
@@ -1648,15 +1710,16 @@ function assetsHTML() {
   return html;
 }
 
-// Концепт-арты кораблей (в одиночной сборке встроены в страницу как window.VF_ART)
-const SHIP_ART = ['iskra', 'klinok', 'burlak', 'tyagach', 'strazh', 'molot', 'strizh', 'sokol', 'staratel', 'vihr', 'piligrim', 'leviafan', 'kit', 'citadel'];
-function shipArt(type) {
-  if (!SHIP_ART.includes(type)) return null;
-  return (window.VF_ART && window.VF_ART[type]) || `img/ships/${type}.jpg`;
-}
+// Фото кораблей — единая серия (tools/make-photos.js): один фон, свет и ракурс; класс мощи задаёт размер
+// в кадре, назначение — цвет подсветки. В одиночной сборке встроены в страницу как window.VF_PHOTO
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
+function shipPhotoSrc(type) { return (window.VF_PHOTO && window.VF_PHOTO[type]) || `img/photos/${type}.jpg`; }
 function artImg(type, cls = 'ship-art') {
-  const src = shipArt(type);
-  return src ? `<img class="${cls}" src="${src}" alt="${esc(S.data.ships[type].name)}" loading="lazy">` : '';
+  const st = S.data.ships[type];
+  if (!st || !st.role) return '';
+  const role = (S.data.shipRoles || {})[st.role] || {};
+  const badges = cls === 'ship-thumb' ? '' : `<span class="ph-role">${esc(role.name || '')}</span><span class="ph-tier" title="Класс мощи ${ROMAN[st.tier]} из V">${ROMAN[st.tier]}</span>`;
+  return `<div class="photo ${cls}" style="--rc:${role.color || '#5fc8e8'}"><img src="${shipPhotoSrc(type)}" alt="${esc(st.name)}" loading="lazy">${badges}</div>`;
 }
 
 function shipStatsHTML(t, stats) {
@@ -1747,7 +1810,7 @@ function checkTutorial() {
   if (Object.keys(p.ship.cargo).some(k => k.startsWith('ore_'))) markTut('mine');
   if (S.docked && tut.done.mine) markTut('dock');
   if (p.training || Object.keys(p.skills).length) markTut('skill');
-  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event' && a.akind !== 'fortress')) markTut('scan');
+  if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event' && a.akind !== 'fortress' && a.akind !== 'pbase')) markTut('scan');
   renderTutorial();
 }
 function renderTutorial() {
@@ -1827,19 +1890,19 @@ function solarHTML() {
   const list = I.solars.map(st => {
     const sys = S.sysById[st.sys], next = lv[st.level + 1];
     return `<div class="mission"><div class="mt">☀ ${esc(st.name)} · ур. ${st.level}</div>
-      <div class="muted">${esc(sys.name)} (${sys.sec.toFixed(1)}) · звезда: ${STAR_NAME[st.star]} · ${st.au} а.е. от звезды</div>
+      <div class="muted">${esc(sys.name)} (${sys.sec.toFixed(1)}) · звёзды: ${STAR_NAME[st.star]} (${st.au} а.е.)${st.star2 ? ` и ${STAR_NAME[st.star2]} (${st.au2} а.е.)` : ''}</div>
       ${st.building ? `<div>Строится… ${fmtTime((st.building - I.now) / 1000)}</div>` : `<div>Выработка: <b>${st.rate} ячеек/мин</b> · на складе ${num(st.stored)} / ${num(st.cap)} · всего выработано ${num(st.produced)}</div>
       <div class="cap-bar"><i style="width:${Math.min(100, st.stored / st.cap * 100)}%;background:#40e0ff"></i></div>`}
       <div class="btn2">${next ? `<button data-a="infraUp" data-id="${st.id}">Улучшить до ${st.level + 1}: ${next.rate}/мин база, склад ${num(next.cap)} — ${isk(next.cost)}</button>` : '<span class="sk-max">Максимальный уровень</span>'}
       ${S.sys && S.sys.id !== st.sys ? `<button data-a="route" data-sys="${st.sys}">Маршрут</button>` : ''}</div></div>`;
   }).join('');
-  const h = I.here, k = h ? (I.cfg.starPower[h.star] || 1) * (h.au < 1 ? 1.5 : h.au < 3 ? 1 : 0.6) : 0;
+  const h = I.here;
   return `<p>Солнечная электростанция вырабатывает <b>энергоячейки</b> — основу экономики: это топливо для прыжков через врата, питание завода, транспортов и верфей. Ячейки копятся в ангаре станции; вывозите их сами или поручите транспортам хаба.</p>
-    <div class="kv"><span>Выработка</span><span>${lv[1].rate} ячеек/мин × сила звезды × близость к звезде</span>
+    <div class="kv"><span>Выработка</span><span>${lv[1].rate} ячеек/мин × (сила × близость) каждой из двух звёзд системы</span>
     <span>Сила звезды</span><span>${Object.entries(I.cfg.starPower).map(([k, v]) => `${STAR_NAME[k]} ×${v}`).join(', ')}</span>
     <span>Близость</span><span>ближе 1 а.е. ×1.5, 1–3 а.е. ×1, дальше ×0.6 (но не ближе 0.25 а.е.)</span>
     <span>Стоимость</span><span class="isk">${isk(C.buildCost)} · до ${C.max} станций</span></div>
-    ${h ? `<p>Здесь: звезда ${STAR_NAME[h.star]}, ${h.au} а.е. → станция ур.1 даст <b>${(lv[1].rate * k).toFixed(1)} ячеек/мин</b>.</p>` : ''}
+    ${h ? `<p>Здесь: ${h.suns.map(x => `${x.star === 'blackhole' ? 'чёрная дыра' : STAR_NAME[x.star] + ' звезда'} в ${x.au} а.е.`).join(' и ')} → станция ур.1 даст <b>${h.rate} ячеек/мин</b>. Обе звезды двойной системы дают энергию.</p>` : ''}
     ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="buildInfra" data-id="solar" ${S.prof.credits < C.buildCost || I.solars.length >= C.max ? 'disabled' : ''}>Построить электростанцию здесь — ${isk(C.buildCost)}</button>`}
     <h3>Ваши электростанции</h3>${list || '<div class="muted">Пока нет.</div>'}`;
 }
@@ -2079,7 +2142,15 @@ $('#escmenu').addEventListener('click', (e) => {
 });
 
 function droneDesc(d) {
-  return d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, ${d.vol} м³, прочность ${d.hp}` : `${d.yield} м³ руды / ${d.cycle}с, ${d.vol} м³`;
+  const cl = (S.data.droneClasses || {})[d.cls], tags = [];
+  if (cl) tags.push(cl.name.toLowerCase());
+  tags.push(d.speed ? `${d.speed} м/с` : 'неподвижный');
+  if (d.resist) tags.push(`поглощает ${Math.round(d.resist * 100)}% урона`);
+  if (d.regen) tags.push(`чинится ${d.regen}/с`);
+  if (d.taunt) tags.push('отвлекает пиратов');
+  if (d.pd) tags.push(`сбивает ракеты ${Math.round(d.pd * 100)}%`);
+  const main = d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, дальность ${d.range / 1000} км` : d.kind === 'repair' ? `ремонт ${d.rep} / ${d.cycle}с` : `${d.yield} м³ руды / ${d.cycle}с`;
+  return `${main}, прочность ${d.hp}, ${d.vol} м³ · ${tags.join(', ')}`;
 }
 function droneBayHTML() {
   const p = S.prof, t = S.data.ships[p.ship.type];
@@ -2117,7 +2188,7 @@ onTap($('#drones'), (e) => {
   else if (b.dataset.dr === 'fill') send({ t: 'fillBay' });
   else if (b.dataset.dr === 'mode') send({ t: 'droneMode', mode: b.dataset.mode });
 });
-const TASK = { idle: 'ожидает', attack: 'атакует', mine: 'добывает', return: 'возвращается' };
+const TASK = { idle: 'ожидает', attack: 'атакует', mine: 'добывает', repair: 'чинит', return: 'возвращается' };
 function renderDrones() {
   const el = $('#drones');
   const p = S.prof;
@@ -2131,7 +2202,7 @@ function renderDrones() {
   const inCargo = Object.keys(p.ship.cargo || {}).some(k => S.data.drones[k]);
   setHTML($('#dr-body'), `<div class="muted" style="font-size:11px">В отсеке: ${inBay}</div>${inCargo ? '<button class="primary" data-dr="fill" style="font-size:11px">Загрузить дронов из трюма</button>' : ''}${list}
     <div class="dr-btns"><button data-dr="launch" title="Shift+F">Выпустить</button><button data-dr="engage" title="F">Атака / добыча</button><button data-dr="recall" title="Shift+R">Вернуть</button></div>
-    <div class="dr-btns dr-mode">${[['aggressive', 'Агрессия', 'Сами атакуют пиратов в 25 км'], ['defensive', 'Защита', 'Бьют тех, кто атакует вас, и сбивают ракеты'], ['passive', 'Пассив', 'Только по приказу']].map(([k, l, t]) => `<button data-dr="mode" data-mode="${k}" class="${(S.me && S.me.dm) === k ? 'on' : ''}" title="${t}">${l}</button>`).join('')}</div>`);
+    <div class="dr-btns dr-mode">${[['aggressive', 'Агрессия', 'Сами атакуют пирата, ближайшего к кораблю (до 25 км); шахтёрские сами копают ближайший астероид'], ['defensive', 'Защита', 'Бьют ближайшего к кораблю из тех, кто атакует вас или дронов, и сбивают ракеты'], ['passive', 'Пассив', 'Только по приказу']].map(([k, l, t]) => `<button data-dr="mode" data-mode="${k}" class="${(S.me && S.me.dm) === k ? 'on' : ''}" title="${t}">${l}</button>`).join('')}</div>`);
   $('#dr-count').textContent = `${mine.length} / ${t.maxDrones}`;
 }
 
@@ -2212,8 +2283,8 @@ function renderStation() {
           <td class="r"><input class="qty" type="number" min="1" value="${id === 'turret_kit' ? 1 : 50}" id="cq-${id}"> <button class="primary" data-a="buyCons" data-item="${id}">Купить</button></td></tr>`).join('')}</table>` : ''}
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
-        <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
-          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`;
+        <h3>Корабли <span class="muted">— по назначению и классу мощи</span></h3>${shipGroups(Object.keys(mk.ships)).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div><div class="grid-cards">${ids.map((id) => { const pr = mk.ships[id], st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
+          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`).join('')}`;
       break;
     }
     case 'exchange': {
@@ -2407,6 +2478,9 @@ function drawMap() {
     glow.addColorStop(0, col + '88'); glow.addColorStop(1, 'transparent');
     g.fillStyle = glow; g.fillRect(x - 22, y - 22, 44, 44);
     g.fillStyle = col; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill();
+    // двойная звезда: маленький спутник цвета звезды-компаньона
+    const st2 = S.data.stars2 && S.data.starTypes[S.data.stars2[s.id]];
+    if (st2) { g.fillStyle = '#' + st2.light.toString(16).padStart(6, '0'); g.beginPath(); g.arc(x + 8, y - 6, 2.6, 0, 7); g.fill(); }
     if (S.sys && s.id === S.sys.id) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 12, 0, 7); g.stroke(); }
     if (s.id === map.sel) { g.strokeStyle = '#5fc8e8'; g.setLineDash([4, 3]); g.beginPath(); g.arc(x, y, 17, 0, 7); g.stroke(); g.setLineDash([]); }
     g.fillStyle = '#dde'; g.font = '13px Segoe UI, sans-serif'; g.textAlign = 'center';
@@ -2420,7 +2494,7 @@ function renderMapInfo() {
   if (!s) return;
   const stations = S.data.stations.filter(st => st.sys === s.id);
   const cur = S.sys && S.sys.id;
-  const reg = S.data.regions[s.region] || {}, star = S.data.starTypes[S.data.stars[s.id]] || {};
+  const reg = S.data.regions[s.region] || {}, star = { name: starLine(s.id) };
   $('#map-info').innerHTML = `<h3 style="color:${secColor(s.sec)}">${esc(s.name)} <span>${s.sec.toFixed(1)}</span></h3>
     <div class="kv"><span>Регион</span><span style="color:${reg.color}">${esc(reg.name || '')}</span>
     <span>Доход</span><span class="isk">×${(reg.income || 1).toFixed(1)} к добыче, наградам и заданиям</span>

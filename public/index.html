@@ -47,6 +47,7 @@
     <button data-win="assets" title="Имущество (A)">◫<small>Имущ.</small></button>
     <button data-win="help" title="Управление (H)">?<small>Помощь</small></button>
     <button id="snd" title="Звук вкл/выкл">🔊<small>Звук</small></button>
+    <button data-win="fleet" title="Флот: фото и характеристики всех кораблей">🚀<small>Флот</small></button>
     <button data-win="bots" title="Обучение ИИ-пилотов: как боты учатся играть">🎓<small>ИИ</small></button>
     <button data-win="pilots" title="Пилоты галактики (P)">♛<small>Пилоты</small></button>
     <button data-win="build" title="Постройки: завод, электростанции, транспортный хаб">⚒<small>Стройка</small></button>
@@ -84,6 +85,10 @@
     <div class="ov-head"><span></span><span>Название</span><span>Тип</span><span>Дист.</span></div>
     <div id="ov-list"></div>
   </div>
+  <div id="autoplay" class="panel hidden">
+    <div class="ph">🤖 Автоигра <span id="ap-state"></span></div>
+    <div id="ap-body"></div>
+  </div>
   <div id="drones" class="panel hidden">
     <div class="ph">Дроны <span id="dr-count"></span></div>
     <div id="dr-body"></div>
@@ -114,6 +119,7 @@
         <button id="b-scan" title="Сканировать систему (V)">◎ Скан</button>
         <button id="b-turret" class="hidden" title="Развернуть турель «Страж-Т» из трюма">⛫ Турель</button>
         <button id="b-manual" class="desk" title="Ручное управление (Z): WASD, мышь, Shift — форсаж">✈ Ручное</button>
+        <button id="b-auto" title="Автоигра (Y): корабль сам копает, охотится и торгует. Любая ваша команда полёта вернёт управление">🤖 Авто</button>
         <button id="b-foundry" class="hidden" title="Всеядные буры «Бегемота»: поглощать все астероиды вокруг и плавить в слитки">⚙ Буры</button>
       </div>
     </div>

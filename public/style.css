@@ -251,6 +251,15 @@ h3:first-child { margin-top: 0; }
 
 /* Дроны и аномалии */
 #drones { flex: none; }
+#autoplay { flex: none; border-color: rgba(120,220,160,.45); }
+#autoplay .ph { color: #8fe8b0; }
+#ap-body { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.ap-doing { color: #cfe; }
+.ap-modes button.on, #b-auto.on { background: rgba(90,200,130,.25); border-color: #6fd29a; color: #dfffea; }
+.ap-bold { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted, #8a9aa8); cursor: pointer; }
+.ap-log { font-size: 11px; color: #9fb4c4; line-height: 1.35; max-height: 46px; overflow: hidden; }
+.ap-hint { font-size: 10px; line-height: 1.3; }
+.ap-stop { font-size: 11px; padding: 3px; }
 #dr-body { padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
 .dr-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .dr-row > span:first-child { width: 70px; }
@@ -270,6 +279,10 @@ h3:first-child { margin-top: 0; }
 .dmg { position: absolute; left: 0; top: 0; font-weight: 700; font-size: 15px; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 6px #000; will-change: transform; }
 .dmg.out { color: #ffd27a; }
 .dmg.in { color: #ff5a4a; }
+.dmg.rep { color: #70ffc0; }
+.pb-st { margin-top: 6px; padding: 5px 8px; border-left: 3px solid var(--bad); background: rgba(255,80,60,.08); font-size: 12px; line-height: 1.45; }
+.pb-st.waves { border-color: #ff9a40; background: rgba(255,150,60,.1); }
+.pb-st.open { border-color: var(--good); background: rgba(90,220,120,.1); }
 
 /* Обучение */
 #tut { position: fixed; left: 70px; top: 120px; width: 262px; z-index: 6; }
@@ -291,9 +304,18 @@ h3:first-child { margin-top: 0; }
 .req-no { color: var(--bad); }
 
 /* Концепт-арты кораблей */
-.ship-art { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; border: 1px solid var(--line); margin-bottom: 6px; background: #05080c; }
+.photo { position: relative; display: block; border: 1px solid var(--line); background: #05080c; overflow: hidden; }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--rc); opacity: .85; }
+.ship-art { width: 100%; aspect-ratio: 16 / 9; margin-bottom: 6px; }
 .ship-art.big { max-width: 520px; margin: 4px 0 10px; }
-.ship-thumb { width: 72px; height: 40px; object-fit: cover; border: 1px solid var(--line); }
+.ship-thumb { width: 72px; height: 40px; flex: none; }
+.ph-role { position: absolute; left: 6px; bottom: 7px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: #fff; background: rgba(0,0,0,.55); border-left: 3px solid var(--rc); padding: 1px 6px; }
+.ph-tier { position: absolute; right: 6px; top: 6px; min-width: 22px; text-align: center; font: 700 12px/18px Georgia, serif; color: #fff; background: rgba(0,0,0,.55); border: 1px solid var(--rc); padding: 0 4px; }
+.role-head { margin: 14px 0 6px; padding-left: 8px; border-left: 3px solid var(--rc); font-weight: 600; color: #e6eef6; }
+.shipcard.mine { border-color: var(--good); }
+.pw { height: 4px; background: rgba(255,255,255,.08); }
+.pw i { display: block; height: 100%; background: linear-gradient(90deg, #5fc8e8, #ffb040, #ff6a50); }
 #login-art { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
 .login-slide { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 2s ease, transform 8s linear; transform: scale(1.06); }
 .login-slide.on { opacity: 0.55; transform: scale(1); }

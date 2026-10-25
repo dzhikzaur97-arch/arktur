@@ -9,11 +9,11 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 
 const FAR_START = 1.5e6; // дальше этого расстояния объекты «сжимаются» с сохранением углового размера
 
-let renderer, composer, bloom, grade, scene, camera, sunLight, rimLight, ambient, pmrem;
+let renderer, composer, bloom, grade, godRays, scene, camera, sunLight, sunLight2, rimLight, ambient, pmrem;
+let curSuns = { a: null, b: null }; // основная звезда и компаньон двойной системы
 let celGroup, entGroup, fxGroup, warpLines, dust, starField, skyRT, envRT, skyDome;
 const celMeshes = new Map();   // id -> { obj, data }
 const entMeshes = new Map();   // id -> { obj, kind, seen }
@@ -45,6 +45,8 @@ export function setQuality(q) {
   sunLight.castShadow = q === 'high';
   bloom.enabled = q !== 'low';
   grade.enabled = q !== 'low';
+  godRays.uniforms.rays.value = q !== 'low' ? 1 : 0;
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { const n = q === 'high' ? 4 : 0; if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
   if (q === 'low') { for (const [id, tr] of trails) { fxGroup.remove(tr.mesh); trails.delete(id); } }
   resize();
 }
@@ -170,14 +172,17 @@ function logShader({ uniforms, vertex, fragment, ...rest }) {
 function fresnelMaterial(color, power = 3, intensity = 1.2, sunSide = true) {
   return logShader({
     uniforms: { color: { value: new THREE.Color(color) }, power: { value: power }, intensity: { value: intensity },
-      sunDir: { value: new THREE.Vector3(1, 0, 0) }, sunSide: { value: sunSide ? 1 : 0 }, opacity: { value: 1 } },
+      sunDir: { value: new THREE.Vector3(1, 0, 0) }, sunSide: { value: sunSide ? 1 : 0 }, opacity: { value: 1 }, sunset: { value: 0 } },
     vertex: `varying vec3 vN; varying vec3 vV; varying vec3 vW;
       void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
         vW = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * mv; /*LOGDEPTH*/ }`,
-    fragment: `uniform vec3 color; uniform float power, intensity, sunSide, opacity; uniform vec3 sunDir; varying vec3 vN; varying vec3 vV; varying vec3 vW;
+    fragment: `uniform vec3 color; uniform float power, intensity, sunSide, opacity, sunset; uniform vec3 sunDir; varying vec3 vN; varying vec3 vV; varying vec3 vW;
       void main(){ /*LOGDEPTH*/ float f = pow(1.0 - abs(dot(vN, vV)), power);
-        float lit = mix(1.0, smoothstep(-0.35, 0.6, dot(vW, sunDir)), sunSide);
-        gl_FragColor = vec4(color * f * intensity * lit * opacity, 1.0); }`,
+        float sd = dot(vW, sunDir);
+        float lit = mix(1.0, smoothstep(-0.35, 0.6, sd), sunSide);
+        // у линии терминатора атмосфера краснеет — рассеяние света, как на закате
+        vec3 c = mix(color, vec3(1.0, 0.45, 0.18) * length(color), sunset * smoothstep(0.45, 0.0, abs(sd + 0.05)) * 0.75);
+        gl_FragColor = vec4(c * f * intensity * lit * opacity, 1.0); }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
   });
 }
@@ -702,7 +707,7 @@ function greebles(g, R, count, mat, region) {
 // Базовый радиус модели каждого корабля (модель строится в этих единицах, потом масштабируется)
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
   strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
-  gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400 };
+  gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16 };
 
 
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
@@ -1143,9 +1148,51 @@ function buildShip(type, color, faction) {
       addLights(g, [[R * 0.32, R * 0.15, R * 0.85, R * 0.012], [-R * 0.32, R * 0.15, R * 0.85, R * 0.012], [R * 0.42, R * 0.38, -R * 1.0, R * 0.012], [-R * 0.42, R * 0.38, -R * 1.0, R * 0.012]], 0xffa030);
       break;
     }
+    case 'pbase': {
+      // пиратская база: выдолбленный астероид, обвешанный фермами, кольцом с башнями и ангарами; купол щита при обороне
+      const PM = pbrMat(0x3a2a28, 'pirate');
+      const rock = asteroidModel(R * 0.62, 5, 'pbase_rock'); delete rock.userData.spin; g.add(rock);
+      const ring = add(new THREE.TorusGeometry(R * 0.82, R * 0.045, 10, 64), PM); ring.rotation.x = Math.PI / 2 + 0.18;
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2 + 0.3, x = Math.cos(a) * R * 0.82, z = Math.sin(a) * R * 0.82;
+        g.add(rod([x * 0.5, 0, z * 0.5], [x, -Math.sin(a) * R * 0.15, z], R * 0.02, D));
+      }
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; addTurret(g, Math.cos(a) * R * 0.82, Math.sin(a) * R * 0.82 * Math.sin(-0.18) + R * 0.05, Math.sin(a) * R * 0.82, R * 0.06, D); }
+      // ангары с красными воротами
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI * 2 / 3 + 0.5, hx = Math.cos(a) * R * 0.5, hz = Math.sin(a) * R * 0.5;
+        const hang = add(rbox(R * 0.22, R * 0.16, R * 0.3), PM, hx, R * 0.1, hz); hang.rotation.y = -a + Math.PI / 2;
+        const door = add(rbox(R * 0.16, R * 0.1, R * 0.01), glowMat(0xff3010, 2.2), hx + Math.cos(a) * R * 0.15, R * 0.1, hz + Math.sin(a) * R * 0.15); door.rotation.y = -a + Math.PI / 2;
+      }
+      // шпиль с антеннами
+      add(new THREE.CylinderGeometry(R * 0.015, R * 0.03, R * 0.7, 8), D, 0, R * 0.75, 0);
+      add(new THREE.ConeGeometry(R * 0.05, R * 0.15, 8), PM, 0, R * 1.15, 0);
+      for (const y of [0.85, 0.98]) add(new THREE.TorusGeometry(R * 0.08, R * 0.006, 6, 24), D, 0, R * y, 0).rotation.x = Math.PI / 2;
+      add(new THREE.SphereGeometry(R * 0.05, 16, 12), glowMat(0xff2010, 4), 0, R * 0.62, 0);
+      addLights(g, [...Array.from({ length: 12 }, (_, i) => [Math.cos(i / 12 * Math.PI * 2) * R * 0.86, 0, Math.sin(i / 12 * Math.PI * 2) * R * 0.86, R * 0.012]), [0, R * 1.24, 0, R * 0.02]], 0xff2a10);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(R * 1.25, 48, 24), fresnelMaterial(0xff5a30, 2.6, 0.6, false));
+      dome.userData.dome = true; dome.visible = false; g.add(dome);
+      break;
+    }
+    case 'pdrone': case 'pdrone_h': {
+      // пиратские дроны: тёмно-красные, шипастые, с красным «глазом»
+      const heavy = type === 'pdrone_h', PM = pbrMat(0x4a2624, 'pirate');
+      if (heavy) {
+        add(new THREE.CylinderGeometry(R * 0.5, R * 0.6, R * 1.3, 6), PM).rotation.x = Math.PI / 2;
+        for (const sx of [-1, 1]) { add(rbox(R * 0.12, R * 0.6, R * 1.0), D, sx * R * 0.6, 0, -R * 0.1); addEngine(g, sx * R * 0.3, 0, -R * 0.75, R * 0.14, eng, 0.7); }
+        add(new THREE.CylinderGeometry(R * 0.07, R * 0.1, R * 0.9, 10), D, 0, R * 0.25, R * 0.75).rotation.x = Math.PI / 2;
+        add(rbox(R * 0.5, R * 0.07, R * 0.05), glowMat(0xff2010, 4), 0, R * 0.05, R * 0.66);
+      } else {
+        add(new THREE.SphereGeometry(R * 0.5, 16, 12), PM, 0, 0, 0, 0.9, 0.7, 1.3);
+        for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; const sp = add(new THREE.ConeGeometry(R * 0.08, R * 0.9, 6), D, Math.cos(a) * R * 0.35, Math.sin(a) * R * 0.35, R * 0.5); sp.rotation.x = Math.PI / 2; }
+        add(new THREE.SphereGeometry(R * 0.16, 12, 8), glowMat(0xff2010, 4), 0, 0, R * 0.62);
+        addEngine(g, 0, 0, -R * 0.65, R * 0.2, eng, 0.6);
+      }
+      break;
+    }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
   }
-  if (faction === 'pirate') { // шипы на пиратских кораблях
+  if (faction === 'pirate' && type !== 'pbase' && type !== 'pdrone' && type !== 'pdrone_h') { // шипы на пиратских кораблях
     const r = seeded(type.length * 31);
     for (let i = 0; i < 8; i++) {
       const sp = new THREE.Mesh(new THREE.ConeGeometry(R * 0.04, R * 0.35, 6), D);
@@ -1158,22 +1205,97 @@ function buildShip(type, color, faction) {
   return g;
 }
 
-// Дрон: корпус-капсула, три лопасти, светящийся «глаз» и двигатель
-function droneModel(item) {
+// Стержень между двумя точками (стойки, опоры)
+function rod(a, b, r, mat) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 8), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return m;
+}
+
+// Дроны по классам (размер R — настоящий, в метрах): лёгкие — дротики, средние — с орудийными подвесами,
+// тяжёлые — бронированные коробки, стационарные — орудие на треноге, бастион — шестигранная крепость со щитом,
+// штурмовой — маленький линкор, ремонтный — сфера с кольцом, шахтёрский — с буром
+function droneModel(item, def = {}) {
   const key = 'drone:' + item;
   if (!shipCache.has(key)) {
     const g = new THREE.Group();
-    const mining = item === 'drone_mine', heavy = item === 'drone_heavy';
-    const R = heavy ? 9 : 6;
-    const M = hullMat(mining ? 0xc8a050 : 0x8a96a4, 'player');
-    const body = new THREE.Mesh(new THREE.SphereGeometry(R * 0.55, 20, 14), M); body.scale.set(1, 0.8, 1.3); g.add(body);
-    for (let i = 0; i < 3; i++) {
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(R * 0.08, R * 0.9, R * 0.8), darkMetal());
-      fin.rotation.z = i * Math.PI * 2 / 3; fin.translateY(R * 0.55); g.add(fin);
+    const cls = def.cls || (item === 'drone_mine' ? 'mining' : 'light');
+    const R = def.r || 6, col = def.color || 0xff9040;
+    const M = hullMat({ mining: 0xc8a050, support: 0xdde8e4, bastion: 0x8a8670, super: 0x6c4c56, heavy: 0x707a86, sentry: 0x7c8aa0 }[cls] || 0x8a96a4, 'player');
+    const D = darkMetal();
+    const eye = (x, y, z, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), glowMat(col, 4)); m.position.set(x, y, z); g.add(m); };
+    if (cls === 'light' || cls === 'medium') {
+      const body = new THREE.Mesh(new THREE.SphereGeometry(R * 0.55, 20, 14), M); body.scale.set(cls === 'light' ? 0.8 : 1, 0.8, 1.4); g.add(body);
+      const nf = cls === 'light' ? 3 : 4;
+      for (let i = 0; i < nf; i++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(R * 0.08, R * 0.9, R * 0.8), D);
+        fin.rotation.z = i * Math.PI * 2 / nf; fin.translateY(R * 0.55); g.add(fin);
+      }
+      if (cls === 'medium') for (const sx of [-1, 1]) {
+        const pod = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.1, R * 0.12, R * 1.1, 10), D);
+        pod.rotation.x = Math.PI / 2; pod.position.set(sx * R * 0.62, -R * 0.1, R * 0.25); g.add(pod);
+      }
+      eye(0, 0, R * 0.75, R * 0.18);
+      addEngine(g, 0, 0, -R * 0.8, R * 0.2, 0x60c0ff, 0.6);
+    } else if (cls === 'heavy') {
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(R * 0.9, R * 0.55, R * 1.5), M));
+      const nose = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.32, R * 0.45, R * 0.4, 6), D); nose.rotation.x = Math.PI / 2; nose.position.z = R * 0.9; g.add(nose);
+      for (const sx of [-1, 1]) {
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(R * 0.14, R * 0.72, R * 1.25), D); plate.position.set(sx * R * 0.52, 0, -R * 0.05); g.add(plate);
+        const gun = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.07, R * 0.09, R * 1.1, 10), D); gun.rotation.x = Math.PI / 2; gun.position.set(sx * R * 0.24, R * 0.34, R * 0.6); g.add(gun);
+        addEngine(g, sx * R * 0.26, 0, -R * 0.82, R * 0.16, 0xff8050, 0.7);
+      }
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(R * 0.5, R * 0.08, R * 0.06), glowMat(col, 4)); visor.position.set(0, R * 0.12, R * 1.1); g.add(visor);
+    } else if (cls === 'sentry') {
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.45, 24, 16), M));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 0.6, R * 0.07, 8, 32), D); ring.rotation.x = Math.PI / 2; g.add(ring);
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI * 2 / 3;
+        g.add(rod([Math.cos(a) * R * 0.5, -R * 0.1, Math.sin(a) * R * 0.5], [Math.cos(a) * R * 1.05, -R * 1.0, Math.sin(a) * R * 1.05], R * 0.06, D));
+        const foot = new THREE.Mesh(new THREE.SphereGeometry(R * 0.1, 10, 8), glowMat(col, 2)); foot.position.set(Math.cos(a) * R * 1.05, -R * 1.0, Math.sin(a) * R * 1.05); g.add(foot);
+      }
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.08, R * 0.12, R * 1.7, 12), D); barrel.rotation.x = Math.PI / 2; barrel.position.z = R * 0.9; g.add(barrel);
+      const brake = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.15, R * 0.15, R * 0.22, 12), D); brake.rotation.x = Math.PI / 2; brake.position.z = R * 1.7; g.add(brake);
+      eye(0, R * 0.2, R * 0.38, R * 0.1);
+      addLights(g, [[0, R * 0.47, 0, R * 0.05]], col);
+    } else if (cls === 'bastion') {
+      g.add(new THREE.Mesh(new THREE.CylinderGeometry(R * 0.7, R * 0.7, R * 0.9, 6), M));
+      for (const sy of [-1, 1]) {
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(sy > 0 ? R * 0.42 : R * 0.7, sy > 0 ? R * 0.7 : R * 0.42, R * 0.26, 6), D); cap.position.y = sy * R * 0.58; g.add(cap);
+      }
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.725, R * 0.725, R * 0.07, 6, 1, true), glowMat(col, 3)); g.add(band);
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3 + Math.PI / 6, plate = new THREE.Mesh(new THREE.BoxGeometry(R * 0.55, R * 0.32, R * 0.09), D);
+        for (const py of [-0.24, 0.24]) { const pl = plate.clone(); pl.position.set(Math.cos(a) * R * 0.66, py * R, Math.sin(a) * R * 0.66); pl.rotation.y = -a + Math.PI / 2; g.add(pl); }
+      }
+      for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3; addTurret(g, Math.cos(a) * R * 0.32, R * 0.72, Math.sin(a) * R * 0.32, R * 0.2, D); }
+      addLights(g, [[R * 0.7, 0, 0, R * 0.04], [-R * 0.7, 0, 0, R * 0.04], [0, R * 0.72, 0, R * 0.05]], col);
+      const shield = new THREE.Mesh(new THREE.SphereGeometry(R * 1.3, 32, 20), fresnelMaterial(0xffd860, 2.4, 0.8, false)); g.add(shield);
+    } else if (cls === 'super') {
+      const hull = new THREE.Mesh(lathe(R * 2.0, R * 0.5, [[0, 0.55], [0.12, 0.85], [0.62, 0.8], [0.86, 0.5], [1, 0.12]], 6), M); g.add(hull);
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(R * 0.18, R * 0.25, R * 1.5), D); spine.position.set(0, R * 0.42, -R * 0.1); g.add(spine);
+      for (const sx of [-1, 1]) {
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(R * 0.12, R * 0.5, R * 1.3), D); plate.position.set(sx * R * 0.45, -R * 0.02, -R * 0.05); plate.rotation.z = sx * 0.12; g.add(plate);
+        addTurret(g, sx * R * 0.3, R * 0.33, R * 0.25, R * 0.16, D);
+      }
+      const cannon = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.07, R * 0.1, R * 1.2, 12), D); cannon.rotation.x = Math.PI / 2; cannon.position.set(0, R * 0.12, R * 1.15); g.add(cannon);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(R * 0.4, R * 0.06, R * 0.05), glowMat(col, 4)); visor.position.set(0, R * 0.25, R * 0.72); g.add(visor);
+      for (const [x, y] of [[0, 0], [-R * 0.3, -R * 0.12], [R * 0.3, -R * 0.12]]) addEngine(g, x, y, -R * 1.02, R * 0.16, 0xff6070, 0.8);
+      addLights(g, [[R * 0.5, 0, -R * 0.6, R * 0.03], [-R * 0.5, 0, -R * 0.6, R * 0.03]], col);
+    } else if (cls === 'support') {
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.5, 20, 14), M));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 0.78, R * 0.06, 8, 36), glowMat(col, 2.2)); ring.userData.spin = ['z', 1.5]; g.add(ring);
+      for (const [w, h] of [[R * 0.42, R * 0.12], [R * 0.12, R * 0.42]]) { const c = new THREE.Mesh(new THREE.BoxGeometry(w, h, R * 0.05), glowMat(col, 3.5)); c.position.z = R * 0.5; g.add(c); }
+      addEngine(g, 0, 0, -R * 0.55, R * 0.18, 0x60ffc0, 0.5);
+    } else { // шахтёрский
+      const body = new THREE.Mesh(new THREE.SphereGeometry(R * 0.55, 18, 12), M); body.scale.set(1, 0.85, 1.25); g.add(body);
+      const drill = new THREE.Mesh(new THREE.ConeGeometry(R * 0.28, R * 0.85, 12), D); drill.rotation.x = Math.PI / 2; drill.position.z = R * 1.0; drill.userData.spin = ['y', 9]; g.add(drill);
+      if (R > 8) for (const sx of [-1, 1]) { const bin = new THREE.Mesh(new THREE.BoxGeometry(R * 0.3, R * 0.4, R * 0.7), D); bin.position.set(sx * R * 0.6, -R * 0.1, -R * 0.1); g.add(bin); }
+      eye(0, R * 0.3, R * 0.45, R * 0.12);
+      addEngine(g, 0, 0, -R * 0.7, R * 0.2, 0x60c0ff, 0.6);
     }
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(R * 0.18, 12, 8), glowMat(mining ? 0x60ff90 : 0xff9040, 4));
-    eye.position.z = R * 0.7; g.add(eye);
-    addEngine(g, 0, 0, -R * 0.75, R * 0.2, 0x60c0ff, 0.6);
     shipCache.set(key, g);
   }
   return shipCache.get(key).clone();
@@ -1259,7 +1381,8 @@ const ORE_LOOK = {
   ore_ferit: { rock: [0.42, 0.4, 0.38], vein: [0.75, 0.75, 0.78] },
   ore_korundit: { rock: [0.45, 0.32, 0.22], vein: [0.95, 0.5, 0.2] },
   ore_arkselit: { rock: [0.3, 0.34, 0.4], vein: [0.3, 0.75, 1.0] },
-  ore_nullium: { rock: [0.25, 0.2, 0.3], vein: [0.8, 0.3, 1.0] }
+  ore_nullium: { rock: [0.25, 0.2, 0.3], vein: [0.8, 0.3, 1.0] },
+  pbase_rock: { rock: [0.2, 0.17, 0.16], vein: [0.5, 0.2, 0.12] } // скала пиратской базы
 };
 const astMatCache = new Map();
 function asteroidModel(radius, seed, ore) {
@@ -1532,7 +1655,7 @@ const PTYPE_ID = { 'Каменистая': 0, 'Газовый гигант': 1, 
 
 // Поверхность планеты считается в шейдере для каждого пикселя — детализация не теряется вблизи
 const PLANET_FRAG = `
-uniform int ptype; uniform float seed; uniform vec3 sunDir; uniform vec3 tint;
+uniform int ptype; uniform float seed; uniform vec3 sunDir; uniform vec3 tint; uniform vec3 sunDir2; uniform vec3 sunCol2;
 varying vec3 vP; varying vec3 vWN;
 float ridge(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * (1.0 - abs(vnoise(p) * 2.0 - 1.0)); p *= 2.1; a *= 0.5; } return s; }
 float fbm8(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 9; i++) { s += a * vnoise(p); p = p * 2.02 + 0.37; a *= 0.5; } return s; }
@@ -1581,13 +1704,15 @@ void main(){
   vec3 n = normalize(vWN);
   float d = dot(n, sunDir);
   float light = clamp(d * 1.1 + 0.05, 0.0, 1.0);
+  float light2 = clamp(dot(n, sunDir2) * 1.1 + 0.05, 0.0, 1.0); // вторая звезда двойной системы
   float spec = (ptype == 4) ? pow(max(0.0, d), 30.0) * (1.0 - smoothstep(0.52, 0.535, h)) * 0.4 : 0.0;
-  vec3 c = col * light * 1.35 + vec3(1.0, 0.95, 0.85) * spec + col * 0.012 + em * (1.0 - smoothstep(-0.15, 0.15, d));
+  float dn = max(d, length(sunCol2) > 0.05 ? dot(n, sunDir2) : -1.0); // ночь — где не светит ни одна звезда
+  vec3 c = col * (light * 1.35 + sunCol2 * light2 * 1.35) + vec3(1.0, 0.95, 0.85) * spec + col * 0.012 + em * (1.0 - smoothstep(-0.15, 0.15, dn));
   gl_FragColor = vec4(c, 1.0);
 }`;
 
 const CLOUD_FRAG = `
-uniform float seed; uniform vec3 sunDir; uniform float time; uniform float amount;
+uniform float seed; uniform vec3 sunDir; uniform float time; uniform float amount; uniform vec3 sunDir2; uniform vec3 sunCol2;
 varying vec3 vP; varying vec3 vWN;
 void main(){
   /*LOGDEPTH*/
@@ -1597,7 +1722,8 @@ void main(){
   float c = smoothstep(0.5 - amount * 0.1, 0.78, fbm3(q + w * 1.2) * 0.7 + fbm3(q * 4.0) * 0.3);
   float d = dot(normalize(vWN), sunDir);
   float light = clamp(d * 1.2 + 0.1, 0.0, 1.0);
-  gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * light * 1.2, c * 0.85 * amount);
+  float light2 = clamp(dot(normalize(vWN), sunDir2) * 1.2 + 0.1, 0.0, 1.0);
+  gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * light * 1.2 + sunCol2 * light2 * 1.2, c * 0.85 * amount);
 }`;
 
 const PLANET_VERT = `varying vec3 vP; varying vec3 vWN;
@@ -1609,8 +1735,9 @@ function planetModel(c) {
   const seed = c.hue * 100;
   const r = seeded(Math.floor(c.hue * 1e6) + 3);
   const sunDir = { value: new THREE.Vector3(1, 0, 0) };
+  const sunDir2 = { value: new THREE.Vector3(0, 1, 0) }, sunCol2 = { value: new THREE.Vector3(0, 0, 0) };
   const body = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 80), logShader({
-    uniforms: { ptype: { value: PTYPE_ID[c.ptype] || 0 }, seed: { value: seed }, sunDir,
+    uniforms: { ptype: { value: PTYPE_ID[c.ptype] || 0 }, seed: { value: seed }, sunDir, sunDir2, sunCol2,
       tint: { value: new THREE.Vector3(0.9 + r() * 0.2, 0.9 + r() * 0.2, 0.9 + r() * 0.2) } },
     vertex: PLANET_VERT, fragment: PLANET_FRAG
   }));
@@ -1619,15 +1746,44 @@ function planetModel(c) {
   let clouds = null;
   if (cloudy) {
     clouds = new THREE.Mesh(new THREE.SphereGeometry(1.01, 128, 64), logShader({
-      uniforms: { seed: { value: seed + 17 }, sunDir, time: GU.time, amount: { value: cloudy } },
+      uniforms: { seed: { value: seed + 17 }, sunDir, sunDir2, sunCol2, time: GU.time, amount: { value: cloudy } },
       vertex: PLANET_VERT, fragment: CLOUD_FRAG, transparent: true, depthWrite: false
     }));
     g.add(clouds);
   }
   const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.02, 96, 48), fresnelMaterial(look.atmo, 4.5, look.atmoK * 1.3, true));
   atmo.material.uniforms.sunDir = sunDir;
+  atmo.material.uniforms.sunset.value = c.ptype === 'Газовый гигант' || c.ptype === 'Лавовая' ? 0.4 : 1;
   g.add(atmo);
-  g.userData = { unit: true, body, clouds, atmo, sunDir };
+  // кольца: у газовых гигантов часто, у ледяных иногда; в кольцах видна тень планеты
+  const ringChance = c.ptype === 'Газовый гигант' ? 0.7 : c.ptype === 'Ледяная' ? 0.25 : 0;
+  let ring = null;
+  if (r() < ringChance) {
+    const inner = 1.35 + r() * 0.2, outer = inner + 0.7 + r() * 0.9;
+    const rc = c.ptype === 'Ледяная' ? [0.75, 0.85, 0.95] : [0.85, 0.74, 0.58];
+    ring = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 192, 1), logShader({
+      uniforms: { sunDir, sunDir2, sunCol2, inner: { value: inner }, outer: { value: outer }, seed: { value: seed }, rcol: { value: new THREE.Vector3(...rc) } },
+      vertex: `varying vec3 vL; varying vec3 vW; varying vec3 vC; varying float vR;
+        void main(){ vL = position; vW = (modelMatrix * vec4(position, 1.0)).xyz; vC = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          vR = length(modelMatrix[0].xyz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`,
+      fragment: `uniform vec3 sunDir; uniform vec3 sunDir2; uniform vec3 sunCol2; uniform float inner, outer, seed; uniform vec3 rcol;
+        varying vec3 vL; varying vec3 vW; varying vec3 vC; varying float vR;
+        void main(){ /*LOGDEPTH*/
+          float rr = length(vL.xy), t = (rr - inner) / (outer - inner);
+          float bands = vnoise(vec3(rr * 38.0, seed, 0.0)) * 0.6 + vnoise(vec3(rr * 130.0, seed * 2.0, 1.0)) * 0.4;
+          float gap = smoothstep(0.02, 0.05, abs(t - 0.62)) * smoothstep(0.0, 0.06, t) * smoothstep(1.0, 0.9, t);
+          float a = clamp(bands * 1.2 - 0.15, 0.0, 1.0) * gap * 0.85;
+          // тень планеты на кольцах: луч к звезде пересекает шар планеты
+          vec3 toC = vC - vW; float tt = dot(toC, sunDir); float dd = length(toC - sunDir * tt);
+          float shadow = (tt > 0.0 && dd < vR) ? 0.08 : 1.0;
+          vec3 c = rcol * (0.35 + 0.9 * bands) * (shadow * 1.1 + sunCol2 * 0.8) + vec3(0.02);
+          gl_FragColor = vec4(c * 1.2, a); }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide
+    }));
+    ring.rotation.x = Math.PI / 2 + (r() - 0.5) * 0.3;
+    g.add(ring);
+  }
+  g.userData = { unit: true, body, clouds, atmo, sunDir, sunDir2, sunCol2, ring };
   g.rotation.z = 0.2 + c.hue * 0.3;
   return g;
 }
@@ -1690,33 +1846,29 @@ function sunModel(star = 'yellow') {
   g.add(surface);
   const corona = new THREE.Mesh(new THREE.SphereGeometry(1.15, 64, 32), fresnelMaterial(L.corona, 1.6, 2.5, false));
   g.add(corona);
+  // корона с протуберанцами и лучами: плоскость, всегда повёрнутая к камере (размер — 7 радиусов звезды)
+  const crown = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), logShader({
+    uniforms: { time: GU.time, col: { value: new THREE.Color(L.corona) }, seed: { value: Math.random() * 100 } },
+    vertex: `varying vec2 vQ; void main(){ vQ = position.xy * 7.0; vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+      float s = length(modelMatrix[0].xyz); mv.xy += position.xy * 7.0 * s; gl_Position = projectionMatrix * mv; /*LOGDEPTH*/ }`,
+    fragment: `uniform float time, seed; uniform vec3 col; varying vec2 vQ;
+      void main(){ /*LOGDEPTH*/
+        float r = length(vQ); if (r < 0.97) discard;
+        float a = atan(vQ.y, vQ.x);
+        float n = fbm3(vec3(cos(a) * 2.5 + seed, sin(a) * 2.5, r * 0.35 - time * 0.06));
+        float streak = pow(fbm3(vec3(cos(a) * 9.0, sin(a) * 9.0, seed + time * 0.03)), 3.0) * 4.0;
+        float fall = exp(-(r - 1.0) * (3.4 - streak * 1.5)) * smoothstep(7.0, 4.0, r);
+        float glow = fall * (0.5 + n * 0.9 + streak);
+        gl_FragColor = vec4(col * glow * 0.85, 1.0); }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  crown.frustumCulled = false;
+  g.add(crown);
   for (const [s, c, k0] of [[5, L.glow[0], 1.6], [14, L.glow[1], 0.7], [40, L.glow[2], 0.25]]) {
     const k = k0 * (L.k || 1);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(c).multiplyScalar(k), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
     sp.scale.setScalar(s); g.add(sp);
   }
-  // блики в объективе
-  if (!TEX.flareRing) {
-    TEX.flareRing = canvasTex(128, 128, (c, W) => {
-      const grd = c.createRadialGradient(64, 64, 40, 64, 64, 62);
-      grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.7, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-      c.fillStyle = grd; c.fillRect(0, 0, W, W);
-    });
-    TEX.flareHex = canvasTex(128, 128, (c) => {
-      c.fillStyle = 'rgba(255,255,255,0.22)'; c.beginPath();
-      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c[i ? 'lineTo' : 'moveTo'](64 + Math.cos(a) * 58, 64 + Math.sin(a) * 58); }
-      c.fill();
-    });
-  }
-  const flare = new Lensflare();
-  flare.addElement(new LensflareElement(TEX.glow, 260, 0, new THREE.Color(L.glow[0]).multiplyScalar(0.8 * (L.k || 1))));
-  flare.addElement(new LensflareElement(TEX.flareHex, 50, 0.35, new THREE.Color(0.12, 0.18, 0.3)));
-  flare.addElement(new LensflareElement(TEX.flareHex, 80, 0.55, new THREE.Color(0.25, 0.15, 0.1)));
-  flare.addElement(new LensflareElement(TEX.flareRing, 110, 0.75, new THREE.Color(0.12, 0.25, 0.18)));
-  flare.addElement(new LensflareElement(TEX.flareHex, 36, 0.9, new THREE.Color(0.2, 0.14, 0.3)));
-  flare.addElement(new LensflareElement(TEX.flareRing, 180, 1.1, new THREE.Color(0.1, 0.15, 0.3)));
-  g.add(flare);
-  g.userData.flare = flare;
   g.userData.unit = true;
   return g;
 }
@@ -1746,6 +1898,9 @@ export function init(canvas) {
   // слабый холодный контровой свет с теневой стороны, чтобы силуэты читались
   rimLight = new THREE.DirectionalLight(0x7090ff, 0.9);
   scene.add(rimLight);
+  // вторая звезда двойной системы: свой цвет света, без теней
+  sunLight2 = new THREE.DirectionalLight(0xffffff, 0);
+  scene.add(sunLight2, sunLight2.target);
   scene.add(sunLight, sunLight.target);
   celGroup = new THREE.Group(); entGroup = new THREE.Group(); fxGroup = new THREE.Group();
   scene.add(celGroup, entGroup, fxGroup);
@@ -1768,8 +1923,48 @@ export function init(canvas) {
   warpLines.frustumCulled = false; warpLines.userData.seed = Array.from({ length: n }, () => [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1]);
   scene.add(warpLines);
 
-  composer = new EffectComposer(renderer);
+  // сглаживание MSAA прямо в буфере постобработки (иначе после постэффектов края «лесенкой»)
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
+  // звёзды в кадре: «божественные» лучи (радиальное размытие ярких пикселей — силуэты кораблей режут свет),
+  // ореол с анаморфной полосой и блики объектива; видимость звезды проверяется по яркости её центра на экране
+  godRays = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, l0: { value: new THREE.Vector3() }, l1: { value: new THREE.Vector3() },
+      c0: { value: new THREE.Color() }, c1: { value: new THREE.Color() }, aspect: { value: 1 }, rays: { value: 1 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform vec3 l0, l1; uniform vec3 c0, c1; uniform float aspect, rays; varying vec2 vUv;
+      float lum(vec3 c){ return dot(c, vec3(0.3, 0.59, 0.11)); }
+      float vis(vec2 p){ vec2 e = vec2(0.003 / aspect, 0.003);
+        float v = lum(texture2D(tDiffuse, p).rgb) + lum(texture2D(tDiffuse, p + e).rgb) + lum(texture2D(tDiffuse, p - e).rgb)
+          + lum(texture2D(tDiffuse, p + vec2(e.x, -e.y)).rgb) + lum(texture2D(tDiffuse, p - vec2(e.x, -e.y)).rgb);
+        float edge = min(min(p.x, p.y), min(1.0 - p.x, 1.0 - p.y));
+        return smoothstep(2.5, 7.0, v) * smoothstep(0.0, 0.03, edge); }
+      float disc(vec2 p, float r){ return smoothstep(r, r * 0.55, length(p)); }
+      float ring(vec2 p, float r){ return smoothstep(r * 0.14, 0.0, abs(length(p) - r)); }
+      vec3 star(vec3 L, vec3 col){
+        if (L.z <= 0.001) return vec3(0.0);
+        vec3 o = vec3(0.0);
+        if (rays > 0.5) {
+          vec2 delta = (L.xy - vUv) / 40.0; vec2 uv = vUv; float decay = 1.0; float acc = 0.0;
+          for (int i = 0; i < 40; i++) { uv += delta; acc += max(lum(texture2D(tDiffuse, uv).rgb) - 1.2, 0.0) * decay; decay *= 0.955; }
+          o += col * acc * 0.03 * L.z / (1.0 + length((vUv - L.xy) * vec2(aspect, 1.0)) * 2.2);
+        }
+        float v = vis(L.xy) * L.z;
+        if (v > 0.002) {
+          vec2 a = vec2(aspect, 1.0), d = (vUv - L.xy) * a, ax = vec2(0.5) - L.xy;
+          float r = length(d);
+          o += col * v * (0.22 * exp(-r * 10.0) + 0.16 * exp(-abs(d.y) * 300.0) * exp(-abs(d.x) * 3.5));
+          o += v * (vec3(0.2, 0.35, 0.8) * 0.09 * disc((vUv - L.xy - ax * 0.55) * a, 0.028)
+            + vec3(0.8, 0.45, 0.2) * 0.06 * disc((vUv - L.xy - ax * 0.85) * a, 0.05)
+            + vec3(0.3, 0.8, 0.5) * 0.05 * ring((vUv - L.xy - ax * 1.3) * a, 0.07)
+            + vec3(0.6, 0.35, 0.9) * 0.07 * disc((vUv - L.xy - ax * 1.6) * a, 0.018)
+            + vec3(0.25, 0.4, 0.9) * 0.04 * ring((vUv - L.xy - ax * 2.1) * a, 0.12));
+        }
+        return o;
+      }
+      void main(){ vec4 c = texture2D(tDiffuse, vUv); c.rgb += star(l0, c0) + star(l1, c1); gl_FragColor = c; }`
+  });
+  composer.addPass(godRays);
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.5, 0.85);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -1811,9 +2006,11 @@ export function setSystem(sys) {
   celMeshes.clear();
   for (const id of [...entMeshes.keys()]) removeEnt(id);
   buildSky(sys.id, sys.sec, sys.region);
-  const sun = sys.celestials.find(c => c.kind === 'sun');
+  const sun = sys.celestials.find(c => c.kind === 'sun' && !c.companion) || sys.celestials.find(c => c.kind === 'sun');
+  curSuns = { a: sun || null, b: sys.celestials.find(c => c.kind === 'sun' && c.companion) || null };
   sunLight.color.set(STAR_LOOK[(sun && sun.star) || 'yellow'].light);
   sunLight.intensity = STAR_LOOK[(sun && sun.star) || 'yellow'].power;
+  sunLight2.color.set(curSuns.b ? STAR_LOOK[curSuns.b.star].light : 0xffffff);
   for (const c of sys.celestials) {
     let obj = null;
     if (c.kind === 'sun') obj = c.star === 'blackhole' ? blackHoleModel() : sunModel(c.star);
@@ -1836,7 +2033,7 @@ function makeEnt(e, data) {
     const faction = e.gd ? 'guard' : e.npc ? 'pirate' : 'player';
     const col = e.gd ? 0xd8e4f0 : e.npc ? 0x4a3a38 : t.color;
     obj = shipModel(e.st, col, e.r || t.radius, faction);
-  } else if (e.k === 'd') obj = droneModel(e.item);
+  } else if (e.k === 'd') obj = droneModel(e.item, data.drones[e.item]);
   else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
   else if (e.k === 'w') obj = wreckModel(e.r || 60);
   else if (e.k === 'm') obj = missileModel(e.c || 0xffa040, e.tp);
@@ -1892,15 +2089,25 @@ export function frame(view, dt, time) {
   if (starField) starField.position.copy(camera.position);
   if (skyDome) skyDome.position.copy(camera.position);
 
-  if (view.docked) { stationFrame(view, dt, time); return; }
+  if (view.docked) { godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; stationFrame(view, dt, time); return; }
   if (stationView) { scene.remove(stationView); stationView = null; celGroup.visible = entGroup.visible = true; dust.visible = true; }
 
   // направление на звезду
-  const sunRel = [-origin[0], -origin[1], -origin[2]];
+  const A = curSuns.a ? curSuns.a.pos : [0, 0, 0];
+  const sunRel = [A[0] - origin[0], A[1] - origin[1], A[2] - origin[2]];
   const sl = Math.hypot(...sunRel) || 1;
   const sunDir = tmpV2.set(sunRel[0] / sl, sunRel[1] / sl, sunRel[2] / sl);
   sunLight.position.copy(sunDir).multiplyScalar(1e5);
   sunLight.target.position.set(0, 0, 0);
+  // вторая звезда: сила света по закону обратных квадратов относительно основной
+  const lookA = STAR_LOOK[(curSuns.a && curSuns.a.star) || 'yellow'];
+  const lookB = curSuns.b ? STAR_LOOK[curSuns.b.star] : null;
+  if (lookB) {
+    const B = curSuns.b.pos, rb = [B[0] - origin[0], B[1] - origin[1], B[2] - origin[2]], db = Math.hypot(...rb) || 1;
+    sunLight2.position.set(rb[0] / db, rb[1] / db, rb[2] / db).multiplyScalar(1e5);
+    sunLight2.target.position.set(0, 0, 0);
+    sunLight2.intensity = lookB.power * Math.min(1.1, Math.pow(sl / db, 2)) * 0.85;
+  } else sunLight2.intensity = 0;
   rimLight.position.copy(sunDir).multiplyScalar(-1e5).add(tmpV.set(0, 3e4, 0));
   if (myShip) {
     const R = view.data.ships[view.me.st].radius * 3;
@@ -1908,9 +2115,16 @@ export function frame(view, dt, time) {
     if (sc.right !== R) { sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 1e5 - R * 2; sc.far = 1e5 + R * 2; sc.updateProjectionMatrix(); }
   }
 
+  const rays = [];
   for (const { obj, data } of celMeshes.values()) {
     const rel = [data.pos[0] - origin[0], data.pos[1] - origin[1], data.pos[2] - origin[2]];
-    placeFar(obj, rel, data.radius, obj.userData.unit);
+    // далёкие звёзды рисуются крупнее (до ×3), чтобы их было видно; вблизи — в настоящий размер
+    const boost = data.kind === 'sun' ? Math.min(3, Math.max(1, Math.hypot(...rel) / (data.radius * 400))) : 1;
+    placeFar(obj, rel, data.radius * boost, obj.userData.unit);
+    if (data.kind === 'sun' && data.star !== 'blackhole') {
+      tmpV.copy(obj.position).project(camera);
+      if (tmpV.z < 1) { const w = Math.max(0, Math.min(1, 1.35 - Math.max(Math.abs(tmpV.x), Math.abs(tmpV.y)))); if (w > 0) rays.push({ x: tmpV.x * 0.5 + 0.5, y: tmpV.y * 0.5 + 0.5, w: w * (data.companion ? 0.75 : 1), c: STAR_LOOK[data.star].corona }); }
+    }
     if (obj.userData.spinY) obj.rotation.y += obj.userData.spinY * dt;
     if (data.kind === 'gate') {
       tmpV.set(-data.pos[0], -data.pos[1], -data.pos[2]).normalize().add(obj.position);
@@ -1919,11 +2133,25 @@ export function frame(view, dt, time) {
       obj.userData.body.rotation.y += dt * 0.004;
       if (obj.userData.clouds) obj.userData.clouds.rotation.y += dt * 0.005;
       // направление на солнце от планеты (освещение поверхности, облаков и атмосферы)
-      obj.userData.sunDir.value.set(-data.pos[0], -data.pos[1], -data.pos[2]).normalize();
+      obj.userData.sunDir.value.set(A[0] - data.pos[0], A[1] - data.pos[1], A[2] - data.pos[2]).normalize();
+      if (lookB) {
+        const B = curSuns.b.pos;
+        const dA = Math.hypot(A[0] - data.pos[0], A[1] - data.pos[1], A[2] - data.pos[2]), dB = Math.hypot(B[0] - data.pos[0], B[1] - data.pos[1], B[2] - data.pos[2]) || 1;
+        obj.userData.sunDir2.value.set(B[0] - data.pos[0], B[1] - data.pos[1], B[2] - data.pos[2]).normalize();
+        const k = Math.min(1.1, Math.pow(dA / dB, 2) * lookB.power / lookA.power) * 0.8;
+        const lc = new THREE.Color(lookB.light);
+        obj.userData.sunCol2.value.set(lc.r * k, lc.g * k, lc.b * k);
+      } else obj.userData.sunCol2.value.set(0, 0, 0);
     }
     setEngines(obj, 0, time);
   }
 
+  // лучи: до двух звёзд на экране
+  godRays.uniforms.aspect.value = innerWidth / innerHeight;
+  for (let i = 0; i < 2; i++) {
+    const L = godRays.uniforms['l' + i].value, r = rays[i];
+    if (r) { L.set(r.x, r.y, r.w); godRays.uniforms['c' + i].value.set(r.c); } else L.set(0, 0, 0);
+  }
   if (myShip) {
     myShip.position.set(0, 0, 0);
     const h = view.me.h;
@@ -1955,6 +2183,7 @@ export function frame(view, dt, time) {
       const t = view.data.ships[e.st];
       const sf = e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0;
       setEngines(rec.obj, sf, time);
+      if (e.pbs) { if (!rec.dome) rec.obj.traverse(o => { if (o.userData.dome) rec.dome = o; }); if (rec.dome) rec.dome.visible = e.pbs === 'waves'; } // щит пиратской базы
       if (quality !== 'low' && eh && Math.hypot(...rel) < 60000) updateTrail(e.id, e.dp, eh, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
@@ -2305,6 +2534,130 @@ export function shipPortrait(type, w = 960, h = 523) {
   renderer.render(ps, cam);
   const url = renderer.domElement.toDataURL('image/jpeg', 0.9);
   renderer.setSize(prev.x, prev.y, false); renderer.toneMappingExposure = exp;
+  bgTex.dispose();
+  return url;
+}
+
+// ---------- Единая серия фото кораблей ----------
+// Один фон (галактика, туманность, планета), один свет и ракурс, одна окраска «оружейный металл».
+// Различия — по силе и назначению: класс мощи (I–V) задаёт размер в кадре и ракурс (тяжёлые снимаются снизу
+// и заполняют кадр), назначение — цвет контрового света (боевые — алый, добыча — янтарь, перевозка — зелёный,
+// разведка — голубой, носители дронов — фиолетовый).
+const PHOTO_ROLE = { combat: 0xff6a50, carrier: 0xb070ff, mining: 0xffa838, transport: 0x50d888, explore: 0x50c0ff };
+let photoBg = null;
+function photoBackdrop(w, h) {
+  if (photoBg && photoBg.width === w && photoBg.height === h) return photoBg;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const c = cv.getContext('2d'), rr = seeded(4242);
+  const base = c.createLinearGradient(0, 0, w, h); base.addColorStop(0, '#070b18'); base.addColorStop(1, '#020308');
+  c.fillStyle = base; c.fillRect(0, 0, w, h);
+  // туманность
+  for (let i = 0; i < 30; i++) {
+    const x = rr() * w, y = rr() * h * 0.8, r = (0.1 + rr() * 0.3) * w;
+    const g = c.createRadialGradient(x, y, 0, x, y, r), warm = rr() < 0.3;
+    g.addColorStop(0, warm ? `rgba(150,80,120,${0.05 + rr() * 0.05})` : `rgba(${50 + rr() * 50},${70 + rr() * 60},${150 + rr() * 80},${0.05 + rr() * 0.06})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }
+  // спиральная галактика слева сверху
+  const gx = w * 0.3, gy = h * 0.3, tilt = -0.35;
+  c.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 4200; i++) {
+    const arm = i % 2, t = Math.pow(rr(), 0.7) * 3.4, a = t * 2.2 + arm * Math.PI + (rr() - 0.5) * (0.35 + t * 0.12);
+    const r = (4 + t * w * 0.055) * (0.9 + rr() * 0.2);
+    let x = Math.cos(a) * r * 1.5, y = Math.sin(a) * r * 0.5;
+    const X = gx + x * Math.cos(tilt) - y * Math.sin(tilt), Y = gy + x * Math.sin(tilt) + y * Math.cos(tilt);
+    const al = Math.max(0, 0.5 - t * 0.12) * (0.4 + rr() * 0.6), blue = t > 1;
+    c.fillStyle = blue ? `rgba(150,180,255,${al})` : `rgba(255,225,190,${al})`;
+    c.fillRect(X, Y, 1.3, 1.3);
+  }
+  const core = c.createRadialGradient(gx, gy, 0, gx, gy, w * 0.07);
+  core.addColorStop(0, 'rgba(255,235,210,0.8)'); core.addColorStop(0.3, 'rgba(200,180,255,0.25)'); core.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = core; c.fillRect(0, 0, w, h);
+  // звёзды
+  for (let i = 0; i < 1100; i++) {
+    const b = rr(), x = rr() * w, y = rr() * h;
+    c.fillStyle = `rgba(${200 + rr() * 55},${210 + rr() * 45},255,${0.15 + b * 0.75})`;
+    c.fillRect(x, y, b > 0.985 ? 2 : 1, b > 0.985 ? 2 : 1);
+    if (b > 0.995) { const g = c.createRadialGradient(x, y, 0, x, y, 9); g.addColorStop(0, 'rgba(200,220,255,0.5)'); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(x - 9, y - 9, 18, 18); }
+  }
+  c.globalCompositeOperation = 'source-over';
+  // планета справа сверху, освещена слева
+  const px = w * 0.97, py = -h * 0.02, pr = h * 0.42;
+  c.save(); c.beginPath(); c.arc(px, py, pr, 0, Math.PI * 2); c.clip();
+  const pg = c.createLinearGradient(px - pr, py, px + pr * 0.4, py + pr * 0.6);
+  pg.addColorStop(0, '#c9d6e6'); pg.addColorStop(0.25, '#7b8fa8'); pg.addColorStop(0.55, '#1c2433'); pg.addColorStop(1, '#05070b');
+  c.fillStyle = pg; c.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+  for (let i = 0; i < 9; i++) { c.fillStyle = `rgba(255,255,255,${0.03 + rr() * 0.05})`; c.fillRect(px - pr, py - pr + rr() * pr * 2, pr * 2, 2 + rr() * pr * 0.06); }
+  c.restore();
+  c.globalCompositeOperation = 'lighter';
+  const atm = c.createRadialGradient(px, py, pr * 0.97, px, py, pr * 1.08);
+  atm.addColorStop(0, 'rgba(120,170,255,0.55)'); atm.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = atm; c.fillRect(px - pr * 1.2, py - pr * 1.2, pr * 2.4, pr * 2.4);
+  c.globalCompositeOperation = 'source-over';
+  photoBg = cv;
+  return cv;
+}
+
+export function shipPhoto(type, info = {}, w = 800, h = 450) {
+  const role = info.role || 'explore', tier = Math.max(1, Math.min(5, info.tier || 1));
+  const ps = new THREE.Scene();
+  const bgTex = new THREE.CanvasTexture(photoBackdrop(w, h)); bgTex.colorSpace = THREE.SRGBColorSpace;
+  ps.background = bgTex; ps.environment = scene.environment; ps.environmentIntensity = 0.75;
+  const m = shipModel(type, 0x4a5058, SHIP_BASE_R[type] || 50, 'player');
+  ps.add(m);
+  setEngines(m, 1.0, 1);
+  m.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+  const rad = size.length() / 2;
+  // свет: холодный ключевой со стороны галактики, контровой цвета назначения, тёплый отсвет планеты
+  const key = new THREE.DirectionalLight(0xe4ecff, 2.6); key.position.set(-rad * 2, rad * 2.2, rad * 1.2); ps.add(key);
+  const rim = new THREE.DirectionalLight(PHOTO_ROLE[role] || 0x80a0ff, 1.5); rim.position.set(rad * 1.6, rad * 0.15, -rad * 2.6); ps.add(rim);
+  const warm = new THREE.DirectionalLight(0xffc890, 0.7); warm.position.set(rad * 2, rad * 1.5, rad * 2); ps.add(warm);
+  ps.add(new THREE.AmbientLight(0x8090b0, 0.4));
+  // ракурс и кадр по классу мощи: лёгкие — сверху и с запасом места, тяжёлые — снизу и во весь кадр
+  const elev = 0.42 - (tier - 1) * 0.12, fill = [0.5, 0.6, 0.68, 0.76, 0.84][tier - 1];
+  const cam = new THREE.PerspectiveCamera(30, w / h, rad * 0.01, rad * 100);
+  const halfW = Math.tan(THREE.MathUtils.degToRad(15)) * (w / h);
+  const dist = rad / (fill * halfW);
+  const dir = new THREE.Vector3(-1, elev, 0.62).normalize();
+  cam.position.copy(ctr).addScaledVector(dir, dist);
+  cam.lookAt(ctr.clone().add(new THREE.Vector3(0, 0, -rad * 0.3 * (1 - fill))));
+  cam.updateMatrixWorld(true);
+  const prev = renderer.getSize(new THREE.Vector2()), exp = renderer.toneMappingExposure, pr = renderer.getPixelRatio();
+  renderer.setPixelRatio(1); renderer.setSize(w, h, false); renderer.toneMappingExposure = 1.15;
+  renderer.render(ps, cam);
+  // постобработка на 2D-холсте: свечение ярких мест, следы двигателей, виньетка
+  const out = document.createElement('canvas'); out.width = w; out.height = h;
+  const c = out.getContext('2d');
+  c.drawImage(renderer.domElement, 0, 0, w, h);
+  c.globalCompositeOperation = 'lighter';
+  c.filter = 'brightness(0.55) contrast(3.2) blur(10px)'; c.globalAlpha = 0.55; c.drawImage(renderer.domElement, 0, 0, w, h);
+  c.filter = 'none'; c.globalAlpha = 1;
+  const engines = [];
+  m.traverse(o => { if (o.userData.plume) engines.push(o.getWorldPosition(new THREE.Vector3())); });
+  const toScr = (v) => { const p = v.clone().project(cam); return [(p.x * 0.5 + 0.5) * w, (-p.y * 0.5 + 0.5) * h]; };
+  const back = new THREE.Vector3(0, 0, -1).applyQuaternion(m.quaternion);
+  for (const ep of engines.slice(0, 10)) {
+    const [x0, y0] = toScr(ep), [x1, y1] = toScr(ep.clone().addScaledVector(back, rad * 3));
+    const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, len = w * (0.25 + tier * 0.04);
+    const ex = x0 + dx / L * len, ey = y0 + dy / L * len;
+    for (const [wid, al] of [[7, 0.18], [3, 0.35], [1.2, 0.8]]) {
+      const g = c.createLinearGradient(x0, y0, ex, ey);
+      g.addColorStop(0, `rgba(190,225,255,${al})`); g.addColorStop(0.35, `rgba(110,170,255,${al * 0.5})`); g.addColorStop(1, 'rgba(60,100,255,0)');
+      c.strokeStyle = g; c.lineWidth = wid * (0.6 + tier * 0.15); c.lineCap = 'round';
+      c.beginPath(); c.moveTo(x0, y0); c.lineTo(ex, ey); c.stroke();
+    }
+  }
+  // подсветка снизу — цвет назначения корабля
+  const rc = new THREE.Color(PHOTO_ROLE[role] || 0x80a0ff), band = c.createLinearGradient(0, h, 0, h * 0.62);
+  band.addColorStop(0, `rgba(${rc.r * 255 | 0},${rc.g * 255 | 0},${rc.b * 255 | 0},0.22)`); band.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = band; c.fillRect(0, h * 0.62, w, h * 0.38);
+  c.globalCompositeOperation = 'source-over';
+  const vg = c.createRadialGradient(w * 0.55, h * 0.5, h * 0.35, w * 0.5, h * 0.5, w * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  c.fillStyle = vg; c.fillRect(0, 0, w, h);
+  const url = out.toDataURL('image/jpeg', 0.86);
+  renderer.setPixelRatio(pr); renderer.setSize(prev.x, prev.y, false); renderer.toneMappingExposure = exp;
   bgTex.dispose();
   return url;
 }
