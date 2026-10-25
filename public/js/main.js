@@ -40,7 +40,7 @@ const S = {
 
 const MOVE_CMDS = new Set(['approach', 'orbit', 'keep', 'warp', 'dock', 'jump', 'dir', 'stop', 'autopilot']);
 // Экономические команды получают уникальный tx: сервер не исполнит один и тот же tx дважды
-const TX_CMDS = new Set(['buy', 'sell', 'buyOrder', 'placeOrder', 'cancelOrder', 'blackBuy', 'blackSell', 'build', 'upgrade', 'refine', 'board', 'fit', 'unfit', 'load', 'unload', 'jettison', 'acceptMission', 'storyAccept', 'storyChoice', 'loot', 'train', 'sethome']);
+const TX_CMDS = new Set(['upgradeModule', 'buy', 'sell', 'buyOrder', 'placeOrder', 'cancelOrder', 'blackBuy', 'blackSell', 'build', 'upgrade', 'refine', 'board', 'fit', 'unfit', 'load', 'unload', 'jettison', 'acceptMission', 'storyAccept', 'storyChoice', 'loot', 'train', 'sethome']);
 function send(msg) {
   if (TX_CMDS.has(msg.t) && !msg.tx) msg.tx = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   if (typeof MAN !== 'undefined' && MAN.on && MOVE_CMDS.has(msg.t)) manualToggle(false, true);
@@ -1643,6 +1643,46 @@ function shipStatsHTML(t, stats) {
     <span>Варп</span><span>${t.warpSpeed} а.е./с, разгон ${t.align} с</span></div>`;
 }
 
+// ---------- Улучшение модулей (до 5 уровня) ----------
+function lvBadge(d) { return `<span class="lvb lv${d.lv || 1}" title="Уровень модуля">${'★'.repeat(d.lv || 1)}</span> `; }
+function upgradeCostC(id) {
+  const U = S.data.modUpgrade, m = S.data.modules[id];
+  if (!U || !m) return null;
+  const L = (m.lv || 1) + 1;
+  if (L > U.maxLv) return null;
+  const base = S.data.modules[m.base || id], k = Math.max(1, base.vol / 5), mats = {};
+  for (const [it, q] of Object.entries(U.mats[L])) mats[it] = Math.ceil(q * k);
+  if (base.elite) for (const [it, q] of Object.entries(U.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
+  return { next: `${m.base || id}_l${L}`, level: L, isk: Math.round(base.price * U.isk[L]), mats };
+}
+function upBtn(id, slot, item) {
+  const c = upgradeCostC(id);
+  if (!c) return '<span class="muted small" style="margin-right:6px">макс.</span>';
+  return `<button class="upg" data-a="upgradeMod" ${slot !== null ? `data-slot="${slot}"` : `data-item="${item}"`} title="Улучшить до уровня ${c.level}">⬆ ур.${c.level}</button>`;
+}
+function showUpgrade(slot, item) {
+  const p = S.prof, h = (p.hangar && p.hangar.items) || {};
+  const id = slot !== undefined ? p.ship.fit[slot] : item, d = S.data.modules[id], c = upgradeCostC(id);
+  if (!c) return;
+  const nd = S.data.modules[c.next], U = S.data.modUpgrade;
+  let missingCost = 0;
+  const rows = Object.entries(c.mats).map(([it, q]) => {
+    const have = (h[it] || 0) + (p.ship.cargo[it] || 0), miss = Math.max(0, q - have);
+    missingCost += Math.ceil(miss * S.data.items[it].base * U.buyMarkup);
+    return `<tr><td>${esc(S.data.items[it].name)}</td><td class="r">${num(q)}</td><td class="r ${miss ? 'bad' : 'req-ok'}">${num(have)}</td></tr>`;
+  }).join('');
+  const total = c.isk + missingCost, canPay = p.credits >= total;
+  const html = `<h3>Улучшение: ${esc(S.data.modules[d.base || id].name)}</h3>
+    <div class="up-cmp"><div>${lvBadge(d)}<b>Уровень ${d.lv || 1}</b><div class="muted">${moduleDesc(d)}${d.heatPerShot ? `, нагрев ${d.heatPerShot}` : ''}</div></div>
+    <div class="up-arrow">→</div><div>${lvBadge(nd)}<b>Уровень ${c.level}</b><div>${moduleDesc(nd)}${nd.heatPerShot ? `, нагрев ${nd.heatPerShot}` : ''}</div></div></div>
+    <table class="tbl"><tr><th>Материал</th><th class="r">Нужно</th><th class="r">Есть (ангар + трюм)</th></tr>${rows}</table>
+    <div class="kv"><span>Работа верфи</span><span class="isk">${isk(c.isk)}</span>${missingCost ? `<span>Докупить недостающее (×${U.buyMarkup})</span><span class="isk">${isk(missingCost)}</span>` : ''}<span><b>Итого</b></span><span class="isk"><b>${isk(total)}</b></span></div>
+    ${canPay ? '' : '<div class="bad">Недостаточно ISK</div>'}
+    <div class="muted small">Материалы дают переработка руды на своей станции и литейный цех «Бегемота». Улучшенные модули нельзя купить — только сделать.</div>`;
+  const go = (buy) => () => send({ t: 'upgradeModule', slot, item, buyMissing: buy });
+  modal(html, [['Отмена', null], ...(canPay ? [[missingCost ? `Улучшить и докупить (${num(total)} ISK)` : `Улучшить (${num(total)} ISK)`, go(!!missingCost), 'primary']] : [])]);
+}
+
 function moduleDesc(d) {
   if (d.kind === 'weapon') return `урон ${d.dmg} / ${d.cycle}с, дальность ${d.optimal / 1000}+${d.falloff / 1000} км`;
   if (d.kind === 'miner') return `${d.yield} м³ / ${d.cycle}с, дальность ${d.range / 1000} км`;
@@ -2011,11 +2051,11 @@ function renderStation() {
       const slots = p.ship.fit.map((m, i) => {
         const st = slotType(p.ship.type, i);
         const d = m && S.data.modules[m];
-        return `<div class="slot-row"><span class="st ${st}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[st]}</span><span class="sm">${d ? esc(d.name) + ` <span class="muted">${moduleDesc(d)}</span>` : '<span class="muted">— пусто —</span>'}</span>${d ? `<button data-a="unfit" data-slot="${i}">Снять</button>` : ''}</div>`;
+        return `<div class="slot-row"><span class="st ${st}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[st]}</span><span class="sm">${d ? lvBadge(d) + esc(d.name) + ` <span class="muted">${moduleDesc(d)}</span>` : '<span class="muted">— пусто —</span>'}</span>${d ? upBtn(m, i, null) + `<button data-a="unfit" data-slot="${i}">Снять</button>` : ''}</div>`;
       }).join('');
       const mods = Object.entries(h.items).filter(([id]) => S.data.modules[id]).map(([id, q]) => {
         const d = S.data.modules[id];
-        return `<div class="slot-row"><span class="st ${d.slot}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[d.slot]}</span><span class="sm">${esc(d.name)} ×${q}<br><span class="muted">${moduleDesc(d)}</span></span><button data-a="fit" data-item="${id}">Установить</button></div>`;
+        return `<div class="slot-row"><span class="st ${d.slot}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[d.slot]}</span><span class="sm">${lvBadge(d)}${esc(d.name)} ×${q}<br><span class="muted">${moduleDesc(d)}</span></span>${upBtn(id, null, id)}<button data-a="fit" data-item="${id}">Установить</button></div>`;
       }).join('');
       html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
         <div>${droneBayHTML()}<h3>Модули в ангаре</h3>${mods || '<div class="muted">Нет модулей. Купите их на рынке.</div>'}</div></div>`;
@@ -2125,6 +2165,7 @@ function onActionClick(e) {
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
     case 'storyBrief': send({ t: 'storyBrief' }); break;
     case 'setTab': S.setTab = +d.id; renderWin(); break;
+    case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item); break;
     case 'rebind': rebinding = d.id; renderWin(); break;
     case 'resetKeys': CFG.keys = {}; saveCfg(); renderWin(); note('Раскладка сброшена'); break;
     case 'slotSave': { const r = window.VF_SAVES.save(d.id); note(r.ok ? 'Игра сохранена' : 'Не удалось сохранить: ' + r.msg, r.ok ? 'good' : 'bad'); renderWin(); break; }

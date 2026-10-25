@@ -548,3 +548,12 @@ body.cb .br.hostile .bi, body.cb .br.outlaw .bi { color: #ffb000; text-shadow: 0
 body.cb .ov-row.hostile { color: #ffb000; text-decoration: underline; }
 body.cb .br.player .bi { color: #3aa0ff; }
 body.cb .threat { border-left-color: #ffb000; }
+
+/* Уровни модулей */
+.lvb { font-size: 10px; letter-spacing: -1px; color: #8ab; }
+.lvb.lv2 { color: #7cd67c; } .lvb.lv3 { color: #5ab0ff; } .lvb.lv4 { color: #c07cff; } .lvb.lv5 { color: #ffb040; text-shadow: 0 0 4px #ff8a00; }
+button.upg { border-color: #4a8; color: #8fd; margin-right: 4px; }
+.up-cmp { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+.up-cmp > div:not(.up-arrow) { flex: 1; padding: 6px 8px; border: 1px solid var(--line); }
+.up-arrow { font-size: 22px; color: var(--accent); }
+.req-ok { color: var(--good); }

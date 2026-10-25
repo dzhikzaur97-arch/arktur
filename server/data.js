@@ -162,9 +162,50 @@ Object.assign(MODULES, {
   dmg_x:    { name: 'Нейроусилитель «Ярость»', slot: 'low', kind: 'passive', price: 480000, passive: { damage: 0.3 }, vol: 5, elite: true },
   speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true }
 });
+// ---------- Улучшение модулей до 5 уровня ----------
+// Каждый уровень — отдельный предмет «<id>_l<N>»: его можно ставить, хранить, продавать и выставлять на биржу,
+// поэтому весь остальной код работает с ним как с обычным модулем.
+const MOD_UPGRADE = {
+  maxLv: 5,
+  isk: [0, 0, 0.5, 1, 2, 4],                // доля базовой цены модуля за переход на уровень N
+  mats: { 2: { mat_steel: 20 }, 3: { mat_steel: 40, mat_ceramite: 20 }, 4: { mat_ceramite: 40, mat_crystal: 15 }, 5: { mat_crystal: 30, mat_nullalloy: 10 } },
+  eliteMats: { 4: { mat_xcore: 1 }, 5: { mat_xcore: 3 } },
+  buyMarkup: 1.5,                           // недостающие материалы станция продаёт дороже рынка
+  // прирост характеристик за каждый уровень сверх первого
+  per: { dmg: 0.12, range: 0.05, yield: 0.15, amount: 0.12, speed: 0.1, passive: 0.15, cap: -0.04 }
+};
+const modBase = (id) => (MODULES[id] && MODULES[id].base) || id;
+const modLevel = (id) => (MODULES[id] && MODULES[id].lv) || 1;
+function upgradeCost(id) {
+  const m = MODULES[id], L = modLevel(id) + 1;
+  if (!m || L > MOD_UPGRADE.maxLv) return null;
+  const base = MODULES[modBase(id)], k = Math.max(1, base.vol / 5);
+  const mats = {};
+  for (const [it, q] of Object.entries(MOD_UPGRADE.mats[L])) mats[it] = Math.ceil(q * k);
+  if (base.elite) for (const [it, q] of Object.entries(MOD_UPGRADE.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
+  return { next: `${modBase(id)}_l${L}`, level: L, isk: Math.round(base.price * MOD_UPGRADE.isk[L]), mats };
+}
+for (const [id, m] of Object.entries({ ...MODULES })) {
+  m.base = id; m.lv = 1;
+  const P = MOD_UPGRADE.per;
+  for (let L = 2; L <= MOD_UPGRADE.maxLv; L++) {
+    const f = (k) => 1 + P[k] * (L - 1);
+    const v = { ...m, base: id, lv: L, name: `${m.name} · ур.${L}`, price: Math.round(m.price * (1 + 0.6 * (L - 1))) };
+    if (m.dmg) v.dmg = Math.round(m.dmg * f('dmg'));
+    if (m.optimal) { v.optimal = Math.round(m.optimal * f('range')); v.falloff = Math.round(m.falloff * f('range')); }
+    if (m.yield) v.yield = Math.round(m.yield * f('yield'));
+    if (m.range) v.range = Math.round(m.range * f('range'));
+    if (m.amount) v.amount = Math.round(m.amount * f('amount'));
+    if (m.speedBonus) v.speedBonus = Math.round(m.speedBonus * f('speed') * 100) / 100;
+    if (m.cap) v.cap = Math.round(m.cap * f('cap') * 10) / 10;
+    if (m.passive) v.passive = Object.fromEntries(Object.entries(m.passive).map(([k, x]) => [k, Math.round(x * f('passive') * 1000) / 1000]));
+    MODULES[`${id}_l${L}`] = v;
+  }
+}
+
 // нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
-for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (id.startsWith('rail') ? 0.09 : 0.12) * 10) / 10;
-for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite };
+for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : 0.12) * 10) / 10;
+for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
 const DRONES = {
@@ -306,4 +347,4 @@ const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); retur
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY };
+module.exports = { AU, SHIPS, MODULES, DRONES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };
