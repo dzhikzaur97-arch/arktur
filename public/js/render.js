@@ -1215,6 +1215,8 @@ function asteroidModel(radius, seed, ore) {
 // Станции и врата
 // ======================================================================
 function stationModel(style) {
+  if (style === 4) return solarStationModel();
+  if (style === 5) return hubStationModel();
   const T = sharedTextures();
   const g = new THREE.Group();
   const tint = [0xb8c0c8, 0xc8b8a0, 0xa8b8a8, 0xc89060][style || 0];
@@ -1269,6 +1271,73 @@ function stationModel(style) {
   }
   applyBoxUV(g, 450, false);
   g.userData.spinY = 0.012;
+  return g;
+}
+
+// Солнечная электростанция игрока: ядро-накопитель, длинные фермы с огромными крыльями панелей,
+// параболический коллектор и светящиеся банки энергоячеек
+function solarStationModel() {
+  const T = sharedTextures(), g = new THREE.Group();
+  const M = pbrMat(0xb8c4d0, 'station'), D = darkMetal();
+  const panel = new THREE.MeshStandardMaterial({ map: T.solar, metalness: 0.9, roughness: 0.22, color: 0x7f9cd8, emissive: 0x0a1a40, emissiveIntensity: 0.6 });
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(700, 700, 2600, 24), M); g.add(core);
+  for (const y of [1500, -1500]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(700, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), M); cap.position.y = y; if (y < 0) cap.rotation.x = Math.PI; g.add(cap); }
+  // банки энергоячеек — светящиеся кольца
+  for (const y of [-800, -300, 200, 700]) { const r = new THREE.Mesh(new THREE.TorusGeometry(760, 70, 8, 40), glowMat(0x40e0ff, 2.6)); r.rotation.x = Math.PI / 2; r.position.y = y; g.add(r); }
+  // фермы и крылья панелей, медленно поворачиваются к звезде
+  const wings = new THREE.Group();
+  for (const sd of [1, -1]) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(9000, 120, 120), D); truss.position.x = sd * 5200; wings.add(truss);
+    for (let k = 0; k < 5; k++) for (const z of [1, -1]) {
+      const pnl = new THREE.Mesh(new THREE.BoxGeometry(1500, 30, 2300), panel);
+      pnl.position.set(sd * (1500 + k * 1700), 0, z * 1300); wings.add(pnl);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1520, 50, 40), D); frame.position.set(sd * (1500 + k * 1700), 0, z * 2450); wings.add(frame);
+    }
+  }
+  wings.userData.spin = ['x', 0.05];
+  g.add(wings);
+  // параболический коллектор сверху
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(1400, 32, 12, 0, Math.PI * 2, 0, 0.7), M); dish.position.y = 3000; dish.rotation.x = Math.PI; g.add(dish);
+  const focus = new THREE.Mesh(new THREE.SphereGeometry(180, 16, 12), glowMat(0xfff0a0, 4)); focus.position.y = 3600; g.add(focus);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(40, 40, 900, 6), D); mast.position.y = 3150; g.add(mast);
+  const dock = new THREE.Mesh(new THREE.TorusGeometry(520, 40, 8, 40), glowMat(0x60c8ff, 2.5)); dock.rotation.x = Math.PI / 2; dock.position.y = -2300; g.add(dock);
+  addLights(g, [[9700, 0, 0, 60], [-9700, 0, 0, 60], [0, 3700, 0, 70], [0, -2300, 0, 60]], 0xff4030);
+  greebles(g, 1600, 60, D, [1200, 2400, 1200]);
+  applyBoxUV(g, 450, false);
+  g.userData.spinY = 0.004;
+  return g;
+}
+
+// Транспортный хаб: большое стыковочное кольцо, причальные стрелы с огнями и штабели контейнеров
+function hubStationModel() {
+  const T = sharedTextures(), g = new THREE.Group();
+  const M = pbrMat(0xc0b8a8, 'station'), D = darkMetal();
+  const winMat = new THREE.MeshStandardMaterial({ color: 0xc0b8a8, map: T.hull, metalness: 0.6, roughness: 0.5, emissive: 0xffffff, emissiveMap: T.windows, emissiveIntensity: 2 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(3600, 260, 16, 120), M); ring.rotation.x = Math.PI / 2; g.add(ring);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(3600, 300, 8, 120, Math.PI * 2), winMat); inner.rotation.x = Math.PI / 2; inner.scale.set(0.93, 0.93, 0.5); g.add(inner);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(900, 1100, 2200, 8), M); g.add(core);
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(300, 500, 2400, 8), M); tower.position.y = 2200; g.add(tower);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(160, 12, 8), glowMat(0xffc040, 4)); beacon.position.y = 3500; g.add(beacon);
+  const cols = [0x8a3a2a, 0x3a5a7a, 0x9a8a50, 0x5a6a5a, 0xa06030, 0x5a4a7a];
+  const r = seeded(77);
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    // спица к кольцу
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(2600, 160, 160), D); spoke.position.set(Math.cos(a) * 2300, 0, Math.sin(a) * 2300); spoke.rotation.y = -a; g.add(spoke);
+    // причальная стрела наружу с огнями
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1800, 90, 260), M); arm.position.set(Math.cos(a) * 4700, 0, Math.sin(a) * 4700); arm.rotation.y = -a; g.add(arm);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(70, 8, 6), glowMat(i % 2 ? 0x50ff90 : 0xff5040, 4)); lamp.position.set(Math.cos(a) * 5600, 0, Math.sin(a) * 5600); g.add(lamp);
+    // штабели контейнеров на кольце
+    for (let k = 0; k < 6; k++) {
+      const c = new THREE.Mesh(rbox(380, 300, 700), new THREE.MeshStandardMaterial({ color: cols[Math.floor(r() * cols.length)], map: T.hull, metalness: 0.4, roughness: 0.7 }));
+      const aa = a + 0.18 + (k % 3) * 0.1;
+      c.position.set(Math.cos(aa) * 3600, 380 + Math.floor(k / 3) * 320, Math.sin(aa) * 3600); c.rotation.y = -aa; g.add(c);
+    }
+  }
+  const dock = new THREE.Mesh(new THREE.TorusGeometry(700, 50, 8, 48), glowMat(0xffb040, 2.4)); dock.rotation.x = Math.PI / 2; dock.position.y = -1200; g.add(dock);
+  greebles(g, 2400, 80, D, [1600, 900, 1600]);
+  applyBoxUV(g, 450, false);
+  g.userData.spinY = 0.01;
   return g;
 }
 

@@ -1185,6 +1185,7 @@ class Game {
     this.foundryTick();
     this.storyTick();
     this.contractTick();
+    this.infraTick();
     this.aiEconomyTick();
     for (const s of this.sessions) {
       const p = s.player;
@@ -1250,7 +1251,7 @@ class Game {
     const orders = this.db.orders.map(o => ({ ...o, stationName: this.U.celestials[o.station].name, sysName: this.U.byId[this.U.celestials[o.station].sys].name }));
     const drones = {};
     for (const id of Object.keys(DRONES)) if (!DRONES[id].elite) drones[id] = this.buyPriceOf(st, id);
-    s.send({ t: 'market', sell, buy, drones, ships, tax, orders });
+    s.send({ t: 'market', sell, buy, drones, ships, tax, orders, cell: this.buyPriceOf(st, 'energy_cell') });
   }
 
   c_sell(s, m, p) {
@@ -1708,5 +1709,6 @@ require('./features')(Game);
 require('./ai')(Game);
 require('./story')(Game);
 require('./contracts')(Game);
+require('./infra')(Game);
 
 module.exports = { Game };

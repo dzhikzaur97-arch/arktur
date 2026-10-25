@@ -151,7 +151,8 @@ const ITEMS = {
   salv_scrap:    { name: 'Металлолом', cat: 'Трофеи', vol: 1, base: 600 },
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
   salv_relic:    { name: 'Древняя реликвия', cat: 'Трофеи', vol: 5, base: 40000 },
-  courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true }
+  courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true },
+  energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.2, base: 250 }
 };
 // Элитные модули — только на чёрном рынке
 Object.assign(MODULES, {
@@ -170,6 +171,7 @@ const MOD_UPGRADE = {
   isk: [0, 0, 0.5, 1, 2, 4],                // доля базовой цены модуля за переход на уровень N
   mats: { 2: { mat_steel: 20 }, 3: { mat_steel: 40, mat_ceramite: 20 }, 4: { mat_ceramite: 40, mat_crystal: 15 }, 5: { mat_crystal: 30, mat_nullalloy: 10 } },
   eliteMats: { 4: { mat_xcore: 1 }, 5: { mat_xcore: 3 } },
+  cells: { 2: 5, 3: 10, 4: 25, 5: 50 },     // энергоячейки на работу верфи
   buyMarkup: 1.5,                           // недостающие материалы станция продаёт дороже рынка
   // прирост характеристик за каждый уровень сверх первого
   per: { dmg: 0.12, range: 0.05, yield: 0.15, amount: 0.12, speed: 0.1, passive: 0.15, cap: -0.04 }
@@ -183,6 +185,7 @@ function upgradeCost(id) {
   const mats = {};
   for (const [it, q] of Object.entries(MOD_UPGRADE.mats[L])) mats[it] = Math.ceil(q * k);
   if (base.elite) for (const [it, q] of Object.entries(MOD_UPGRADE.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
+  mats.energy_cell = MOD_UPGRADE.cells[L];
   return { next: `${modBase(id)}_l${L}`, level: L, isk: Math.round(base.price * MOD_UPGRADE.isk[L]), mats };
 }
 for (const [id, m] of Object.entries({ ...MODULES })) {

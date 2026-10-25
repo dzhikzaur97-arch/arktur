@@ -9,7 +9,7 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
 
 // --- серверные модули в мини-загрузчике CommonJS ---
-const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(`server/${name}.js`)}\n}`).join(',\n');
 
 const serverBundle = `
@@ -120,6 +120,7 @@ window.VF_SAVES = {
   flush() { return __save(true); }
 };
 const GAME = new __Game(__db, __save);
+window.__VF_GAME = GAME; // для отладки из консоли браузера
 let __last = Date.now();
 setInterval(() => {
   const n = Date.now();

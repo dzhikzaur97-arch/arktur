@@ -42,6 +42,11 @@ module.exports = function install(Game) {
       if (!F || p.foundryOff) continue;
       if (this.now < (e.nextFoundry || 0)) continue;
       e.nextFoundry = this.now + F.cycle * 1000;
+      // литейный цех питается энергоячейками из трюма: 1 за цикл, без них — половинная производительность
+      const powered = (p.ship.cargo.energy_cell || 0) > 0;
+      if (powered) { p.ship.cargo.energy_cell--; if (!p.ship.cargo.energy_cell) delete p.ship.cargo.energy_cell; }
+      else if (!e.foundryWarn || this.now - e.foundryWarn > 60000) { e.foundryWarn = this.now; this.notify(s, 'Литейному цеху не хватает энергоячеек — работает вполсилы', 'warn'); }
+      const pw = powered ? 1 : 0.5;
       const rocks = [];
       for (const t of this.ents.values()) if (t.type === 'asteroid' && t.sys === e.sys && this.surfaceDist(e, t) <= F.range) rocks.push(t);
       if (!rocks.length) continue;
@@ -51,7 +56,7 @@ module.exports = function install(Game) {
       let free = e.stats.cargo - this.cargoUsed(p.ship.cargo), full = false;
       for (const t of rocks.slice(0, F.maxRocks)) {
         const rec = RECIPES[t.ore];
-        let units = Math.min(t.amount, Math.floor(F.perRock * e.stats.mineMul * incomeOf(e.sys) / ITEMS[t.ore].vol));
+        let units = Math.min(t.amount, Math.floor(F.perRock * pw * e.stats.mineMul * incomeOf(e.sys) / ITEMS[t.ore].vol));
         if (rec) { // не берём больше, чем влезет слитков
           const outVol = ITEMS[rec.out].vol * rec.ratio * F.refine;
           units = Math.min(units, Math.floor(free / outVol));
@@ -549,7 +554,7 @@ module.exports = function install(Game) {
     return c;
   };
 
-  P.myStructure = function (p) { return (this.db.structures || []).find(x => x.owner === p.name); };
+  P.myStructure = function (p) { return (this.db.structures || []).find(x => x.owner === p.name && (!x.type || x.type === 'refinery')); };
 
   P.c_structInfo = function (s, m, p) {
     const st = this.myStructure(p);

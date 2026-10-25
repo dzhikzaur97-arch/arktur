@@ -373,6 +373,7 @@ function onMsg(m) {
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
     case 'agents': S.agents = m.offers; if (S.docked && S.stTab === 'agents') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
+    case 'infra': S.infra = m; S.infraAt = performance.now(); if (S.win === 'build') renderWin(); break;
     case 'struct':
       S.struct = m; S.structAt = performance.now();
       $('#st-tabs [data-tab=factory]').classList.toggle('hidden', !(S.docked && m.mine && m.mine.id === S.docked.id));
@@ -1312,7 +1313,8 @@ function updateSysInfo() {
 function updateWallet() {
   const p = S.prof;
   if (!p) return;
-  $('#wallet').textContent = isk(p.credits);
+  const cells = p.ship.cargo.energy_cell || 0;
+  $('#wallet').innerHTML = `${isk(p.credits)} <span class="cells ${cells < 3 ? 'low' : ''}" title="Энергоячейки в трюме — топливо для прыжков через врата">⚡ ${num(cells)}</span>`;
   let f = '';
   if (p.criminal) f += `<span class="flag crim">ПРЕСТУПНИК ${fmtTime(p.criminal / 1000)}</span>`;
   if (p.suspect) f += `<span class="flag susp">ПОДОЗРЕВАЕМЫЙ ${fmtTime(p.suspect / 1000)}</span>`;
@@ -1403,9 +1405,9 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Своя станция', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
-  if (name === 'build' && S.win !== 'build') send({ t: 'structInfo' });
+  if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
@@ -1424,7 +1426,15 @@ function renderWin() {
   if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
   if (S.win === 'settings') return setHTML(el, settingsHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
-  if (S.win === 'build') return setHTML(el, buildHTML());
+  if (S.win === 'build') {
+    // форма маршрута не сбрасывается при обновлении окна
+    const ae = document.activeElement;
+    if (ae && ae.closest && ae.closest('.route-form')) return;
+    const keep = ['rt-from', 'rt-to', 'rt-item', 'rt-keep'].map(id => [id, $('#' + id) && $('#' + id).value]);
+    setHTML(el, buildHTML());
+    for (const [id, v] of keep) if (v != null && $('#' + id)) $('#' + id).value = v;
+    return;
+  }
   if (S.win === 'pilots') return setHTML(el, pilotsHTML());
 }
 onTap($('#win-body'), onActionClick);
@@ -1465,6 +1475,11 @@ const HELP = `<p class="muted">Здесь клавиши по умолчанию
 <span>Shift+F / F / Shift+R</span><span>выпустить дронов / дроны атакуют или копают активную цель / вернуть дронов</span>
 <span>V</span><span>сканировать систему в поисках аномалий</span>
 <span>F1–F8 или 1–8</span><span>включить/выключить модули</span></div>
+<h3>Энергоячейки ⚡</h3><div class="kv">
+<span>Прыжок через врата</span><span>1 ячейка из трюма (крупные корабли — больше); без ячеек — аварийный прыжок, щит и накопитель обнуляются</span>
+<span>Где взять</span><span>купить на рынке любой станции (вдали от Ядра дороже) или построить солнечную электростанцию (⚒ Постройки → Энергия)</span>
+<span>Где нужны</span><span>прыжки, завод (1 на 40 руды), улучшение модулей, топливо транспортов, литейный цех «Бегемота»</span>
+<span>Логистика</span><span>транспортный хаб (⚒ Постройки → Логистика): покупаете транспорты, задаёте маршруты — грузы возятся сами</span></div>
 <h3>Окна</h3><div class="kv"><span>M</span><span>звёздная карта и автопилот</span><span>C / K / J / I / P</span><span>трюм / навыки / журнал / имущество / пилоты галактики</span><span>Enter</span><span>чат</span></div>
 <h3>С чего начать</h3><p>1) Отстыкуйтесь, щёлкните ПКМ по космосу → «Пояса астероидов» и выберите пояс.<br>
 2) Захватите астероид (Ctrl+щелчок), включите буровой лазер (F2).<br>
@@ -1653,6 +1668,7 @@ function upgradeCostC(id) {
   const base = S.data.modules[m.base || id], k = Math.max(1, base.vol / 5), mats = {};
   for (const [it, q] of Object.entries(U.mats[L])) mats[it] = Math.ceil(q * k);
   if (base.elite) for (const [it, q] of Object.entries(U.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
+  if (U.cells) mats.energy_cell = U.cells[L];
   return { next: `${m.base || id}_l${L}`, level: L, isk: Math.round(base.price * U.isk[L]), mats };
 }
 function upBtn(id, slot, item) {
@@ -1757,6 +1773,66 @@ function pilotsHTML() {
     <p><button data-a="pilotsRefresh">Обновить</button></p>`;
 }
 function buildHTML() {
+  const tab = S.buildTab || 0;
+  const tabs = `<div class="set-tabs">${['⚙ Завод', '☀ Энергия', '⇄ Логистика'].map((t, i) => `<button data-a="buildTab" data-id="${i}" class="${tab === i ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  return tabs + (tab === 0 ? refineryHTML() : tab === 1 ? solarHTML() : hubHTML());
+}
+const STAR_NAME = { blue: 'голубая', white: 'белая', yellow: 'жёлтая', orange: 'оранжевая', red: 'красная', blackhole: 'чёрная дыра' };
+function solarHTML() {
+  const I = S.infra;
+  if (!I) return '<div class="muted">Загрузка…</div>';
+  const C = I.cfg.solar, lv = C.levels;
+  const list = I.solars.map(st => {
+    const sys = S.sysById[st.sys], next = lv[st.level + 1];
+    return `<div class="mission"><div class="mt">☀ ${esc(st.name)} · ур. ${st.level}</div>
+      <div class="muted">${esc(sys.name)} (${sys.sec.toFixed(1)}) · звезда: ${STAR_NAME[st.star]} · ${st.au} а.е. от звезды</div>
+      ${st.building ? `<div>Строится… ${fmtTime((st.building - I.now) / 1000)}</div>` : `<div>Выработка: <b>${st.rate} ячеек/мин</b> · на складе ${num(st.stored)} / ${num(st.cap)} · всего выработано ${num(st.produced)}</div>
+      <div class="cap-bar"><i style="width:${Math.min(100, st.stored / st.cap * 100)}%;background:#40e0ff"></i></div>`}
+      <div class="btn2">${next ? `<button data-a="infraUp" data-id="${st.id}">Улучшить до ${st.level + 1}: ${next.rate}/мин база, склад ${num(next.cap)} — ${isk(next.cost)}</button>` : '<span class="sk-max">Максимальный уровень</span>'}
+      ${S.sys && S.sys.id !== st.sys ? `<button data-a="route" data-sys="${st.sys}">Маршрут</button>` : ''}</div></div>`;
+  }).join('');
+  const h = I.here, k = h ? (I.cfg.starPower[h.star] || 1) * (h.au < 1 ? 1.5 : h.au < 3 ? 1 : 0.6) : 0;
+  return `<p>Солнечная электростанция вырабатывает <b>энергоячейки</b> — основу экономики: это топливо для прыжков через врата, питание завода, транспортов и верфей. Ячейки копятся в ангаре станции; вывозите их сами или поручите транспортам хаба.</p>
+    <div class="kv"><span>Выработка</span><span>${lv[1].rate} ячеек/мин × сила звезды × близость к звезде</span>
+    <span>Сила звезды</span><span>${Object.entries(I.cfg.starPower).map(([k, v]) => `${STAR_NAME[k]} ×${v}`).join(', ')}</span>
+    <span>Близость</span><span>ближе 1 а.е. ×1.5, 1–3 а.е. ×1, дальше ×0.6 (но не ближе 0.25 а.е.)</span>
+    <span>Стоимость</span><span class="isk">${isk(C.buildCost)} · до ${C.max} станций</span></div>
+    ${h ? `<p>Здесь: звезда ${STAR_NAME[h.star]}, ${h.au} а.е. → станция ур.1 даст <b>${(lv[1].rate * k).toFixed(1)} ячеек/мин</b>.</p>` : ''}
+    ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="buildInfra" data-id="solar" ${S.prof.credits < C.buildCost || I.solars.length >= C.max ? 'disabled' : ''}>Построить электростанцию здесь — ${isk(C.buildCost)}</button>`}
+    <h3>Ваши электростанции</h3>${list || '<div class="muted">Пока нет.</div>'}`;
+}
+const TR_STATE = { idle: 'ожидает груз', moving: 'летит за грузом', hauling: 'везёт груз', repair: 'на ремонте' };
+function hubHTML() {
+  const I = S.infra;
+  if (!I) return '<div class="muted">Загрузка…</div>';
+  const C = I.cfg.hub, H = I.hub, now = I.now + (performance.now() - (S.infraAt || 0));
+  if (!H) return `<p>Транспортный хаб — центр вашей логистики. Купите в нём транспорты и задайте маршруты между станциями: транспорты сами забирают груз и возят его, даже когда вас нет в игре. Топливо — энергоячейки (1 + число прыжков за рейс) со станции отправки или из хаба.</p>
+    <div class="kv"><span>Стоимость</span><span class="isk">${isk(C.buildCost)}</span><span>Транспортов / маршрутов</span><span>${C.levels.slice(1).map((l, i) => `ур.${i + 1}: ${l.transports} / ${l.routes}`).join(' · ')}</span>
+    <span>Риск</span><span>в системах с безопасностью ниже 0.5 пираты могут отбить часть груза или сбить транспорт</span></div>
+    ${S.docked ? '<p class="muted">Отстыкуйтесь, чтобы строить.</p>' : `<button class="primary" data-a="buildInfra" data-id="hub" ${S.prof.credits < C.buildCost ? 'disabled' : ''}>Построить хаб здесь — ${isk(C.buildCost)}</button>`}`;
+  const L = C.levels[H.level], next = C.levels[H.level + 1], stName = (id) => (S.stationById[id] || {}).name || '—';
+  const trs = H.transports.map(t => {
+    const f = t.end ? Math.max(0, Math.min(1, (now - t.start) / (t.end - t.start))) : 0, w = S.sysById[t.where];
+    return `<div class="tr-row"><b>${esc(t.name)}</b> <span class="muted">— ${TR_STATE[t.state]}${t.state === 'hauling' || t.state === 'moving' ? ` → «${esc(stName(t.to))}», сейчас в ${esc(w ? w.name : '?')}` : t.state === 'idle' ? ` у «${esc(stName(t.at))}»` : ''}${t.cargo ? ` · груз ${num(t.cargo)}` : ''} · рейсов ${t.trips}, доставлено ${num(t.delivered)}</span>
+      ${t.state === 'hauling' || t.state === 'moving' || t.state === 'repair' ? `<div class="cap-bar"><i style="width:${(f * 100).toFixed(1)}%;background:${t.state === 'repair' ? '#d65' : '#ffb040'}"></i></div>` : ''}</div>`;
+  }).join('');
+  const routes = H.routes.map(r => `<div class="slot-row"><span class="sm">${r.on ? '▶' : '⏸'} «${esc(stName(r.from))}» → «${esc(stName(r.to))}»: <b>${esc(I.cfg.routeItems[r.item] || S.data.items[r.item].name)}</b>${r.item === 'energy_cell' && r.keep ? `, оставлять ${num(r.keep)}` : ''} <span class="muted">· перевезено ${num(r.moved || 0)}</span></span>
+    <button data-a="routeCmd" data-id="${r.id}" data-cmd="toggle">${r.on ? 'Пауза' : 'Запустить'}</button><button class="danger" data-a="routeCmd" data-id="${r.id}" data-cmd="del">×</button></div>`).join('');
+  const opts = I.stations.map(st => `<option value="${st.id}">${esc(st.name)} (${esc(S.sysById[st.sys].name)})</option>`).join('');
+  const T = I.cfg.transports;
+  return `<div class="mission"><div class="mt">⇄ ${esc(H.name)} · ур. ${H.level}</div><div class="muted">${esc(S.sysById[H.sys].name)} · транспортов ${H.transports.length}/${L.transports} · маршрутов ${H.routes.length}/${L.routes} · ячеек в хабе ${num(H.cells)}</div>
+    ${H.building ? `<div>Строится… ${fmtTime((H.building - I.now) / 1000)}</div>` : ''}
+    <div class="btn2">${next ? `<button data-a="infraUp" data-id="${H.id}">Улучшить до ${H.level + 1}: ${next.transports} транспортов, ${next.routes} маршрутов — ${isk(next.cost)}</button>` : '<span class="sk-max">Максимальный уровень</span>'}</div></div>
+    <h3>Купить транспорт</h3>${Object.entries(T).map(([k, t]) => `<div class="slot-row"><span class="sm"><b>${esc(t.name)}</b> <span class="muted">трюм ${num(t.cap)} м³ · ${t.perJump} с на прыжок${t.hubLv > 1 ? ` · нужен хаб ур.${t.hubLv}` : ''}</span></span><button class="primary" data-a="buyTransport" data-id="${k}" ${H.level < t.hubLv || H.transports.length >= L.transports || S.prof.credits < t.price ? 'disabled' : ''}>${isk(t.price)}</button></div>`).join('')}
+    <h3>Транспорты</h3>${trs || '<div class="muted">Нет транспортов.</div>'}
+    <h3>Маршруты</h3>${routes || '<div class="muted">Нет маршрутов.</div>'}
+    <div class="route-form"><label>Откуда<select id="rt-from">${opts}</select></label><label>Куда<select id="rt-to">${opts}</select></label>
+      <label>Что везти<select id="rt-item">${Object.entries(I.cfg.routeItems).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
+      <label>Оставлять ячеек<input id="rt-keep" type="number" min="0" value="50" class="qty"></label>
+      <button class="primary" data-a="addRoute">Добавить маршрут</button></div>
+    <div class="muted small">В списке — ваши постройки, домашняя станция и станции, где у вас есть имущество. Топливо рейса: 1 + прыжки, энергоячейки со станции отправки или из хаба.</div>`;
+}
+function refineryHTML() {
   const st = S.struct;
   if (!st) return '<div class="muted">Загрузка…</div>';
   const lv = st.levels;
@@ -2072,6 +2148,8 @@ function renderStation() {
         <h3>Цены на сырьё в этой системе</h3><div class="kv">${Object.entries(mk.sell).filter(([id]) => S.data.items[id].cat === 'Руда' || S.data.items[id].cat === 'Трофеи').map(([id, pr]) => `<span>${esc(S.data.items[id].name)}</span><span class="isk">${num(pr)} ISK</span>`).join('')}</div>
         <h3>Модули</h3><table class="tbl"><tr><th>Модуль</th><th>Слот</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.buy).map(([id, pr]) => { const d = S.data.modules[id]; return `<tr><td>${esc(d.name)}</td><td class="muted">${{ high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted">${moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`; }).join('')}</table>
+        ${mk.cell ? `<h3>Энергоячейки</h3><div class="slot-row"><span class="sm">⚡ Энергоячейка — топливо для прыжков, питание завода и транспортов, нужна для улучшений. Здесь: покупка <span class="isk">${num(mk.cell)}</span>, продажа <span class="isk">${num(mk.sell.energy_cell)}</span> ISK. Вдали от Ядра ячейки дороже.</span>
+          <input class="qty" type="number" min="1" value="20" id="cellq"> <button class="primary" data-a="buyCells">Купить</button></div>` : ''}
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
         <h3>Корабли</h3><div class="grid-cards">${Object.entries(mk.ships).map(([id, pr]) => { const st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
@@ -2165,6 +2243,13 @@ function onActionClick(e) {
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
     case 'storyBrief': send({ t: 'storyBrief' }); break;
     case 'setTab': S.setTab = +d.id; renderWin(); break;
+    case 'buildTab': S.buildTab = +d.id; send({ t: 'infraInfo' }); renderWin(); break;
+    case 'buildInfra': send({ t: 'buildInfra', kind: d.id }); break;
+    case 'infraUp': send({ t: 'infraUpgrade', id: d.id }); break;
+    case 'buyTransport': send({ t: 'buyTransport', kind: d.id }); break;
+    case 'routeCmd': send({ t: 'routeCmd', id: d.id, cmd: d.cmd }); break;
+    case 'addRoute': send({ t: 'addRoute', from: $('#rt-from').value, to: $('#rt-to').value, item: $('#rt-item').value, keep: +$('#rt-keep').value }); break;
+    case 'buyCells': send({ t: 'buy', item: 'energy_cell', qty: +$('#cellq').value }); break;
     case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item); break;
     case 'rebind': rebinding = d.id; renderWin(); break;
     case 'resetKeys': CFG.keys = {}; saveCfg(); renderWin(); note('Раскладка сброшена'); break;
@@ -2335,6 +2420,7 @@ function loop(now) {
     if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (S.docked && S.stTab === 'factory') updateJobs();
+    if (S.win === 'build' && (S.buildTab || 0) > 0 && now - (S.infraReq || 0) > 3000) { S.infraReq = now; send({ t: 'infraInfo' }); }
     if (S.win === 'black' && S.black) { const t = document.querySelector('.bm-timer'); if (t) t.textContent = fmtTime(Math.max(0, (S.black.expires - S.serverNow()) / 1000)); }
     if (now - (S.lastTut || 0) > 500) { S.lastTut = now; checkTutorial(); }
 

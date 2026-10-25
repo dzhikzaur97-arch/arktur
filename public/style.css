@@ -557,3 +557,11 @@ button.upg { border-color: #4a8; color: #8fd; margin-right: 4px; }
 .up-cmp > div:not(.up-arrow) { flex: 1; padding: 6px 8px; border: 1px solid var(--line); }
 .up-arrow { font-size: 22px; color: var(--accent); }
 .req-ok { color: var(--good); }
+
+/* Энергия и логистика */
+.cells { margin-left: 8px; color: #40e0ff; font-size: 12px; }
+.cells.low { color: #ff7050; }
+.tr-row { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); font-size: 12px; }
+.route-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; margin-top: 6px; }
+.route-form label { display: flex; flex-direction: column; font-size: 11px; gap: 2px; }
+.route-form select { max-width: 200px; }
