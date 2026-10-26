@@ -119,6 +119,7 @@
         <button id="b-scan" title="Сканировать систему (V)">◎ Скан</button>
         <button id="b-turret" class="hidden" title="Развернуть турель «Страж-Т» из трюма">⛫ Турель</button>
         <button id="b-manual" class="desk" title="Ручное управление (Z): WASD, мышь, Shift — форсаж">✈ Ручное</button>
+        <button id="b-land" class="hidden" title="Посадка на ближайшую планету: выход из корабля, добыча ресурсов, животные">⤓ Посадка</button>
         <button id="b-auto" title="Автоигра (Y): корабль сам копает, охотится и торгует. Любая ваша команда полёта вернёт управление">🤖 Авто</button>
         <button id="b-foundry" class="hidden" title="Всеядные буры «Бегемота»: поглощать все астероиды вокруг и плавить в слитки">⚙ Буры</button>
       </div>
@@ -177,6 +178,8 @@
   <div id="modal" class="hidden"><div class="panel modal-box"><div id="modal-body"></div></div></div>
 </div>
 
+<div id="surf-hud"></div>
+<script src="js/planetgen.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

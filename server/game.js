@@ -265,7 +265,7 @@ class Game {
     sess.send({
       t: 'system', id: sysId, name: sys.def.name, sec: sys.def.sec,
       region: sys.def.region, income: incomeOf(sysId),
-      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star, owner: c.owner }))
+      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star, companion: c.companion, owner: c.owner }))
     });
     this.sendLocalMembers(sysId);
     this.sendAnoms(sess);
@@ -1724,6 +1724,7 @@ require('./combat')(Game);
 require('./drones')(Game);
 require('./pirates')(Game);
 require('./pbases')(Game);
+require('./surface')(Game);
 require('./bot')(Game);
 require('./autoplay')(Game);
 

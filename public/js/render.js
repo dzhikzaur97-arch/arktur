@@ -2679,5 +2679,23 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
   return url;
 }
 
+// ---------- для мира поверхности планет (surface.js) ----------
+// Отрисовать другую сцену через общий конвейер постэффектов (свечение, цветокоррекция)
+export function renderOther(sc, cam) {
+  const rp = composer.passes[0], s0 = rp.scene, c0 = rp.camera, gr = godRays.enabled;
+  rp.scene = sc; rp.camera = cam; godRays.enabled = false;
+  composer.render();
+  rp.scene = s0; rp.camera = c0; godRays.enabled = gr;
+}
+export function getRenderer() { return renderer; }
+export function getQuality() { return quality; }
+export function envMap() { return scene.environment; }
+// Корабль, стоящий на поверхности: модель в «посадочном» масштабе (капитальные корабли не закрывают полнеба)
+export function landedShip(type, color) {
+  const base = SHIP_BASE_R[type] || 50, r = Math.min(18, 8 + Math.sqrt(base) * 0.8);
+  return shipModel(type, color, r, 'player');
+}
+export function starLook(k) { return STAR_LOOK[k] || STAR_LOOK.yellow; }
+
 // Для отладки рендера из консоли браузера
 export function debugScene() { return { scene, camera, celGroup }; }

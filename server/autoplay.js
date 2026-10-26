@@ -6,7 +6,7 @@
 const crypto = require('crypto');
 const { ACTIONS } = require('./bot');
 
-const MANUAL = new Set(['warp', 'dock', 'approach', 'orbit', 'keep', 'dir', 'stop', 'manual', 'autopilot', 'jump', 'undock', 'module', 'lock', 'speed', 'board', 'droneEngage', 'loot']);
+const MANUAL = new Set(['warp', 'dock', 'approach', 'orbit', 'keep', 'dir', 'stop', 'manual', 'autopilot', 'jump', 'undock', 'module', 'lock', 'speed', 'board', 'droneEngage', 'loot', 'land']);
 const MODES = { auto: 'сам решает, чем заняться', mine: 'добыча руды', hunt: 'охота на пиратов', trade: 'торговля энергоячейками' };
 const SAFE = { mine: ['hi', 'mid'], hunt: ['calm', 'edge'], trade: ['border', 'low'] };
 

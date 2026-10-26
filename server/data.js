@@ -306,6 +306,33 @@ const DRONES = {
   drone_x:        { name: 'Дрон-призрак «Мираж»', kind: 'combat', cls: 'medium', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, sig: 22, r: 8, pd: 0.5, color: 0xd060ff, elite: true }
 };
 for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite };
+// Планетарные ресурсы: добываются мультитулом на поверхности планет (см. server/surface.js, public/js/planetgen.js)
+Object.assign(ITEMS, {
+  res_carbon:     { name: 'Углерод', cat: 'Планетарные ресурсы', vol: 0.02, base: 14, desc: 'из растений и деревьев' },
+  res_ferrite:    { name: 'Ферритовая пыль', cat: 'Планетарные ресурсы', vol: 0.02, base: 16, desc: 'из камней и валунов' },
+  res_oxygen:     { name: 'Кислород', cat: 'Планетарные ресурсы', vol: 0.02, base: 34, desc: 'пополняет жизнеобеспечение костюма' },
+  res_sodium:     { name: 'Натрий', cat: 'Планетарные ресурсы', vol: 0.02, base: 40, desc: 'пополняет защиту от опасной среды' },
+  res_dihydro:    { name: 'Ди-водород', cat: 'Планетарные ресурсы', vol: 0.02, base: 34, desc: 'топливо взлёта и ранца' },
+  res_bulb:       { name: 'Звёздная луковица', cat: 'Планетарные ресурсы', vol: 0.02, base: 64, desc: 'цветущие миры' },
+  res_coral:      { name: 'Кораллит', cat: 'Планетарные ресурсы', vol: 0.02, base: 64, desc: 'океанические миры' },
+  res_pyrite:     { name: 'Пирит', cat: 'Планетарные ресурсы', vol: 0.02, base: 62, desc: 'пустыни' },
+  res_cryo:       { name: 'Криотий', cat: 'Планетарные ресурсы', vol: 0.02, base: 62, desc: 'ледяные миры' },
+  res_phosphor:   { name: 'Фосфор', cat: 'Планетарные ресурсы', vol: 0.02, base: 62, desc: 'вулканические миры' },
+  res_quartzite:  { name: 'Кварцит', cat: 'Планетарные ресурсы', vol: 0.02, base: 58, desc: 'бесплодные миры' },
+  res_ammonia:    { name: 'Аммиак', cat: 'Планетарные ресурсы', vol: 0.02, base: 62, desc: 'токсичные миры' },
+  res_uranium:    { name: 'Уран', cat: 'Планетарные ресурсы', vol: 0.02, base: 66, desc: 'радиоактивные миры' },
+  res_paraquartz: { name: 'Паракварц', cat: 'Планетарные ресурсы', vol: 0.02, base: 85, desc: 'аномальные миры' },
+  res_copper:     { name: 'Медь', cat: 'Планетарные ресурсы', vol: 0.02, base: 110, desc: 'рудные жилы, безопасные системы' },
+  res_cadmium:    { name: 'Кадмий', cat: 'Планетарные ресурсы', vol: 0.02, base: 230, desc: 'рудные жилы, низкая безопасность' },
+  res_emeril:     { name: 'Эмерил', cat: 'Планетарные ресурсы', vol: 0.02, base: 350, desc: 'рудные жилы, нулевая безопасность' },
+  res_indium:     { name: 'Индий', cat: 'Планетарные ресурсы', vol: 0.02, base: 470, desc: 'рудные жилы, Бездна' },
+  bio_meat:       { name: 'Сырое мясо', cat: 'Фауна', vol: 0.05, base: 90, desc: 'добыча охоты' },
+  bio_hide:       { name: 'Шкура', cat: 'Фауна', vol: 0.1, base: 160, desc: 'добыча охоты' },
+  bio_gel:        { name: 'Биоматериал', cat: 'Фауна', vol: 0.05, base: 210, desc: 'дают прирученные животные' },
+  sentinel_core:  { name: 'Ядро смотрителя', cat: 'Фауна', vol: 0.5, base: 650, desc: 'из сбитых дронов-смотрителей' },
+  surf_kit:       { name: 'Ремкомплект костюма', cat: 'Снаряжение', vol: 0.5, base: 900, desc: 'восстанавливает здоровье на поверхности' },
+  launch_fuel:    { name: 'Топливо взлёта', cat: 'Снаряжение', vol: 1, base: 1500, desc: 'один взлёт с планеты без аварийного режима' }
+});
 // Контрабанда: станции её не покупают, торгуют только контрабандисты
 Object.assign(ITEMS, {
   cb_implants: { name: 'Запрещённые импланты', cat: 'Контрабанда', vol: 1, base: 18000, noSell: true, contraband: true },

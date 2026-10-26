@@ -9,8 +9,10 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
 
 // --- серверные модули в мини-загрузчике CommonJS ---
-const serverMods = ['data', 'universe', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'bot', 'autoplay', 'game'].map(name =>
-  `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(`server/${name}.js`)}\n}`).join(',\n');
+// генератор планет общий для сервера и клиента — лежит в public/js
+const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
+const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'game'].map(name =>
+  `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `
 // Игровые часы сервера: на паузе (Esc) время симуляции замирает — таймеры модулей, навыков и событий не идут
@@ -35,7 +37,7 @@ const __crypto = {
 };
 function __require(name) {
   if (name === 'crypto') return __crypto;
-  const key = name.replace(/\\.js$/, '');
+  const key = './' + name.split('/').pop().replace(/\\.js$/, ''); // '../public/js/planetgen' → './planetgen'
   if (__cache[key]) return __cache[key].exports;
   const module = { exports: {} };
   __cache[key] = module;
@@ -43,6 +45,7 @@ function __require(name) {
   return module.exports;
 }
 const { Game: __Game } = __require('./game');
+window.PlanetGen = __require('./planetgen'); // тот же генератор планет — для клиента
 
 // Локальное «соединение» с сервером, работающим в этой же вкладке
 // Сохранения: основной слот + резервная копия, 3 циклических автосохранения, 5 ручных слотов.
@@ -152,15 +155,22 @@ render = render.replace(/^import .*;\n/gm, '');
 const exportsList = [...render.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
 render = render.replace(/^export /gm, '');
 const renderBundle = `const R = (() => {\n${render}\nreturn { ${exportsList.join(', ')} };\n})();`;
+// мир поверхности планет — так же, модуль SF (использует R и window.PlanetGen)
+let surf = read('public/js/surface.js');
+const surfImports = [...surf.matchAll(/^import .*;$/gm)].map(m => m[0]).filter(l => !l.includes("* as THREE") && !l.includes('./render.js'));
+surf = surf.replace(/^import .*;\n/gm, '');
+const surfExports = [...surf.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
+surf = surf.replace(/^export /gm, '');
+const surfBundle = `const SF = (() => {\n${surf}\nreturn { ${surfExports.join(', ')} };\n})();`;
 
 // --- клиент ---
 let main = read('public/js/main.js');
-main = main.replace(/^import \* as R from '\.\/render\.js';\n/m, '');
+main = main.replace(/^import \* as R from '\.\/render\.js';\n/m, '').replace(/^import \* as SF from '\.\/surface\.js';\n/m, '');
 main = main.replace("$('#lg-pass').onkeydown", "$('#lg-name').onkeydown = (e) => { if (e.key === 'Enter') $('#lg-go').click(); };\n$('#lg-pass').onkeydown");
 
 // --- разметка ---
 const html = read('public/index.html');
-const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('<script type="module"'));
+const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('<script type="module"')).replace('<script src="js/planetgen.js"></script>', '');
 let css = read('public/style.css');
 css = css.replace(':root {', ':root {\n  color-scheme: dark;');
 // концепт-арты кораблей встраиваем прямо в страницу
@@ -182,9 +192,10 @@ ${body.replace('<p class="hint">Новый пилот создаётся авт�
   '<p class="hint">Новый пилот создаётся автоматически при первом входе.<span class="offline-tag">Одиночный режим: вселенная работает в вашем браузере, прогресс сохраняется на этом устройстве.</span></p>')}
 <script type="module">
 import * as THREE from 'three';
-${renderImports.join('\n')}
+${[...new Set([...renderImports, ...surfImports])].join('\n')}
 ${serverBundle}
 ${renderBundle}
+${surfBundle}
 ${main}
 </script>
 `;

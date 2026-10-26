@@ -1,5 +1,6 @@
 // Клиент: сеть, состояние, управление, интерфейс.
 import * as R from './render.js';
+import * as SF from './surface.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -387,6 +388,9 @@ function onMsg(m) {
     case 'dialog': showDialog(m); break;
     case 'bots': S.bots = m; if (S.win === 'bots') renderWin(); break;
     case 'auto': S.auto = m.on ? m : null; renderAuto(); break;
+    case 'surface': enterSurface(m); break;
+    case 'surfaceLeft': SF.leave(); S.surface = null; note('Корабль на орбите', 'good'); break;
+    case 'harvested': case 'hunted': case 'fed': case 'discovered': case 'suit': case 'surfRespawn': case 'takeoffFuel': SF.onServer(m); break;
     case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -555,6 +559,7 @@ function act(a, id) {
     case 'unlock': send({ t: 'unlock', id }); break;
     case 'loot': send({ t: 'loot', id }); break;
     case 'stop': send({ t: 'stop' }); break;
+    case 'land': send({ t: 'land', planet: id }); break;
     case 'info': showInfo(o); break;
     case 'black': {
       const did = o && o.dealer ? o.dealer : id;
@@ -579,6 +584,31 @@ function act(a, id) {
   }
 }
 
+// ---------- Планеты: данные сканера и посадка ----------
+const PGen = window.PlanetGen;
+function planetInfo(o) { return PGen.profile({ id: o.id, ptype: o.ptype, hue: o.hue, name: o.name || o.n }, { sec: S.sys ? S.sys.sec : 0.5 }); }
+function planetHTML(o) {
+  const P = planetInfo(o);
+  if (!P.landable) return `<div class="muted">${esc(P.why)}</div>`;
+  const hz = P.hz ? `${{ heat: '🔥', cold: '❄', toxic: '☣', rad: '☢' }[P.hz]} ${PGen.HAZARD_NAME[P.hz].toLowerCase()}` : 'нет';
+  const lvl = (v) => v > 0.75 ? 'обильная' : v > 0.45 ? 'умеренная' : v > 0.2 ? 'скудная' : 'почти нет';
+  return `<div class="kv small"><span>Биом</span><span>${esc(P.biomeName)}</span><span>Температура</span><span>${P.temp[0]}…${P.temp[1]} °C</span><span>Опасность</span><span>${hz}</span>
+    <span>Погода</span><span>${esc(P.stormName)}: ${P.storm > 0.35 ? 'часто' : P.storm > 0.18 ? 'иногда' : 'редко'}</span><span>Флора</span><span>${lvl(P.flora)}</span><span>Фауна</span><span>${lvl(P.fauna)} (${P.species.length} вид.)</span>
+    <span>Смотрители</span><span>${PGen.SENTINEL_NAME[P.sentinels]}</span><span>Ресурсы</span><span>${esc(P.specialName)}, ${esc(P.metalName)}</span><span>Гравитация</span><span>${P.gravity} g</span></div>`;
+}
+function enterSurface(m) {
+  const c = S.celById && S.celById[m.planet];
+  if (!c) return;
+  if (MAN.on) manualToggle(false, true);
+  hideCtx(); closeWin(); $('#map').classList.add('hidden');
+  if (S.auto) { S.auto = null; renderAuto(); }
+  S.surface = m; S.clockSkew = m.now - Date.now(); S.sel = null; S.active = null;
+  clearBrackets();
+  const shipType = m.shipType || (S.prof && S.prof.ship.type) || 'iskra';
+  SF.enter({ P: planetInfo(c), ship: m.ship, shipType, shipColor: S.data.ships[shipType].color, star: S.data.stars[m.sys] || 'yellow', suit: m.suit,
+    depleted: m.depleted, dead: m.dead, caps: m.caps, crates: m.crates, disc: m.disc, recipes: m.recipes });
+}
+SF.init({ send: (m) => send(m), note: (t, k) => note(t, k), get data() { return S.data; }, sound: Sound, serverNow: () => S.serverNow() });
 function actionsFor(o) {
   if (!o) return [];
   const d = distTo(o);
@@ -586,6 +616,7 @@ function actionsFor(o) {
   const far = d > 150000;
   if (o.kind === 'station') A.push(['dock', '⌂', 'Стыковка', keyName(keyOf('dock'))]);
   if (o.kind === 'gate') A.push(['jump', '⊚', 'Прыжок', keyName(keyOf('dock'))]);
+  if (o.kind === 'planet' && planetInfo(o).landable && d < 600000) A.unshift(['land', '⤓', 'Посадка', '']);
   if (far) A.push(['warp', '»', 'Варп', keyName(keyOf('warp'))]);
   if (!far || o.kind === 'ship') {
     A.push(['approach', '→', 'Подлететь', keyName(keyOf('approach'))]);
@@ -634,10 +665,15 @@ R.init(canvas);
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
+window.__VF_SF = SF; // отладка мира поверхности
 applyCfg();
 let drag = null;
 canvas.addEventListener('mousedown', (e) => {
   hideCtx();
+  if (SF.active()) {
+    if (!document.pointerLockElement && canvas.requestPointerLock) { canvas.requestPointerLock(); return; }
+    SF.onMouse(e.button, true); return;
+  }
   if (MAN.on) { // в ручном режиме: щелчок захватывает мышь, ЛКМ — огонь
     if (!document.pointerLockElement) { canvas.requestPointerLock && canvas.requestPointerLock(); return; }
     if (e.button === 0) manualFire();
@@ -646,6 +682,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) drag = { x: e.clientX, y: e.clientY, moved: 0 };
 });
 addEventListener('mousemove', (e) => {
+  if (SF.active()) { if (document.pointerLockElement === canvas) SF.onMouseMove(e.movementX * CFG.sens * (CFG.invX ? -1 : 1), e.movementY * CFG.sens * (CFG.invY ? -1 : 1)); return; }
   if (MAN.on && document.pointerLockElement === canvas) {
     R.cam.yaw -= e.movementX * 0.0025 * CFG.sens * (CFG.invX ? -1 : 1);
     R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + e.movementY * 0.0025 * CFG.sens * (CFG.invY ? -1 : 1)));
@@ -668,22 +705,43 @@ function flyTo(x, y) {
   setTimeout(() => m.remove(), 700);
 }
 addEventListener('mouseup', (e) => {
+  if (SF.active()) { SF.onMouse(e.button, false); return; }
   if (drag && drag.moved < 5 && e.button === 0 && e.target === canvas) flyTo(e.clientX, e.clientY);
   drag = null;
 });
 canvas.addEventListener('wheel', (e) => {
+  if (SF.active()) return SF.onWheel(e.deltaY);
   const minD = S.me ? S.data.ships[S.me.st].radius * 4 : 200;
   R.cam.target = Math.max(minD, Math.min(400000, R.cam.target * Math.pow(1.0015, e.deltaY)));
 }, { passive: true });
 
-canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!S.docked) spaceMenu(e.clientX, e.clientY); });
+canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!S.docked && !SF.active()) spaceMenu(e.clientX, e.clientY); });
+document.addEventListener('pointerlockchange', () => SF.setLocked(document.pointerLockElement === canvas));
+// сенсорное управление на поверхности: левый джойстик — ходьба, правая половина экрана — обзор, кнопки действий
+(() => {
+  const hud = $('#surf-hud');
+  let stick = null, look = null;
+  hud.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('[data-tb]');
+    if (b) { e.preventDefault(); SF.touchBtn(b.dataset.tb, true); b.setPointerCapture(e.pointerId); b.onpointerup = b.onpointercancel = () => SF.touchBtn(b.dataset.tb, false); return; }
+    if (e.target.closest('#sf-stick')) { stick = { id: e.pointerId, x: e.clientX, y: e.clientY }; e.target.setPointerCapture(e.pointerId); }
+  });
+  hud.addEventListener('pointermove', (e) => {
+    if (stick && e.pointerId === stick.id) { const dx = (e.clientX - stick.x) / 50, dy = (e.clientY - stick.y) / 50; SF.touchMove(Math.max(-1, Math.min(1, dx)), Math.max(-1, Math.min(1, -dy))); const k = $('#sf-stick i'); if (k) k.style.transform = `translate(${Math.max(-40, Math.min(40, dx * 50))}px,${Math.max(-40, Math.min(40, dy * 50))}px)`; }
+  });
+  const end = (e) => { if (stick && e.pointerId === stick.id) { stick = null; SF.touchMove(0, 0); const k = $('#sf-stick i'); if (k) k.style.transform = ''; } };
+  hud.addEventListener('pointerup', end); hud.addEventListener('pointercancel', end);
+  canvas.addEventListener('pointerdown', (e) => { if (!SF.active() || e.pointerType === 'mouse') return; look = { id: e.pointerId, x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointermove', (e) => { if (!SF.active() || !look || e.pointerId !== look.id) return; SF.touchLook(e.clientX - look.x, e.clientY - look.y); look.x = e.clientX; look.y = e.clientY; });
+  canvas.addEventListener('pointerup', (e) => { if (look && e.pointerId === look.id) look = null; });
+})();
 
 // Сенсорное управление: палец — вращение камеры, щипок — зум, тап — курс, долгое нажатие — меню варпа
 const touches = new Map();
 let pinch0 = null, tap = null, lastTap = 0, lpTimer = null;
 const touchDist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse') return;
+  if (e.pointerType === 'mouse' || SF.active()) return;
   canvas.setPointerCapture(e.pointerId);
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   hideCtx();
@@ -694,7 +752,7 @@ canvas.addEventListener('pointerdown', (e) => {
   } else { clearTimeout(lpTimer); tap = null; pinch0 = { d: touchDist(), z: R.cam.target }; }
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'mouse' || !touches.has(e.pointerId)) return;
+  if (e.pointerType === 'mouse' || !touches.has(e.pointerId) || SF.active()) return;
   const prev = touches.get(e.pointerId);
   const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -780,6 +838,11 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (typing || S.paused) return;
+  if (SF.active()) { // на поверхности: своё управление (Enter — чат, Esc — меню обрабатываются выше и ниже)
+    if (actionFor(e.code, 'global') === 'chat') { e.preventDefault(); $('#chat-in').focus(); return; }
+    if (['Tab', 'Space'].includes(e.code)) e.preventDefault();
+    SF.onKey(e, true); return;
+  }
   const fk = /^F([1-8])$/.exec(e.key);
   if (fk) { e.preventDefault(); toggleModule(moduleOrder()[+fk[1] - 1]); return; }
   if (/^[1-8]$/.test(e.key) && !e.ctrlKey) { toggleModule(moduleOrder()[+e.key - 1]); return; }
@@ -821,7 +884,7 @@ addEventListener('keydown', (e) => {
   if (k === 'KeyR' && e.shiftKey) send({ t: 'droneRecall' });
 });
 
-addEventListener('keyup', (e) => { if (typeof MAN !== 'undefined') { const a = actionFor(e.code, 'manual'); if (a) MAN.keys.delete(a); } });
+addEventListener('keyup', (e) => { if (SF.active()) { SF.onKey(e, false); return; } if (typeof MAN !== 'undefined') { const a = actionFor(e.code, 'manual'); if (a) MAN.keys.delete(a); } });
 addEventListener('blur', () => MAN.keys.clear());
 
 // ======================================================================
@@ -1168,6 +1231,7 @@ function renderSelected() {
     if (o.pbs) extra += `<div class="pb-st ${o.pbs}">${o.pbs === 'idle' ? `Опасность сектора: ${esc(o.pbd)}. Нападите — база поднимет щит и вышлет ${o.pbn} волн роёв.`
       : o.pbs === 'waves' ? `⛨ Щит активен · волна ${o.pbw}/${o.pbn}` : '⚠ Щит отключён — уничтожьте базу!'}<br><span class="isk">Награда: ${num(o.pbr)} ISK + тайник</span></div>`;
   }
+  if (o.kind === 'planet') extra = planetHTML(o);
   if (o.kind === 'asteroid') extra = `<div class="muted">Осталось: ${num(o.am)} ед. руды «${esc(S.data.items[o.ore].name)}»</div>`;
   if (o.kind === 'wreck' && o.items) extra = `<div class="muted">${Object.entries(o.items).map(([k, q]) => `${esc(S.data.items[k].name)} ×${q}`).join(', ')}</div>`;
   const acts = actionsFor(o).map(([a, ic, label, key]) => `<button data-act="${a}" title="${key}"><b>${ic}</b>${esc(label)}</button>`).join('');
@@ -1223,9 +1287,22 @@ function gaugeArc(r, frac, a0 = 160, span = 140) {
   return `M${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}`;
 }
 
+// кнопка «Посадка», когда рядом планета с твёрдой поверхностью (до 600 км)
+function updateLandBtn() {
+  const b = $('#b-land');
+  let best = null, bd = 600000;
+  if (S.sys && S.meRec && !S.me.warp) for (const c of S.sys.celestials) {
+    if (c.kind !== 'planet') continue;
+    const d = len(sub(c.pos, S.meRec.dp)) - c.radius;
+    if (d < bd && planetInfo(c).landable) { bd = d; best = c; }
+  }
+  b.classList.toggle('hidden', !best);
+  if (best) { b.dataset.planet = best.id; b.textContent = `⤓ Посадка: ${best.name}`; }
+}
 function renderHud(now) {
   const me = S.me;
   if (!me) return;
+  updateLandBtn();
   const m = me.max;
   $('#g-sh-bg').setAttribute('d', gaugeArc(78, 1)); $('#g-sh').setAttribute('d', gaugeArc(78, me.sh / m.sh));
   $('#g-ar-bg').setAttribute('d', gaugeArc(68, 1)); $('#g-ar').setAttribute('d', gaugeArc(68, me.ar / m.ar));
@@ -1316,6 +1393,7 @@ onTap($('#autoplay'), (e) => {
 });
 $('#autoplay').addEventListener('change', (e) => { if (e.target.matches('[data-ap-bold]')) send({ t: 'autoplay', on: true, bold: e.target.checked }); });
 $('#b-turret').onclick = () => send({ t: 'deployTurret' });
+$('#b-land').onclick = () => { const id = $('#b-land').dataset.planet; if (id) { Sound.click(); send({ t: 'land', planet: id }); } };
 $('#story-track').onclick = () => openWin('missions');
 
 function slotType(shipType, idx) {
@@ -2539,6 +2617,7 @@ function loop(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (!S.data) return;
+  if (SF.active()) { SF.frame(dt, now); return; } // на поверхности планеты — свой мир
   if (S.me && S.meRec && !S.docked) {
     const rt = now + (S.timeOff || 0) - RENDER_DELAY;
     sample(S.meRec, rt);
