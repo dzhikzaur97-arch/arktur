@@ -231,7 +231,8 @@ function skyMaterial() {
         vec3 sky = mix(horizon, day, pow(max(up, 0.0), 0.55));
         float sunE = sunDir.y;
         // закат: тёплый край у горизонта со стороны солнца
-        float sset = smoothstep(0.35, -0.05, abs(sunE)) * pow(max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0), 3.0) * (1.0 - up);
+        vec3 hd = vec3(d.x, 0.0, d.z), hs = vec3(sunDir.x, 0.0, sunDir.z);
+        float sset = smoothstep(0.35, -0.05, abs(sunE)) * pow(max(dot(hd / max(length(hd), 1e-4), hs / max(length(hs), 1e-4)), 0.0), 3.0) * (1.0 - up);
         sky = mix(sky, vec3(1.0, 0.45, 0.2), sset * 0.7);
         float dayK = smoothstep(-0.18, 0.15, sunE);
         sky = mix(night + horizon * 0.04 * (1.0 - up), sky, dayK) * (1.0 - storm * 0.55);
@@ -243,7 +244,7 @@ function skyMaterial() {
         sky += sunCol * (pow(sd, 1800.0) * 30.0 + pow(sd, 12.0) * 0.35 * k) * (1.0 - storm * 0.8);
         // планета-спутник в небе
         float md = dot(d, moonDir);
-        if (md > 0.9975) { float e = smoothstep(0.9975, 0.9985, md); float lit = clamp(dot(normalize(d - moonDir * md), sunDir) * 3.0 + 0.4, 0.05, 1.0); sky = mix(sky, moonCol * lit, e * (1.0 - storm)); }
+        if (md > 0.9975) { float e = smoothstep(0.9975, 0.9985, md); vec3 mo = d - moonDir * md; float lit = clamp(dot(mo / max(length(mo), 1e-5), sunDir) * 3.0 + 0.4, 0.05, 1.0); sky = mix(sky, moonCol * lit, e * (1.0 - storm)); }
         gl_FragColor = vec4(sky, 1.0);
       }`,
     side: THREE.BackSide, depthWrite: false, fog: false
@@ -265,8 +266,8 @@ export function enter(info) {
   const hemi = new THREE.HemisphereLight(col(pal.sky), col(pal.mid), 0.6); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 2.4);
   sun.color.set(R.starLook(info.star).light);
-  sun.castShadow = R.getQuality() === 'high';
-  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+  sun.castShadow = R.getQuality() !== 'low';
+  sun.shadow.mapSize.setScalar(R.getQuality() === 'high' ? 2048 : 1024); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
   Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 400 });
   scene.add(sun, sun.target);
   const moon = new THREE.DirectionalLight(0x8aa0ff, 0); scene.add(moon);
@@ -421,7 +422,7 @@ function buildChunk(cx, cz) {
   const decor = PG.chunkDecor(P, cx, cz);
   for (const d of decor) { if (!W.K[d.kind]) continue; (byKind[d.kind] = byKind[d.kind] || []).push(d); }
   const meshes = [], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-  const shadows = R.getQuality() === 'high';
+  const shadows = R.getQuality() !== 'low';
   for (const [k, list] of Object.entries(byKind)) {
     const kind = W.K[k]; if (!kind) continue;
     for (const [geo2, mat] of [[kind.solid, W.floraMat], [kind.glow, W.glowMat]]) {
@@ -773,9 +774,9 @@ export function frame(dt, nowMs) {
   const dayK = clamp((sunDir.y + 0.12) / 0.35, 0, 1);
   W.sky.material.uniforms.sunDir.value.copy(sunDir); W.sky.material.uniforms.storm.value = storm;
   W.sun.position.copy(W.pos).addScaledVector(sunDir, 200); W.sun.target.position.copy(W.pos);
-  W.sun.intensity = 2.6 * dayK * (1 - storm * 0.6);
-  W.moon.position.set(-sunDir.x, Math.abs(sunDir.y) + 0.3, -sunDir.z).multiplyScalar(100).add(W.pos); W.moon.target.position.copy(W.pos); W.moon.intensity = 0.35 * (1 - dayK);
-  W.hemi.intensity = 0.18 + 0.55 * dayK;
+  W.sun.intensity = 3.1 * dayK * (1 - storm * 0.6);
+  W.moon.position.set(-sunDir.x, Math.abs(sunDir.y) + 0.3, -sunDir.z).multiplyScalar(100).add(W.pos); W.moon.target.position.copy(W.pos); W.moon.intensity = 0.55 * (1 - dayK);
+  W.hemi.intensity = 0.32 + 0.6 * dayK; // ночью темно, но не непроглядно
   const fogC = col(P.pal.fog).multiplyScalar(0.12 + 0.88 * dayK * (1 - storm * 0.5));
   W.scene.fog.color.copy(fogC); W.scene.fog.density = P.fog * (1 + storm * 3.5);
   W.sky.position.copy(W.cam.position);

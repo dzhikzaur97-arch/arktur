@@ -655,3 +655,7 @@ body.mobile #sf-touch { display: block; } body.mobile #sf-lockhint { display: no
 body.mobile #sf-bars { width: calc(100vw - 24px); right: 12px; bottom: 6px; }
 body.mobile #sf-info { left: 8px; width: 240px; font-size: 11px; }
 body.sf-cine #sf-info, body.sf-cine #sf-bars, body.sf-cine #sf-cross, body.sf-cine #sf-target, body.sf-cine #sf-prompt, body.sf-cine #sf-compass, body.sf-cine #sf-lockhint { display: none !important; }
+#map-tabs { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 4px; z-index: 2; }
+#map-tabs span { padding: 6px 14px; border: 1px solid var(--line); background: rgba(5,12,20,.8); cursor: pointer; font-size: 13px; color: var(--muted); }
+#map-tabs span.on { color: #fff; border-color: var(--accent); background: rgba(40,110,150,.35); }
+body.mobile #map-tabs { top: 6px; }

@@ -50,12 +50,13 @@ export function prewarm(ships, drones = {}) {
 export function setQuality(q) {
   quality = q;
   if (!renderer) return;
-  renderer.setPixelRatio(Math.min(q === 'high' ? 1.75 : q === 'medium' ? 1.25 : 1, devicePixelRatio));
-  sunLight.castShadow = q === 'high';
+  renderer.setPixelRatio(Math.min(q === 'high' ? 1.5 : q === 'medium' ? 1.25 : 1, devicePixelRatio));
+  sunLight.castShadow = q !== 'low';
+  { const ms = q === 'high' ? 2048 : 1024; if (sunLight.shadow.mapSize.x !== ms) { sunLight.shadow.mapSize.set(ms, ms); if (sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; } } }
   bloom.enabled = q !== 'low';
   grade.enabled = q !== 'low';
   godRays.uniforms.rays.value = q !== 'low' ? 1 : 0;
-  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { const n = q === 'high' ? 4 : 0; if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { const n = q === 'high' ? 2 : 0; if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
   if (q === 'low') { for (const [id, tr] of trails) { fxGroup.remove(tr.mesh); trails.delete(id); } }
   resize();
 }
@@ -186,7 +187,7 @@ function fresnelMaterial(color, power = 3, intensity = 1.2, sunSide = true) {
       void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
         vW = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * mv; /*LOGDEPTH*/ }`,
     fragment: `uniform vec3 color; uniform float power, intensity, sunSide, opacity, sunset; uniform vec3 sunDir; varying vec3 vN; varying vec3 vV; varying vec3 vW;
-      void main(){ /*LOGDEPTH*/ float f = pow(1.0 - abs(dot(vN, vV)), power);
+      void main(){ /*LOGDEPTH*/ float f = pow(clamp(1.0 - abs(dot(vN, vV)), 0.0, 1.0), power);
         float sd = dot(vW, sunDir);
         float lit = mix(1.0, smoothstep(-0.35, 0.6, sd), sunSide);
         // у линии терминатора атмосфера краснеет — рассеяние света, как на закате
@@ -503,7 +504,9 @@ const REGION_SKY = {
   deep:   { pals: [[[0.1, 0.45, 0.3], [0.35, 0.05, 0.5], [0.4, 1.0, 0.75]], [[0.3, 0.05, 0.55], [0.05, 0.3, 0.35], [0.85, 0.5, 1.0]]], size: [0.7, 0.95], stars: 0.45 }
 };
 
+let lastSky = ['lobby', 1];
 function buildSky(sysId, sec, region) {
+  lastSky = [sysId, sec, region];
   const seed = strSeed(sysId);
   const r = seeded(seed);
   const RS = REGION_SKY[region];
@@ -564,7 +567,7 @@ function buildSky(sysId, sec, region) {
   quad.frustumCulled = false;
   quadScene.add(quad);
   if (!skyRT) {
-    const size = Math.min(4096, renderer.capabilities.maxTextureSize);
+    const size = Math.min(2048, renderer.capabilities.maxTextureSize); // 4096 в половинной точности с мипмапами — ~90 МБ видеопамяти
     skyRT = new THREE.WebGLRenderTarget(size, size / 2, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
   }
   const prevTarget = renderer.getRenderTarget();
@@ -1892,27 +1895,32 @@ function sunModel(star = 'yellow') {
 // ======================================================================
 // Инициализация
 // ======================================================================
+let contextLost = false, onLost = null, onRestored = null;
+export function onContext(lost, restored) { onLost = lost; onRestored = restored; }
+export function isContextLost() { return contextLost; }
 export function init(canvas) {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(1.75, devicePixelRatio));
+  renderer.setPixelRatio(Math.min(1.5, devicePixelRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.28;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
   pmrem = new THREE.PMREMGenerator(renderer);
   sharedTextures();
   camera = new THREE.PerspectiveCamera(60, 1, 1, 5e9);
-  ambient = new THREE.AmbientLight(0x8090b0, 0.3);
+  ambient = new THREE.AmbientLight(0x8090b0, 0.42);
+  // небо и «земля» космоса: мягкая подсветка сверху холодным, снизу тёплым — корабль читается с любой стороны
+  scene.add(new THREE.HemisphereLight(0xa8bcff, 0x3a3026, 0.45));
   scene.add(ambient);
-  scene.environmentIntensity = 0.7;
+  scene.environmentIntensity = 0.95;
   sunLight = new THREE.DirectionalLight(0xfff1dc, 3.2);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.bias = -0.0004;
   sunLight.shadow.normalBias = 0.02;
   // слабый холодный контровой свет с теневой стороны, чтобы силуэты читались
-  rimLight = new THREE.DirectionalLight(0x7090ff, 0.9);
+  rimLight = new THREE.DirectionalLight(0x7090ff, 1.1);
   scene.add(rimLight);
   // вторая звезда двойной системы: свой цвет света, без теней
   sunLight2 = new THREE.DirectionalLight(0xffffff, 0);
@@ -1940,7 +1948,7 @@ export function init(canvas) {
   scene.add(warpLines);
 
   // сглаживание MSAA прямо в буфере постобработки (иначе после постэффектов края «лесенкой»)
-  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 2 }));
   composer.addPass(new RenderPass(scene, camera));
   // звёзды в кадре: «божественные» лучи (радиальное размытие ярких пикселей — силуэты кораблей режут свет),
   // ореол с анаморфной полосой и блики объектива; видимость звезды проверяется по яркости её центра на экране
@@ -1978,7 +1986,10 @@ export function init(canvas) {
         }
         return o;
       }
-      void main(){ vec4 c = texture2D(tDiffuse, vUv); c.rgb += star(l0, c0) + star(l1, c1); gl_FragColor = c; }`
+      void main(){ vec4 c = texture2D(tDiffuse, vUv); c.rgb += star(l0, c0) + star(l1, c1);
+        // защита: NaN/бесконечность из любого шейдера иначе размазывается свечением на весь экран (чёрный экран)
+        if (any(isnan(c.rgb)) || any(isinf(c.rgb))) c.rgb = vec3(0.0);
+        gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), 1.0); }`
   });
   composer.addPass(godRays);
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.5, 0.85);
@@ -1994,7 +2005,7 @@ export function init(canvas) {
         float ca = dot(d, d) * 0.006;
         vec4 c = vec4(texture2D(tDiffuse, vUv + d * ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - d * ca).b, 1.0);
         float v = smoothstep(0.95, 0.3, length(d * vec2(1.0, 0.85)));
-        c.rgb *= mix(0.45, 1.0, v);
+        c.rgb *= mix(0.72, 1.0, v);
         float n = fract(sin(dot(vUv * vec2(1931.7, 1087.3) + time, vec2(12.9898, 78.233))) * 43758.5453);
         c.rgb += (n - 0.5) * 0.022;
         gl_FragColor = c;
@@ -2003,6 +2014,15 @@ export function init(canvas) {
   composer.addPass(grade);
 
   buildSky('lobby', 1);
+  // потеря WebGL-контекста (нехватка видеопамяти, сон ноутбука, смена GPU): не даём экрану остаться чёрным
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); contextLost = true; if (onLost) onLost(); });
+  canvas.addEventListener('webglcontextrestored', () => {
+    contextLost = false;
+    skyRT = null; if (skyDome) { scene.remove(skyDome); skyDome = null; }
+    buildSky(...lastSky); // содержимое целей рендера пропадает — небо и карту окружения строим заново
+    resize();
+    if (onRestored) onRestored();
+  });
   resize();
   addEventListener('resize', resize);
 }
@@ -2025,7 +2045,7 @@ export function setSystem(sys) {
   const sun = sys.celestials.find(c => c.kind === 'sun' && !c.companion) || sys.celestials.find(c => c.kind === 'sun');
   curSuns = { a: sun || null, b: sys.celestials.find(c => c.kind === 'sun' && c.companion) || null };
   sunLight.color.set(STAR_LOOK[(sun && sun.star) || 'yellow'].light);
-  sunLight.intensity = STAR_LOOK[(sun && sun.star) || 'yellow'].power;
+  sunLight.intensity = STAR_LOOK[(sun && sun.star) || 'yellow'].power * 1.35; // солнце ярче рассеянного света — тени остаются заметными
   sunLight2.color.set(curSuns.b ? STAR_LOOK[curSuns.b.star].light : 0xffffff);
   for (const c of sys.celestials) {
     let obj = null;
@@ -2092,6 +2112,7 @@ function placeFar(obj, rel, radius, isUnit) {
 // Кадр
 // ======================================================================
 export function frame(view, dt, time) {
+  if (contextLost) return;
   GU.time.value = time;
   grade.uniforms.time.value = time % 100;
   const origin = view.origin;
@@ -2105,7 +2126,7 @@ export function frame(view, dt, time) {
   if (starField) starField.position.copy(camera.position);
   if (skyDome) skyDome.position.copy(camera.position);
 
-  if (view.docked) { godRays.enabled = false; stationFrame(view, dt, time); return; }
+  if (view.docked) { godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; stationFrame(view, dt, time); return; }
   if (stationView) { scene.remove(stationView); stationView = null; celGroup.visible = entGroup.visible = true; dust.visible = true; }
 
   // направление на звезду
@@ -2164,7 +2185,6 @@ export function frame(view, dt, time) {
 
   // лучи: до двух звёзд на экране
   godRays.uniforms.aspect.value = innerWidth / innerHeight;
-  godRays.enabled = rays.length > 0; // звёзд в кадре нет — проход не нужен вовсе
   for (let i = 0; i < 2; i++) {
     const L = godRays.uniforms['l' + i].value, r = rays[i];
     if (r) { L.set(r.x, r.y, r.w); godRays.uniforms['c' + i].value.set(r.c); } else L.set(0, 0, 0);
@@ -2682,10 +2702,12 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
 // ---------- для мира поверхности планет (surface.js) ----------
 // Отрисовать другую сцену через общий конвейер постэффектов (свечение, цветокоррекция)
 export function renderOther(sc, cam) {
-  const rp = composer.passes[0], s0 = rp.scene, c0 = rp.camera, gr = godRays.enabled;
-  rp.scene = sc; rp.camera = cam; godRays.enabled = false;
+  if (contextLost) return;
+  const rp = composer.passes[0], s0 = rp.scene, c0 = rp.camera;
+  godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; // проход остаётся — он же защищает от NaN
+  rp.scene = sc; rp.camera = cam;
   composer.render();
-  rp.scene = s0; rp.camera = c0; godRays.enabled = gr;
+  rp.scene = s0; rp.camera = c0;
 }
 export function getRenderer() { return renderer; }
 export function getQuality() { return quality; }

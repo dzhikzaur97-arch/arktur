@@ -666,6 +666,12 @@ window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент �
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
 window.__VF_SF = SF; // отладка мира поверхности
+// потеря WebGL-контекста: сообщаем, снижаем качество (обычно причина — нехватка видеопамяти) и восстанавливаемся
+R.onContext(() => note('Видеокарта сбросила графику — восстанавливаю…', 'warn'), () => {
+  if (CFG.quality === 'high') { CFG.quality = 'medium'; saveCfg(); applyCfg(); }
+  if (S.sys && !SF.active()) R.setSystem(S.sys);
+  note('Графика восстановлена', 'good');
+});
 applyCfg();
 let drag = null;
 canvas.addEventListener('mousedown', (e) => {
@@ -1298,6 +1304,7 @@ function updateLandBtn() {
   }
   b.classList.toggle('hidden', !best);
   if (best) { b.dataset.planet = best.id; b.textContent = `⤓ Посадка: ${best.name}`; }
+  if (best && S.autoLand === best.id) { S.autoLand = null; send({ t: 'land', planet: best.id }); } // «Варп и посадка» с карты
 }
 function renderHud(now) {
   const me = S.me;
@@ -2484,7 +2491,7 @@ function onProfile() {
 // ======================================================================
 // Звёздная карта
 // ======================================================================
-const map = { x: 0, y: 0, z: 1.4, sel: null, drag: null, init: false };
+const map = { x: 0, y: 0, z: 1.4, sel: null, drag: null, init: false, mode: 'gal', sx: 0, sy: 0, sz: 1, ssel: null, hits: [] };
 function toggleMap() {
   const m = $('#map');
   m.classList.toggle('hidden');
@@ -2505,20 +2512,136 @@ mc.addEventListener('pointermove', (e) => {
   if (!map.drag) return;
   const dx = e.clientX - map.drag.x, dy = e.clientY - map.drag.y;
   map.drag.moved += Math.abs(dx) + Math.abs(dy);
-  map.x -= dx / map.z; map.y -= dy / map.z;
+  if (map.mode === 'sys') { map.sx += dx; map.sy += dy; } else { map.x -= dx / map.z; map.y -= dy / map.z; }
   map.drag.x = e.clientX; map.drag.y = e.clientY;
   drawMap();
 });
 mc.addEventListener('pointerup', (e) => {
-  if (map.drag && map.drag.moved < 8) {
+  if (map.drag && map.drag.moved < 8 && map.mode === 'sys') {
+    let best = null, bd = MOBILE ? 26 : 16;
+    for (const h of map.hits) { const d = Math.hypot(h.x - e.clientX, h.y - e.clientY) - h.r; if (d < bd) { bd = d; best = h; } }
+    if (best) { map.ssel = best.id; renderMapInfo(); drawMap(); }
+  } else if (map.drag && map.drag.moved < 8) {
     const hit = S.data.systems.find(s => Math.hypot(...mapPt(s).map((v, i) => v - [e.clientX, e.clientY][i])) < (MOBILE ? 26 : 14));
     if (hit) { map.sel = hit.id; renderMapInfo(); drawMap(); }
   }
   map.drag = null;
 });
-mc.addEventListener('wheel', (e) => { map.z = Math.max(0.5, Math.min(6, map.z * Math.pow(0.999, e.deltaY))); drawMap(); }, { passive: true });
+mc.addEventListener('wheel', (e) => { if (map.mode === 'sys') map.sz = Math.max(0.4, Math.min(8, map.sz * Math.pow(0.999, e.deltaY))); else map.z = Math.max(0.5, Math.min(6, map.z * Math.pow(0.999, e.deltaY))); drawMap(); }, { passive: true });
 function mapPt(s) { return [(s.x - map.x) * map.z + (MOBILE ? innerWidth : innerWidth - 340) / 2, (s.y - map.y) * map.z + (MOBILE ? innerHeight * 0.38 : innerHeight / 2)]; }
-$('#map-zoom').onclick = (e) => { const d = e.target.dataset.z; if (!d) return; map.z = Math.max(0.5, Math.min(6, map.z * (d === '+' ? 1.3 : 1 / 1.3))); drawMap(); };
+$('#map-zoom').onclick = (e) => { const d = e.target.dataset.z; if (!d) return; const k = d === '+' ? 1.3 : 1 / 1.3; if (map.mode === 'sys') map.sz = Math.max(0.4, Math.min(8, map.sz * k)); else map.z = Math.max(0.5, Math.min(6, map.z * k)); drawMap(); };
+$('#map-tabs').onclick = (e) => {
+  const t = e.target.closest('[data-mt]'); if (!t) return;
+  map.mode = t.dataset.mt;
+  for (const el of document.querySelectorAll('#map-tabs [data-mt]')) el.classList.toggle('on', el.dataset.mt === map.mode);
+  $('.map-legend').textContent = map.mode === 'sys' ? 'Вид сверху. Расстояния сжаты, чтобы поместились все орбиты · Колесо — масштаб · Щелчок — объект' : 'Колесо — масштаб · Перетаскивание — сдвиг · Щелчок по системе — маршрут';
+  drawMap(); renderMapInfo();
+};
+
+// ---------- «Солнечная система»: вид сверху на текущую систему ----------
+const PTYPE_COL = { 'Каменистая': '#a89a88', 'Газовый гигант': '#e0a060', 'Ледяная': '#bfe4ff', 'Лавовая': '#ff6a30', 'Океаническая': '#3f8cff', 'Пустынная': '#e8c27a' };
+const hexCol = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+function sysMapPt(pos) {
+  const sun = S.sys.celestials.find(c => c.kind === 'sun' && !c.companion) || S.sys.celestials[0];
+  const dx = pos[0] - sun.pos[0], dz = pos[2] - sun.pos[2], d = Math.hypot(dx, dz) / 1.496e11;
+  const maxD = Math.max(...S.sys.celestials.map(c => Math.hypot(c.pos[0] - sun.pos[0], c.pos[2] - sun.pos[2]) / 1.496e11));
+  const cx = (MOBILE ? innerWidth : innerWidth - 340) / 2 + map.sx, cy = (MOBILE ? innerHeight * 0.38 : innerHeight / 2) + map.sy;
+  const R = Math.min(MOBILE ? innerWidth * 0.45 : innerWidth * 0.32, innerHeight * 0.42) * map.sz / Math.sqrt(Math.max(maxD, 1));
+  const r = Math.sqrt(d) * R, a = Math.atan2(dz, dx);
+  return [cx + Math.cos(a) * r, cy + Math.sin(a) * r, r, cx, cy];
+}
+function drawSysMap(g) {
+  map.hits = [];
+  if (!S.sys) return;
+  const W2 = innerWidth, H2 = innerHeight;
+  const bg = g.createRadialGradient(W2 / 2, H2 / 2, 0, W2 / 2, H2 / 2, Math.max(W2, H2) * 0.7);
+  bg.addColorStop(0, '#0b1424'); bg.addColorStop(1, '#02040a'); g.fillStyle = bg; g.fillRect(0, 0, W2, H2);
+  const cels = S.sys.celestials, near = (c, p) => c.kind !== 'planet' && Math.hypot(c.pos[0] - p.pos[0], c.pos[1] - p.pos[1], c.pos[2] - p.pos[2]) < 3e10;
+  const planets = cels.filter(c => c.kind === 'planet');
+  // орбиты
+  g.lineWidth = 1;
+  for (const p of planets) { const [, , r, cx, cy] = sysMapPt(p.pos); g.strokeStyle = 'rgba(160,190,230,0.16)'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke(); }
+  const label = (txt, x, y, col = '#cfe0ee', size = 12) => { g.fillStyle = col; g.font = `${size}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillText(txt, x, y); };
+  const placed = new Map(); // объект рядом с планетой — рисуем у её значка
+  const at = (c) => {
+    const host = planets.find(p => near(c, p));
+    if (!host) return sysMapPt(c.pos);
+    const [hx, hy] = sysMapPt(host.pos), n = (placed.get(host.id) || 0) + 1; placed.set(host.id, n);
+    const a = Math.atan2(c.pos[2] - host.pos[2], c.pos[0] - host.pos[0]);
+    return [hx + Math.cos(a) * (16 + n * 6), hy + Math.sin(a) * (16 + n * 6)];
+  };
+  // звёзды
+  for (const c of cels.filter(c => c.kind === 'sun')) {
+    const [x, y] = sysMapPt(c.pos), col = c.star === 'blackhole' ? '#c8a0ff' : hexCol(S.data.starTypes[c.star].light), rr = c.companion ? 7 : 11;
+    const gl = g.createRadialGradient(x, y, 0, x, y, rr * 4); gl.addColorStop(0, col); gl.addColorStop(0.3, col + '66'); gl.addColorStop(1, 'transparent');
+    g.fillStyle = gl; g.fillRect(x - rr * 4, y - rr * 4, rr * 8, rr * 8);
+    g.fillStyle = c.star === 'blackhole' ? '#000' : '#fff'; g.beginPath(); g.arc(x, y, rr * 0.6, 0, 7); g.fill();
+    if (c.star === 'blackhole') { g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.arc(x, y, rr * 0.8, 0, 7); g.stroke(); }
+    label(c.name.split(' — ')[0], x, y + rr + 16, '#ffe9c0');
+    map.hits.push({ id: c.id, x, y, r: rr });
+  }
+  // планеты
+  for (const p of planets) {
+    const [x, y] = sysMapPt(p.pos), info = planetInfo(p), rr = Math.max(5, Math.min(11, p.radius / 7e5));
+    const col = PTYPE_COL[p.ptype] || '#aaa';
+    const sh = g.createRadialGradient(x - rr * 0.4, y - rr * 0.4, 0, x, y, rr);
+    sh.addColorStop(0, '#fff'); sh.addColorStop(0.25, col); sh.addColorStop(1, '#111'); g.fillStyle = sh;
+    g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
+    if (p.ptype === 'Газовый гигант') { g.strokeStyle = col + 'aa'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y, rr * 1.8, rr * 0.5, -0.3, 0, 7); g.stroke(); }
+    label(p.name, x, y - rr - 6, '#e8f0f8');
+    label(info.landable ? `⤓ ${info.biomeName}` : 'газовый гигант', x, y + rr + 13, info.landable ? '#8fe8b0' : '#8a9aa8', 11);
+    map.hits.push({ id: p.id, x, y, r: rr });
+  }
+  // станции, пояса, врата
+  for (const c of cels) {
+    if (c.kind === 'station') { const [x, y] = at(c); g.fillStyle = c.owner ? '#ffc860' : '#7fd0ff'; g.fillRect(x - 3.5, y - 3.5, 7, 7); map.hits.push({ id: c.id, x, y, r: 6 }); }
+    else if (c.kind === 'belt') { const [x, y] = at(c); g.fillStyle = '#b8a890'; for (let i = 0; i < 6; i++) g.fillRect(x + Math.cos(i) * 5 - 1, y + Math.sin(i * 1.7) * 4 - 1, 2, 2); map.hits.push({ id: c.id, x, y, r: 6 }); }
+    else if (c.kind === 'gate') { const [x, y] = sysMapPt(c.pos); g.strokeStyle = '#9ad8ff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 6, 0, 7); g.stroke(); label('→ ' + (S.sysById[c.dest] || {}).name, x, y + 18, '#9ad8ff', 11); map.hits.push({ id: c.id, x, y, r: 7 }); }
+  }
+  // аномалии: пиратские базы и крепости
+  for (const a of S.anoms || []) {
+    if (!a.pos) continue;
+    const [x, y] = sysMapPt(a.pos), pir = a.akind === 'pbase' || a.akind === 'fortress';
+    label(pir ? '☠' : '✧', x, y + 4, pir ? '#ff6050' : '#d0a0ff', 14);
+    map.hits.push({ id: a.id, x, y, r: 7 });
+  }
+  // мой корабль
+  const myPos = S.surface ? (S.celById[S.surface.planet] || {}).pos : S.docked ? (S.celById[S.docked] || {}).pos : S.meRec && S.meRec.dp;
+  if (myPos) {
+    const [x, y] = sysMapPt(myPos);
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 6, y + 6); g.lineTo(x - 6, y + 6); g.closePath(); g.fill();
+    label('Вы', x + 14, y - 8, '#fff', 11);
+    const sel = map.ssel && (S.celById[map.ssel] || (S.anoms || []).find(a => a.id === map.ssel));
+    if (sel && sel.pos) { const [tx, ty] = sysMapPt(sel.pos); g.strokeStyle = 'rgba(255,204,68,0.7)'; g.setLineDash([5, 5]); g.beginPath(); g.moveTo(x, y); g.lineTo(tx, ty); g.stroke(); g.setLineDash([]); }
+  }
+  if (map.ssel) { const h = map.hits.find(h => h.id === map.ssel); if (h) { g.strokeStyle = '#5fc8e8'; g.lineWidth = 1.5; g.setLineDash([4, 3]); g.beginPath(); g.arc(h.x, h.y, h.r + 7, 0, 7); g.stroke(); g.setLineDash([]); } }
+  label(`${S.sys.name} · безопасность ${S.sys.sec.toFixed(1)}`, (MOBILE ? innerWidth : innerWidth - 340) / 2, 78, secColor(S.sys.sec), 18);
+}
+function sysMapInfo() {
+  const id = map.ssel, o = id && (S.celById[id] ? { ...S.celById[id], n: S.celById[id].name } : (S.anoms || []).find(a => a.id === id));
+  if (!o) { setHTML($('#map-info'), `<h3>${esc(S.sys ? S.sys.name : '')}</h3><div class="muted">Щёлкните звезду, планету, станцию или врата.</div>`); return; }
+  const kind = o.kind === 'anomaly' ? (ANOM_TYPE[o.akind] || 'Аномалия') : (KIND[o.kind] || ['', ''])[1];
+  const here = S.meRec && !S.docked && !S.surface;
+  const d = here ? Math.max(0, len(sub(o.pos, S.meRec.dp)) - (o.radius || 0)) : null;
+  const info = o.kind === 'planet' ? planetInfo(o) : null;
+  setHTML($('#map-info'), `<h3>${esc(o.name || o.n)}</h3><div class="muted">${esc(kind)}${d !== null ? ' · ' + fmtDist(d) : ''}</div>
+    ${o.kind === 'planet' ? planetHTML(o) : ''}
+    <div class="btn2">${here && d > 150000 ? `<button data-mapact="warp" data-id="${esc(o.id)}">» Варп</button>` : ''}
+    ${here && info && info.landable ? `<button class="primary" data-mapact="land" data-id="${esc(o.id)}">⤓ ${d > 600000 ? 'Варп и посадка' : 'Посадка'}</button>` : ''}
+    ${o.kind === 'station' && here ? `<button data-mapact="dock" data-id="${esc(o.id)}">⌂ Стыковка</button>` : ''}</div>`);
+}
+$('#map-info').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mapact]'); if (!b) return;
+  const id = b.dataset.id, a = b.dataset.mapact;
+  if (a === 'warp') send({ t: 'warp', id });
+  else if (a === 'dock') send({ t: 'dock', id });
+  else if (a === 'land') {
+    const c = S.celById[id], d = len(sub(c.pos, S.meRec.dp)) - c.radius;
+    if (d > 600000) { S.autoLand = id; send({ t: 'warp', id }); note('Варп к планете — после выхода из варпа корабль сам пойдёт на посадку', 'info'); }
+    else send({ t: 'land', planet: id });
+  }
+  toggleMap();
+});
 
 // Перерисовка карты не чаще раза за кадр (мышь шлёт десятки событий за кадр); холст пересоздаётся только при смене размера
 let mapQueued = false;
@@ -2533,6 +2656,7 @@ function drawMapNow() {
   const g = mc.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, innerWidth, innerHeight);
+  if (map.mode === 'sys') return drawSysMap(g);
   // подложки регионов: мягкие пятна цвета региона и подпись в центре
   const byReg = {};
   for (const s of S.data.systems) (byReg[s.region] = byReg[s.region] || []).push(s);
@@ -2575,6 +2699,7 @@ function drawMapNow() {
 }
 
 function renderMapInfo() {
+  if (map.mode === 'sys') return sysMapInfo();
   const s = S.sysById[map.sel];
   if (!s) return;
   const stations = S.data.stations.filter(st => st.sys === s.id);
