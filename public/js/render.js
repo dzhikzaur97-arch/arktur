@@ -345,9 +345,9 @@ function hullSet(paint, accent, faction, seed) {
   eg.fillStyle = '#000'; eg.fillRect(0, 0, W, W);
   // Окраска крупными зонами (основной цвет, светлый второй цвет ливреи, голый металл, тёмные технические
   // панели) — корпус читается как цельный, а не «лоскутный»; внутри зоны — тонкие швы, люки, решётки, заклёпки
-  const ZW = { player: [0.64, 0.22, 0.1, 0.04], guard: [0.62, 0.24, 0.1, 0.04], station: [0.55, 0.27, 0.13, 0.05], pirate: [0.5, 0.08, 0.27, 0.15], dark: [0, 0, 0.55, 0.45] }[faction] || [0.64, 0.22, 0.1, 0.04];
+  const ZW = { player: [0.64, 0.22, 0.1, 0.04], guard: [0.62, 0.24, 0.1, 0.04], station: [0.55, 0.27, 0.13, 0.05], pirate: [0.5, 0.08, 0.27, 0.15], dark: [0, 0, 0.55, 0.45], cons: [0.6, 0.3, 0.06, 0.04], liga: [0.45, 0.15, 0.22, 0.18], orden: [0.62, 0.1, 0.08, 0.2] }[faction] || [0.64, 0.22, 0.1, 0.04];
   const pickZone = () => { let t = r(), i = 0; while (i < 3 && t > ZW[i]) { t -= ZW[i]; i++; } return i; };
-  const codes = faction === 'pirate' ? ['СКВ', 'XX', '666', 'РЕЙД'] : faction === 'guard' ? ['СТРАЖ', 'ГП-1', 'ПОРЯДОК'] : ['VF', 'ВФ-07', 'ПФ-21', 'АРК', '12', 'Б-3'];
+  const codes = { pirate: ['СКВ', 'XX', '666', 'РЕЙД'], guard: ['СТРАЖ', 'ГП-1', 'ПОРЯДОК'], cons: ['АИ-7', 'КОНС', 'АРКТУР', 'К-12'], liga: ['ЛИГА', 'ПЛ-3', 'РУБЕЖ', '42'], orden: ['ОРДЕН', 'ОП-1', 'ПРЕДЕЛ'] }[faction] || ['VF', 'ВФ-07', 'ПФ-21', 'АРК', '12', 'Б-3'];
   const panels = [];
   const split = (x, y, w, h, d, zone) => {
     if (d === 2) zone = pickZone();
@@ -682,7 +682,7 @@ function buildSky(sysId, sec, region) {
 // ======================================================================
 const shipCache = new Map();
 const matCache = new Map();
-const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, dark: 0x8a6a2a, station: 0xd08a30 };
+const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, dark: 0x8a6a2a, station: 0xd08a30, cons: 0xc89a38, liga: 0xd07020, orden: 0x8a5cff };
 function pbrMat(paint, faction, opts = {}) {
   const key = paint + ':' + faction;
   if (matCache.has(key)) return matCache.get(key);
@@ -771,7 +771,16 @@ function greebles(g, R, count, mat, region) {
 // Базовый радиус модели каждого корабля (модель строится в этих единицах, потом масштабируется)
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
   strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
-  gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16 };
+  gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16,
+  merkuriy: 44, prorab: 85, argus: 110, senator: 300, brodyaga: 42, pastuh: 75, kovcheg: 200, taran: 140,
+  iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290 };
+// Фракционные линейки: свой стиль корпуса, окраски и цвет дюз у каждой фракции
+const DESIGN_FAC = { merkuriy: 'cons', prorab: 'cons', argus: 'cons', senator: 'cons', brodyaga: 'liga', pastuh: 'liga', kovcheg: 'liga', taran: 'liga',
+  iskatel: 'orden', prizma: 'orden', orakul: 'orden', relikvariy: 'orden' };
+const FAC_ENGINE = { cons: 0xa8dcff, liga: 0xff9a3a, orden: 0xb47cff };
+const goldMat = () => matCache.get('gold') || (matCache.set('gold', new THREE.MeshStandardMaterial({ color: 0xd8a842, metalness: 1, roughness: 0.28, envMapIntensity: 1.3 })), matCache.get('gold'));
+// кристаллы Ордена: светятся изнутри, гладкие
+const crystalMat = () => matCache.get('crystal') || (matCache.set('crystal', new THREE.MeshStandardMaterial({ color: 0x5a38a0, emissive: 0x9a60ff, emissiveIntensity: 1.25, metalness: 0.1, roughness: 0.12 })), matCache.get('crystal'));
 
 
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
@@ -854,8 +863,9 @@ function fighterBase(g, R, M, D, eng, o = {}) {
 
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
-  const M = hullMat(color, faction), D = darkMetal();
-  const eng = faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
+  const DF = DESIGN_FAC[type], own = DF && faction !== 'pirate' && faction !== 'guard'; // фракционный корабль в своей окраске
+  const M = own ? pbrMat(color, DF) : hullMat(color, faction), D = darkMetal();
+  const eng = own ? FAC_ENGINE[DF] : faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
   const R = SHIP_BASE_R[type] || 50;
   const add = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
   switch (type) {
@@ -1252,6 +1262,234 @@ function buildShip(type, color, faction) {
         add(new THREE.SphereGeometry(R * 0.16, 12, 8), glowMat(0xff2010, 4), 0, 0, R * 0.62);
         addEngine(g, 0, 0, -R * 0.65, R * 0.2, eng, 0.6);
       }
+      break;
+    }
+
+    // ===== Консорциум Арктура: обтекаемые корпуса слоновой кости, золотая отделка, голубые дюзы =====
+    case 'merkuriy': {
+      add(lathe(R * 2.3, R * 0.24, [[0, 0.55], [0.08, 0.85], [0.35, 1], [0.7, 0.8], [0.9, 0.4], [1, 0.03]], 24), M, 0, 0, 0, 1, 0.75, 1);
+      add(new THREE.SphereGeometry(R * 0.12, 20, 12), glassMat(), 0, R * 0.13, R * 0.55, 0.8, 0.5, 2.2);
+      const w = wingGeo(R * 0.72, R * 0.55, R * 0.42, R * 0.03);
+      add(w, M, R * 0.15, -R * 0.04, -R * 0.32); add(w, M, -R * 0.15, -R * 0.04, -R * 0.32, -1);
+      for (const sd of [1, -1]) {
+        add(rbox(R * 0.03, R * 0.32, R * 0.36), M, sd * R * 0.17, R * 0.18, -R * 0.76).rotation.z = -sd * 0.25;
+        add(rbox(R * 0.012, R * 0.02, R * 1.15), goldMat(), sd * R * 0.235, R * 0.02, R * 0.05); // золотой молдинг
+        add(lathe(R * 0.45, R * 0.06, [[0, 0.7], [0.2, 1], [0.85, 1], [1, 0.5]], 14), D, sd * R * 0.34, -R * 0.03, -R * 0.62);
+        addEngine(g, sd * R * 0.34, -R * 0.03, -R * 0.86, R * 0.05, eng, 0.8);
+      }
+      add(lathe(R * 1.05, R * 0.16, [[0, 0.5], [0.12, 1], [0.88, 1], [1, 0.5]], 20), M, 0, -R * 0.23, -R * 0.1); // грузовая капсула
+      addEngine(g, 0, 0, -R * 1.17, R * 0.16, eng);
+      addLights(g, [[R * 0.86, -R * 0.04, -R * 0.62, R * 0.022], [-R * 0.86, -R * 0.04, -R * 0.62, R * 0.022]], 0xffd070);
+      break;
+    }
+    case 'prorab': {
+      add(lathe(R * 1.7, R * 0.42, [[0, 0.75], [0.1, 0.95], [0.55, 1], [0.8, 0.9], [1, 0.55]], 22), M, 0, 0, -R * 0.1, 1.15, 0.8, 1);
+      add(rbox(R * 0.46, R * 0.2, R * 0.42), M, 0, R * 0.38, -R * 0.2);
+      add(rbox(R * 0.36, R * 0.05, R * 0.03), glowMat(0xffe0a8, 1.5), 0, R * 0.42, R * 0.015);
+      const ring = add(new THREE.TorusGeometry(R * 0.44, R * 0.018, 8, 64), goldMat(), 0, 0, R * 0.3); ring.scale.set(1.15, 0.8, 1);
+      for (const sd of [1, -1]) {
+        // передние захваты с бурами
+        const a = [sd * R * 0.24, -R * 0.02, R * 0.68], b = [sd * R * 0.44, -R * 0.06, R * 1.08], c = [sd * R * 0.24, -R * 0.1, R * 1.36];
+        armSegment(g, a, b, R * 0.05, D); armSegment(g, b, c, R * 0.045, D);
+        add(new THREE.SphereGeometry(R * 0.06, 12, 8), goldMat(), ...b);
+        const tip = add(new THREE.OctahedronGeometry(R * 0.06), glowMat(0x70ffa0, 3), c[0], c[1], c[2] + R * 0.05); tip.userData.spin = ['z', 4 * sd];
+        // боковые капсулы для руды
+        for (const y of [1, -1]) add(lathe(R * 0.72, R * 0.14, [[0, 0.45], [0.15, 1], [0.85, 1], [1, 0.45]], 18), M, sd * R * 0.6, y * R * 0.13, -R * 0.15);
+        add(lathe(R * 0.5, R * 0.14, [[0, 0.8], [0.2, 1], [0.85, 0.95], [1, 0.6]], 16), D, sd * R * 0.24, 0, -R * 0.88);
+        addEngine(g, sd * R * 0.24, 0, -R * 1.12, R * 0.12, eng);
+      }
+      armSegment(g, [0, R * 0.46, R * 0.05], [0, R * 0.74, R * 0.62], R * 0.03, D); // кран
+      add(rbox(R * 0.1, R * 0.1, R * 0.08), goldMat(), 0, R * 0.68, R * 0.66);
+      greebles(g, R, 26, D, [R * 0.7, R * 0.33, R * 0.9]);
+      addLights(g, [[R * 0.78, 0, -R * 0.1, R * 0.025], [-R * 0.78, 0, -R * 0.1, R * 0.025]], 0xffc040);
+      break;
+    }
+    case 'argus': {
+      add(lathe(R * 2.0, R * 0.36, [[0, 0.7], [0.12, 1], [0.6, 0.95], [0.85, 0.65], [1, 0.1]], 26), M, 0, 0, 0, 1.4, 0.6, 1);
+      // купол-излучатель щита
+      add(new THREE.SphereGeometry(R * 0.32, 36, 14, 0, Math.PI * 2, 0, Math.PI / 2), M, 0, R * 0.17, -R * 0.12, 1, 0.55, 1.25);
+      add(new THREE.TorusGeometry(R * 0.33, R * 0.018, 8, 72), glowMat(0xbfe6ff, 2.2), 0, R * 0.18, -R * 0.12, 1, 1.25, 1).rotation.x = Math.PI / 2;
+      add(new THREE.SphereGeometry(R * 0.05, 16, 10), glowMat(0xd8f0ff, 3.5), 0, R * 0.36, -R * 0.12);
+      for (const sd of [1, -1]) {
+        add(rbox(R * 0.48, R * 0.04, R * 0.3), M, sd * R * 0.48, -R * 0.03, -R * 0.32);
+        add(lathe(R * 1.05, R * 0.12, [[0, 0.7], [0.15, 1], [0.8, 1], [1, 0.45]], 18), M, sd * R * 0.76, -R * 0.04, -R * 0.36);
+        add(rbox(R * 0.012, R * 0.02, R * 0.9), goldMat(), sd * R * 0.88, -R * 0.04, -R * 0.36);
+        addEngine(g, sd * R * 0.76, -R * 0.04, -R * 0.92, R * 0.1, eng);
+        add(rbox(R * 0.015, R * 0.02, R * 1.3), goldMat(), sd * R * 0.5, R * 0.02, R * 0.1);
+      }
+      for (const [x, z] of [[0.24, 0.45], [-0.24, 0.45], [0.3, -0.48], [-0.3, -0.48]]) addTurret(g, R * x, R * 0.18, R * z, R * 0.11, D);
+      addEngine(g, 0, 0, -R * 1.02, R * 0.17, eng);
+      greebles(g, R, 24, D, [R * 0.8, R * 0.18, R * 1.2]);
+      addLights(g, [[R * 0.9, -R * 0.04, R * 0.15, R * 0.025], [-R * 0.9, -R * 0.04, R * 0.15, R * 0.025]], 0xffd070);
+      break;
+    }
+    case 'senator': {
+      add(lathe(R * 2.1, R * 0.3, [[0, 0.8], [0.1, 1], [0.5, 0.9], [0.8, 0.55], [1, 0.04]], 36), M, 0, 0, 0, 1.5, 0.55, 1);
+      add(rbox(R * 0.35, R * 0.18, R * 1.4), M, 0, -R * 0.15, -R * 0.1);
+      const winMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 1.5, metalness: 0.5 });
+      [[0.55, 0.17, -0.22, 0.8], [0.4, 0.29, -0.3, 0.55], [0.26, 0.41, -0.36, 0.32]].forEach(([w, y, z, d]) => {
+        add(rbox(R * w, R * 0.12, R * d), M, 0, R * y, R * z);
+        add(rbox(R * w * 1.01, R * 0.03, R * d * 0.8), winMat, 0, R * (y + 0.02), R * z);
+      });
+      add(new THREE.CylinderGeometry(R * 0.008, R * 0.02, R * 0.3, 8), D, 0, R * 0.6, -R * 0.38);
+      add(new THREE.SphereGeometry(R * 0.025, 12, 8), goldMat(), 0, R * 0.76, -R * 0.38);
+      for (const sd of [1, -1]) {
+        add(rbox(R * 0.3, R * 0.11, R * 0.9), M, sd * R * 0.56, -R * 0.02, -R * 0.38);
+        for (const dy of [0.03, -0.07]) addEngine(g, sd * R * 0.56, R * dy, -R * 0.85, R * 0.06, eng);
+        add(rbox(R * 0.012, R * 0.018, R * 1.6), goldMat(), sd * R * 0.42, R * 0.03, R * 0.15);
+        add(rbox(R * 0.32, R * 0.01, R * 0.02), goldMat(), sd * R * 0.56, R * 0.04, R * 0.07);
+      }
+      for (const [x, z] of [[0.2, 0.55], [-0.2, 0.55], [0.28, 0.25], [-0.28, 0.25], [0.18, -0.68], [-0.18, -0.68]]) addTurret(g, R * x, R * 0.12, R * z, R * 0.075, D);
+      for (const x of [-0.18, 0, 0.18]) addEngine(g, R * x, -R * 0.03, -R * 1.07, R * 0.1, eng);
+      greebles(g, R, 60, D, [R * 0.9, R * 0.12, R * 1.5]);
+      addLights(g, [[R * 0.72, 0, -R * 0.3, R * 0.012], [-R * 0.72, 0, -R * 0.3, R * 0.012], [0, R * 0.78, -R * 0.38, R * 0.01]], 0xffd070);
+      break;
+    }
+
+    // ===== Пограничная Лига: модульные коробки, фермы и контейнеры, оранжевые дюзы =====
+    case 'brodyaga': {
+      const crate = pbrMat(0x9a5a2a, 'liga');
+      add(rbox(R * 0.45, R * 0.36, R * 0.5), M, 0, R * 0.05, R * 0.55);
+      add(rbox(R * 0.36, R * 0.1, R * 0.03), glassMat(), 0, R * 0.12, R * 0.81);
+      for (const [x, y] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) g.add(rod([x * R * 0.12, y * R * 0.12, R * 0.32], [x * R * 0.12, y * R * 0.12, -R * 0.7], R * 0.022, D));
+      for (const z of [0.15, -0.25, -0.62]) { g.add(rod([R * 0.12, R * 0.12, R * z], [-R * 0.12, -R * 0.12, R * z], R * 0.016, D)); g.add(rod([-R * 0.12, R * 0.12, R * z], [R * 0.12, -R * 0.12, R * z], R * 0.016, D)); }
+      add(rbox(R * 0.42, R * 0.42, R * 0.62), crate, 0, -R * 0.06, -R * 0.15);
+      for (const sd of [1, -1]) {
+        add(lathe(R * 0.55, R * 0.12, [[0, 0.8], [0.2, 1], [0.8, 1], [1, 0.65]], 12), D, sd * R * 0.33, 0, -R * 0.62);
+        g.add(rod([sd * R * 0.12, 0, -R * 0.55], [sd * R * 0.26, 0, -R * 0.6], R * 0.03, D));
+        addEngine(g, sd * R * 0.33, 0, -R * 0.92, R * 0.1, eng);
+      }
+      // бур только справа — корабль собран «на коленке»
+      const a = [R * 0.22, -R * 0.12, R * 0.4], b = [R * 0.44, -R * 0.26, R * 0.72], c = [R * 0.34, -R * 0.32, R * 1.0];
+      armSegment(g, a, b, R * 0.04, D); armSegment(g, b, c, R * 0.035, D);
+      const tip = add(new THREE.OctahedronGeometry(R * 0.05), glowMat(0xffd080, 3), c[0], c[1], c[2] + R * 0.04); tip.userData.spin = ['z', 4];
+      g.add(rod([-R * 0.15, R * 0.22, R * 0.5], [-R * 0.2, R * 0.62, R * 0.4], R * 0.012, D));
+      add(new THREE.SphereGeometry(R * 0.09, 14, 6, 0, Math.PI * 2, 0, 0.9), D, -R * 0.2, R * 0.6, R * 0.4).rotation.x = -0.6;
+      addLights(g, [[R * 0.25, R * 0.25, R * 0.6, R * 0.02], [-R * 0.25, R * 0.25, R * 0.6, R * 0.02]], 0xffa020);
+      break;
+    }
+    case 'pastuh': {
+      add(rbox(R * 1.0, R * 0.25, R * 1.5), M);
+      add(rbox(R * 0.7, R * 0.08, R * 1.1), M, 0, R * 0.15, -R * 0.15);
+      const bayGlow = glowMat(0xffb060, 1.4);
+      for (const sd of [1, -1]) {
+        for (const z of [0.4, 0, -0.4]) add(new THREE.PlaneGeometry(R * 0.28, R * 0.15), bayGlow, sd * R * 0.505, 0, R * z).rotation.y = sd * Math.PI / 2;
+        add(rbox(R * 0.2, R * 0.18, R * 1.15), M, sd * R * 0.88, -R * 0.06, -R * 0.12);
+        for (const z of [0.35, -0.1, -0.55]) g.add(rod([sd * R * 0.5, -R * 0.04, R * z], [sd * R * 0.78, -R * 0.06, R * z], R * 0.025, D));
+        addEngine(g, sd * R * 0.88, -R * 0.06, -R * 0.75, R * 0.08, eng);
+      }
+      add(rbox(R * 0.3, R * 0.3, R * 0.3), M, 0, R * 0.3, R * 0.45);
+      add(rbox(R * 0.31, R * 0.06, R * 0.2), glassMat(), 0, R * 0.36, R * 0.52);
+      g.add(rod([0, R * 0.45, R * 0.4], [0, R * 0.72, R * 0.35], R * 0.015, D));
+      const dish = add(new THREE.SphereGeometry(R * 0.16, 20, 6, 0, Math.PI * 2, 0, 0.8), D, 0, R * 0.74, R * 0.35); dish.rotation.x = -1.2; dish.userData.spin = ['y', 0.8];
+      for (const x of [-0.28, 0.28]) addEngine(g, R * x, 0, -R * 0.78, R * 0.1, eng);
+      for (let i = 0; i < 6; i++) add(rbox(R * 0.5, R * 0.012, R * 0.04), glowMat(0xd8b020, 1.2), 0, R * 0.126, R * (0.7 - i * 0.05)); // разметка палубы
+      greebles(g, R, 22, D, [R * 0.9, R * 0.13, R * 1.3]);
+      addLights(g, [[R * 0.98, -R * 0.06, R * 0.42, R * 0.025], [-R * 0.98, -R * 0.06, R * 0.42, R * 0.025]], 0xffa020);
+      break;
+    }
+    case 'kovcheg': {
+      add(rbox(R * 0.12, R * 0.12, R * 2.0), D);
+      for (const [x, y] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) g.add(rod([x * R * 0.1, y * R * 0.1, R * 0.95], [x * R * 0.1, y * R * 0.1, -R * 0.9], R * 0.012, D));
+      add(rbox(R * 0.42, R * 0.32, R * 0.36), M, 0, 0, R * 1.05);
+      add(rbox(R * 0.43, R * 0.06, R * 0.2), glassMat(), 0, R * 0.08, R * 1.15);
+      const crates = [0x9a5a2a, 0x4a6a7a, 0x8a7a40].map(c => pbrMat(c, 'liga'));
+      const r = seeded(17);
+      for (let i = 0; i < 3; i++) for (let a = 0; a < 6; a++) {
+        const ang = a * Math.PI / 3;
+        const box = add(rbox(R * 0.2, R * 0.2, R * 0.34), crates[Math.floor(r() * 3)], Math.cos(ang) * R * 0.25, Math.sin(ang) * R * 0.25, R * (0.15 - i * 0.38));
+        box.rotation.z = ang;
+      }
+      // вращающееся жилое кольцо со спицами
+      const hab = new THREE.Group(); hab.position.z = R * 0.6; hab.userData.spin = ['z', 0.25];
+      hab.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.55, R * 0.07, 14, 72), M));
+      const habWin = new THREE.Mesh(new THREE.TorusGeometry(R * 0.55, R * 0.072, 4, 72, Math.PI * 2), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffffff, emissiveMap: sharedTextures().windows, emissiveIntensity: 1.2, metalness: 0.4, roughness: 0.6 }));
+      habWin.scale.set(1, 1, 0.35); hab.add(habWin);
+      for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; hab.add(rod([Math.cos(a) * R * 0.08, Math.sin(a) * R * 0.08, 0], [Math.cos(a) * R * 0.5, Math.sin(a) * R * 0.5, 0], R * 0.02, D)); }
+      g.add(hab);
+      const solar = new THREE.MeshStandardMaterial({ map: sharedTextures().solar, metalness: 0.35, roughness: 0.4, side: THREE.DoubleSide });
+      for (const sd of [1, -1]) { g.add(rod([sd * R * 0.12, 0, R * 0.95], [sd * R * 0.7, 0, R * 0.95], R * 0.015, D)); add(new THREE.PlaneGeometry(R * 0.5, R * 0.3), solar, sd * R * 0.95, 0, R * 0.95).rotation.x = -Math.PI / 2; }
+      add(rbox(R * 0.5, R * 0.5, R * 0.3), M, 0, 0, -R * 0.98);
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; addEngine(g, Math.cos(a) * R * 0.17, Math.sin(a) * R * 0.17, -R * 1.16, R * 0.07, eng); }
+      addTurret(g, 0, R * 0.17, R * 1.0, R * 0.07, D); addTurret(g, 0, R * 0.26, -R * 0.95, R * 0.07, D);
+      addLights(g, [[R * 0.62, 0, R * 0.6, R * 0.015], [-R * 0.62, 0, R * 0.6, R * 0.015]], 0xffa020);
+      break;
+    }
+    case 'taran': {
+      const hull = add(lathe(R * 2.0, R * 0.4, [[0, 0.8], [0.3, 1], [0.75, 0.72], [1, 0.18]], 4), M, 0, 0, 0, 1.5, 0.62, 1); hull.rotation.z = Math.PI / 4;
+      const ram = add(new THREE.ConeGeometry(R * 0.22, R * 0.75, 4), D, 0, 0, R * 1.2); ram.rotation.x = Math.PI / 2;
+      for (const sd of [1, -1]) {
+        add(new THREE.ConeGeometry(R * 0.05, R * 0.35, 4), D, sd * R * 0.24, 0, R * 1.0).rotation.x = Math.PI / 2;
+        // накладные броневые плиты в несколько слоёв
+        for (let k = 0; k < 3; k++) add(rbox(R * 0.08, R * 0.3, R * 0.42), M, sd * R * (0.44 + k * 0.03), 0, R * (0.35 - k * 0.42)).rotation.y = sd * 0.08;
+        gatling(g, sd * R * 0.22, R * 0.27, R * 0.35, R * 0.11, M, D);
+        add(lathe(R * 0.55, R * 0.16, [[0, 0.9], [0.2, 1], [0.8, 0.95], [1, 0.7]], 12), D, sd * R * 0.32, 0, -R * 0.88);
+        addEngine(g, sd * R * 0.32, 0, -R * 1.16, R * 0.13, eng);
+      }
+      add(rbox(R * 0.5, R * 0.16, R * 0.9), M, 0, R * 0.22, -R * 0.25);
+      add(rbox(R * 0.3, R * 0.05, R * 0.15), glassMat(), 0, R * 0.31, R * 0.05);
+      addEngine(g, 0, R * 0.05, -R * 1.1, R * 0.15, eng);
+      for (let i = 0; i < 5; i++) add(rbox(R * 0.06, R * 0.02, R * 0.12), glowMat(0xd8b020, 1.3), R * (-0.2 + i * 0.1), R * 0.305, -R * 0.65); // полосы опасности
+      addLights(g, [[R * 0.5, 0, R * 0.4, R * 0.025], [-R * 0.5, 0, R * 0.4, R * 0.025]], 0xff7020);
+      break;
+    }
+
+    // ===== Орден Предела: плавные «живые» корпуса, кристаллы и кольца фиолетового света =====
+    case 'iskatel': {
+      add(lathe(R * 2.0, R * 0.26, [[0, 0.3], [0.15, 0.75], [0.4, 1], [0.7, 0.8], [0.92, 0.35], [1, 0.02]], 32), M, 0, 0, 0, 1, 0.8, 1);
+      const halo = add(new THREE.TorusGeometry(R * 0.5, R * 0.022, 10, 80), crystalMat(), 0, 0, -R * 0.12); halo.userData.spin = ['z', 0.6];
+      for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3 + Math.PI / 2; g.add(rod([Math.cos(a) * R * 0.18, Math.sin(a) * R * 0.15, -R * 0.12], [Math.cos(a) * R * 0.49, Math.sin(a) * R * 0.49, -R * 0.12], R * 0.012, D)); }
+      add(new THREE.CylinderGeometry(R * 0.008, R * 0.02, R * 0.5, 8), D, 0, 0, R * 1.2).rotation.x = Math.PI / 2;
+      const tipC = add(new THREE.OctahedronGeometry(R * 0.06), crystalMat(), 0, 0, R * 1.48, 0.7, 0.7, 1.8); tipC.userData.spin = ['z', 1.5];
+      for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3 - Math.PI / 2; const f = add(rbox(R * 0.02, R * 0.3, R * 0.4), M, Math.cos(a) * R * 0.22, Math.sin(a) * R * 0.22, -R * 0.72); f.rotation.z = a - Math.PI / 2; f.rotation.x = -0.35; }
+      add(new THREE.SphereGeometry(R * 0.1, 20, 12), glassMat(), 0, R * 0.14, R * 0.38, 0.8, 0.55, 1.8);
+      addEngine(g, 0, 0, -R * 1.02, R * 0.13, eng);
+      addLights(g, [[0, R * 0.5, -R * 0.12, R * 0.02]], 0xc090ff);
+      break;
+    }
+    case 'prizma': {
+      for (const sd of [1, -1]) {
+        const prong = add(lathe(R * 1.8, R * 0.12, [[0, 0.7], [0.2, 1], [0.6, 0.85], [0.9, 0.4], [1, 0.03]], 20), M, sd * R * 0.3, 0, R * 0.05, 1, 0.8, 1);
+        prong.rotation.y = -sd * 0.07;
+        add(new THREE.SphereGeometry(R * 0.035, 12, 8), glowMat(0xc090ff, 3), sd * R * 0.24, 0, R * 0.98);
+        add(rbox(R * 0.02, R * 0.22, R * 0.36), M, sd * R * 0.32, R * 0.12, -R * 0.62).rotation.z = -sd * 0.3;
+        addEngine(g, sd * R * 0.3, 0, -R * 0.88, R * 0.09, eng);
+      }
+      add(lathe(R * 0.9, R * 0.22, [[0, 0.6], [0.3, 1], [0.8, 0.9], [1, 0.4]], 24), M, 0, 0, -R * 0.45, 1.5, 0.6, 1);
+      add(new THREE.SphereGeometry(R * 0.09, 18, 10), glassMat(), 0, R * 0.1, -R * 0.2, 0.9, 0.55, 1.6);
+      const prism = add(new THREE.OctahedronGeometry(R * 0.16), crystalMat(), 0, 0, R * 0.42, 0.65, 0.65, 2.4); prism.userData.spin = ['z', 0.9];
+      add(new THREE.TorusGeometry(R * 0.2, R * 0.012, 8, 48), glowMat(0xa070ff, 2), 0, 0, R * 0.42);
+      break;
+    }
+    case 'orakul': {
+      add(new THREE.SphereGeometry(R * 0.38, 40, 28), M, 0, 0, 0, 1, 0.85, 1.35);
+      for (let i = 0; i < 3; i++) {
+        const w = new THREE.Group(); w.rotation.z = i * Math.PI * 2 / 3;
+        const arc = new THREE.Mesh(new THREE.TorusGeometry(R * 0.78, R * 0.035, 10, 64, Math.PI * 0.9), M); arc.rotation.set(0, Math.PI / 2, Math.PI * 0.05); w.add(arc);
+        const node = new THREE.Mesh(new THREE.OctahedronGeometry(R * 0.06), crystalMat()); node.position.set(0, R * 0.78, 0); w.add(node);
+        g.add(w);
+      }
+      const top = add(new THREE.OctahedronGeometry(R * 0.14), crystalMat(), 0, R * 0.52, 0, 0.6, 1.7, 0.6); top.userData.spin = ['y', 0.7];
+      add(new THREE.SphereGeometry(R * 0.08, 20, 12), glowMat(0xc090ff, 2.6), 0, 0, R * 0.52);
+      for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; add(lathe(R * 0.45, R * 0.08, [[0, 0.5], [0.3, 1], [0.8, 0.9], [1, 0.3]], 14), M, Math.cos(a) * R * 0.32, Math.sin(a) * R * 0.28, -R * 0.45); }
+      for (const sd of [1, -1]) addEngine(g, sd * R * 0.15, 0, -R * 0.62, R * 0.1, eng);
+      addLights(g, [[R * 0.4, 0, 0, R * 0.02], [-R * 0.4, 0, 0, R * 0.02]], 0xc090ff);
+      break;
+    }
+    case 'relikvariy': {
+      add(lathe(R * 2.1, R * 0.32, [[0, 0.5], [0.1, 0.9], [0.3, 1], [0.5, 0.85], [0.65, 0.95], [0.85, 0.6], [1, 0.05]], 44), M, 0, 0, 0, 1.25, 0.7, 1);
+      add(lathe(R * 1.3, R * 0.16, [[0, 0.5], [0.3, 1], [0.8, 0.8], [1, 0.1]], 28), M, 0, -R * 0.2, -R * 0.15, 1.4, 0.7, 1);
+      // кристаллический гребень на спине
+      for (let i = 0; i < 7; i++) { const k = 1 - Math.abs(i - 2.5) / 4.5; add(new THREE.OctahedronGeometry(R * 0.08 * (0.6 + k)), crystalMat(), 0, R * (0.24 + 0.06 * k), R * (0.55 - i * 0.18), 0.45, 1.9, 0.9); }
+      for (const [z, sp] of [[-0.55, 0.35], [-0.78, -0.5]]) { const h = add(new THREE.TorusGeometry(R * 0.48, R * 0.025, 10, 96), crystalMat(), 0, 0, R * z); h.userData.spin = ['z', sp]; }
+      for (const sd of [1, -1]) {
+        add(lathe(R * 1.0, R * 0.12, [[0, 0.4], [0.3, 1], [0.8, 0.9], [1, 0.15]], 20), M, sd * R * 0.48, -R * 0.04, -R * 0.2, 1, 0.6, 1).rotation.y = sd * 0.06;
+        for (let i = 0; i < 6; i++) add(rbox(R * 0.012, R * 0.035, R * 0.06), glowMat(0xb070ff, 2.4), sd * R * 0.395, R * 0.02, R * (0.45 - i * 0.1)); // ракетные порты
+        addEngine(g, sd * R * 0.48, -R * 0.04, -R * 0.72, R * 0.08, eng);
+      }
+      for (const x of [-0.14, 0, 0.14]) addEngine(g, R * x, 0, -R * 1.06, R * 0.1, eng);
+      greebles(g, R, 30, D, [R * 0.6, R * 0.12, R * 1.2]);
+      addLights(g, [[R * 0.6, -R * 0.04, R * 0.2, R * 0.012], [-R * 0.6, -R * 0.04, R * 0.2, R * 0.012]], 0xc090ff);
       break;
     }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);

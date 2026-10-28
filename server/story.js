@@ -2,7 +2,7 @@
 // Подключается к Game как mixin. Прогресс хранится в профиле: p.story, p.rep.
 'use strict';
 const crypto = require('crypto');
-const { SYSTEMS, REGIONS, ITEMS } = require('./data');
+const { SYSTEMS, REGIONS, ITEMS, SHIPS, FACTION_INFO, REP_NEED } = require('./data');
 
 const uid = () => crypto.randomBytes(6).toString('hex');
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -12,13 +12,11 @@ const fmt = (n) => Math.round(n).toLocaleString('ru-RU');
 const AU = 1.496e11;
 
 // ---------- Фракции ----------
+// названия, цвета и регионы — общие с клиентом (data.js), здесь — описание и лидер
 const FACTIONS = {
-  cons:  { name: 'Консорциум Арктура', short: 'Консорциум', color: '#e0a64a', regions: ['core'],
-           desc: 'Промышленники и верфи Ядра. Ценят порядок, контракты и прибыль.', leader: 'Директор Ирма Вальд' },
-  liga:  { name: 'Пограничная Лига', short: 'Лига', color: '#d8c27a', regions: ['border', 'low'],
-           desc: 'Вольные колонисты Пограничья и Рубежа. Держатся друг за друга.', leader: 'Командор Яр Белов' },
-  orden: { name: 'Орден Предела', short: 'Орден', color: '#a07cff', regions: ['null', 'deep'],
-           desc: 'Учёные и искатели древностей. Изучают аномалии и наследие Предтеч.', leader: 'Магистр Сайра Нод' }
+  cons:  { ...FACTION_INFO.cons, desc: 'Промышленники и верфи Ядра. Ценят порядок, контракты и прибыль.', leader: 'Директор Ирма Вальд' },
+  liga:  { ...FACTION_INFO.liga, desc: 'Вольные колонисты Пограничья и Рубежа. Держатся друг за друга.', leader: 'Командор Яр Белов' },
+  orden: { ...FACTION_INFO.orden, desc: 'Учёные и искатели древностей. Изучают аномалии и наследие Предтеч.', leader: 'Магистр Сайра Нод' }
 };
 const REP_TIERS = [[-50, 'Враждебность'], [-15, 'Недоверие'], [15, 'Нейтралитет'], [40, 'Уважение'], [75, 'Союзник'], [101, 'Герой']];
 const repTier = (v) => REP_TIERS.find(([lim]) => v < lim)[1];
@@ -182,7 +180,21 @@ module.exports = function install(Game) {
   };
 
   // Покупка у станции: скидка по репутации возвращается сразу после оплаты
+  // Фракционный корабль: только на станциях своей фракции и при нужной репутации
+  P.shipLock = function (p, stationId, type) {
+    const t = SHIPS[type];
+    if (!t || !t.fac) return null;
+    const f = FACTIONS[t.fac], here = stationId && this.U.celestials[stationId] ? factionOfSys(this.U.celestials[stationId].sys) : null;
+    if (here !== t.fac) return `продаётся только на станциях фракции «${f.name}»`;
+    this.storyOf(p);
+    if ((p.rep[t.fac] || 0) < (t.rep || 0)) return `нужна репутация «${REP_NEED(t.rep)}» у фракции «${f.short}» (сейчас ${p.rep[t.fac] || 0}, нужно ${t.rep})`;
+    return null;
+  };
   P.c_buy = function (s, m, p) {
+    if (SHIPS[m.item] && SHIPS[m.item].fac) {
+      const why = this.shipLock(p, s.docked, m.item);
+      if (why) return this.notify(s, `«${SHIPS[m.item].name}»: ${why}`, 'warn');
+    }
     const before = p.credits;
     baseC_buy.call(this, s, m, p);
     const spent = before - p.credits;

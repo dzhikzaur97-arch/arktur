@@ -1603,10 +1603,12 @@ function fleetHTML() {
   const all = Object.keys(S.data.ships).filter(id => S.data.ships[id].role);
   const ehp = (t) => t.shield + t.armor + t.hull;
   const maxE = Math.max(...all.map(id => ehp(S.data.ships[id])));
-  return `<p class="muted">Все корабли в одной фотосерии. Назначение — цвет подсветки и метки, класс мощи (I–V) — размер в кадре: лёгкие сняты сверху, тяжёлые — снизу во весь кадр.</p>` +
+  const facs = Object.values(S.data.factions || {});
+  return `<p class="muted">Все корабли в одной фотосерии. Назначение — цвет подсветки и метки, класс мощи (I–V) — размер в кадре: лёгкие сняты сверху, тяжёлые — снизу во весь кадр.</p>
+    ${facs.length ? `<div class="fac-legend">${facs.map(f => `<div class="fac-tag" style="--fc:${f.color}"><b>${esc(f.name)}</b> — ${esc(f.style)}. Продаются на станциях фракции, тяжёлые — только союзникам.</div>`).join('')}</div>` : ''}` +
     shipGroups(all).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div>
     <div class="grid-cards">${ids.map(id => { const t = S.data.ships[id], mine = S.prof && S.prof.ship.type === id;
-      return `<div class="shipcard${mine ? ' mine' : ''}">${artImg(id)}<div class="sname">${esc(t.name)} <span class="muted">${esc(t.cls)}</span></div>
+      return `<div class="shipcard${mine ? ' mine' : ''}">${artImg(id)}<div class="sname">${esc(t.name)} <span class="muted">${esc(t.cls)}</span></div><div class="small">${esc(t.desc)}</div>${shipFacHTML(id)}
         <div class="pw" title="Прочность относительно самого крепкого корабля"><i style="width:${Math.max(4, Math.sqrt(ehp(t) / maxE) * 100).toFixed(0)}%"></i></div>
         <div class="kv small"><span>Класс мощи</span><span>${ROMAN[t.tier]}</span><span>Прочность</span><span>${num(ehp(t))}</span><span>Скорость</span><span>${num(t.maxSpeed)} м/с</span><span>Трюм</span><span>${num(t.cargo)} м³</span><span>Слоты</span><span>${t.slots.high}/${t.slots.mid}/${t.slots.low}${t.droneBay ? ` · дроны ${t.droneBay} м³` : ''}</span><span>Цена</span><span class="isk">${t.price ? isk(t.price) : 'стартовый'}</span></div>
         ${mine ? '<div class="muted" style="color:var(--good)">● ваш корабль</div>' : ''}</div>`; }).join('')}</div>`).join('');
@@ -1823,6 +1825,31 @@ function artImg(type, cls = 'ship-art') {
   const role = (S.data.shipRoles || {})[st.role] || {};
   const badges = cls === 'ship-thumb' ? '' : `<span class="ph-role">${esc(role.name || '')}</span><span class="ph-tier" title="Класс мощи ${ROMAN[st.tier]} из V">${ROMAN[st.tier]}</span>`;
   return `<div class="photo ${cls}" style="--rc:${role.color || '#5fc8e8'}"><img src="${shipPhotoSrc(type)}" alt="${esc(st.name)}" loading="lazy">${badges}</div>`;
+}
+
+// Фракционные корабли: метка фракции, описание и почему нельзя купить здесь (зеркало проверки сервера)
+const REP_NAME = (v) => v >= 40 ? 'Союзник' : v >= 15 ? 'Уважение' : 'Нейтралитет';
+function shipFaction(type) { const t = S.data.ships[type]; return t && t.fac ? (S.data.factions || {})[t.fac] : null; }
+function shipLockReason(type) {
+  const t = S.data.ships[type], f = shipFaction(type);
+  if (!f) return null;
+  const st = S.docked && S.stationById ? S.stationById[S.docked.id] : null, sys = st && S.sysById ? S.sysById[st.sys] : null;
+  const region = (sys && sys.region) || (S.sys && S.sys.region);
+  if (!f.regions.includes(region)) return `только на станциях: ${f.short}`;
+  const rep = ((S.prof && S.prof.rep) || {})[t.fac] || 0;
+  if (rep < (t.rep || 0)) return `нужна репутация «${REP_NAME(t.rep)}» (${rep} / ${t.rep})`;
+  return null;
+}
+function shipFacHTML(type) {
+  const t = S.data.ships[type], f = shipFaction(type);
+  if (!f) return '';
+  return `<div class="fac-tag" style="--fc:${f.color}"><b>${esc(f.short)}</b> · ${esc(f.shipyard)} · репутация: ${esc(REP_NAME(t.rep || 0))}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
+}
+function shipBuyBtns(id, both) {
+  const why = shipLockReason(id);
+  if (why) return `<div class="lock-why">🔒 ${esc(why)}</div>`;
+  return both ? `<div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div>`
+    : `<button data-a="buyBoard" data-item="${id}" ${S.prof.credits < S.data.ships[id].price ? 'disabled' : ''}>Купить и пересесть</button>`;
 }
 
 function shipStatsHTML(t, stats) {
@@ -2449,7 +2476,7 @@ function renderStation() {
         <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
         <h3>Корабли <span class="muted">— по назначению и классу мощи</span></h3>${shipGroups(Object.keys(mk.ships)).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div><div class="grid-cards">${ids.map((id) => { const pr = mk.ships[id], st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
-          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div><div class="btn2"><button class="primary" data-a="buyShip" data-item="${id}">Купить</button><button data-a="buyBoard" data-item="${id}">Купить и пересесть</button></div></div>`; }).join('')}</div>`).join('')}`;
+          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipFacHTML(id)}${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div>${shipBuyBtns(id, true)}</div>`; }).join('')}</div>`).join('')}`;
       break;
     }
     case 'exchange': {
@@ -2482,7 +2509,7 @@ function shipsTabHTML() {
   const reqHTML = (st) => Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(p.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
   const card = (type, btn) => {
     const st = S.data.ships[type], req = reqHTML(st);
-    return `<div class="shipcard">${artImg(type)}<div class="sname">${esc(st.name)} <span class="muted">${esc(st.cls)}</span></div><div class="muted">${esc(st.desc)}</div>
+    return `<div class="shipcard">${artImg(type)}<div class="sname">${esc(st.name)} <span class="muted">${esc(st.cls)}</span></div><div class="muted">${esc(st.desc)}</div>${shipFacHTML(type)}
       <div class="kv"><span>Скорость</span><span>${num(st.maxSpeed)} м/с</span><span>Щит / броня / корпус</span><span>${num(st.shield)} / ${num(st.armor)} / ${num(st.hull)}</span><span>Трюм</span><span>${num(st.cargo)} м³</span><span>Слоты</span><span>${st.slots.high}/${st.slots.mid}/${st.slots.low}</span></div>
       ${req ? `<div class="muted">Навыки: ${req}</div>` : ''}${btn}</div>`;
   };
@@ -2493,7 +2520,7 @@ function shipsTabHTML() {
   const elsewhere = (p.assets || []).filter(a => a.station !== S.docked.id && a.ships.length);
   if (elsewhere.length) html += `<h3>Корабли на других станциях</h3>${elsewhere.map(a => `<div class="slot-row">${a.ships.map(tp => artImg(tp, 'ship-thumb')).join('')}<span class="sm">${a.ships.map(tp => esc(S.data.ships[tp].name)).join(', ')}<br><span class="muted">${esc(a.name)}</span></span><button data-a="route" data-sys="${S.stationById[a.station].sys}">Маршрут</button></div>`).join('')}`;
   html += '<h3>Купить и сразу пересесть</h3><div class="grid-cards">' + Object.entries(S.data.ships).filter(([, st]) => st.price > 0 && st !== t)
-    .map(([id, st]) => card(id, `<div class="isk">${isk(st.price)}</div><button data-a="buyBoard" data-item="${id}" ${p.credits < st.price ? 'disabled' : ''}>Купить и пересесть</button>`)).join('') + '</div>';
+    .map(([id, st]) => card(id, `<div class="isk">${isk(st.price)}</div>${shipBuyBtns(id, false)}`)).join('') + '</div>';
   return html;
 }
 

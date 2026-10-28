@@ -659,3 +659,9 @@ body.sf-cine #sf-info, body.sf-cine #sf-bars, body.sf-cine #sf-cross, body.sf-ci
 #map-tabs span { padding: 6px 14px; border: 1px solid var(--line); background: rgba(5,12,20,.8); cursor: pointer; font-size: 13px; color: var(--muted); }
 #map-tabs span.on { color: #fff; border-color: var(--accent); background: rgba(40,110,150,.35); }
 body.mobile #map-tabs { top: 6px; }
+/* фракционные корабли: метка верфи, история корабля, причина блокировки покупки */
+.fac-tag { font-size: 12px; border-left: 3px solid var(--fc, #888); padding: 2px 0 2px 7px; color: var(--muted, #9aa8b8); }
+.fac-tag b { color: var(--fc, #ddd); }
+.fac-legend { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; }
+.lore { font-size: 12px; font-style: italic; color: var(--muted, #9aa8b8); opacity: .9; }
+.lock-why { font-size: 12px; color: #e8b060; border: 1px dashed rgba(232, 176, 96, .5); padding: 4px 6px; }

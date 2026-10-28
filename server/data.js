@@ -170,6 +170,113 @@ const SHIPS = {
     desc: 'SC-02 — мобильный плавильный комплекс длиной 4,2 км. Всеядные буры сами поглощают ВСЕ астероиды в радиусе 25 км, а литейный цех на лету переплавляет руду в слитки (85% выхода завода). Трюм 80 000 м³, +150% к добыче, отсек на 5 дронов-тендеров.',
     req: { mining: 4, trade: 2, engineering: 2 }
   }
+,
+  // ===== Фракционные линейки: продаются только на станциях своей фракции и требуют репутации =====
+  // Консорциум Арктура — верфи Ядра: обтекаемые корпуса цвета слоновой кости с золотой отделкой
+  merkuriy: {
+    name: 'Меркурий', cls: 'Курьерский фрегат', price: 85000, color: 0xd9d3c4, fac: 'cons', rep: 0,
+    maxSpeed: 520, align: 2.3, warpSpeed: 9, sig: 36, radius: 44,
+    shield: 700, armor: 450, hull: 500, cap: 420, capRegen: 10,
+    cargo: 1800, slots: { high: 1, mid: 3, low: 2 }, maxLocks: 2, lockRange: 28000, lockTime: 2,
+    bonus: { cargo: 0.2 }, desc: 'Курьер с лицензией Консорциума: трюм 1 800 м³ (+20% от расширителей) при скорости перехватчика и варпе 9 а.е./с.',
+    lore: 'Серийный курьер верфей «Арктур-Индастриз». Возит документы, образцы и срочные заказы между станциями Ядра; страховые компании Консорциума любят его за то, что он почти всегда успевает уйти.'
+  },
+  prorab: {
+    name: 'Прораб', cls: 'Промышленный эсминец', price: 210000, color: 0xd2c8b0, fac: 'cons', rep: 15,
+    maxSpeed: 230, align: 5, warpSpeed: 3.5, sig: 90, radius: 85,
+    shield: 1600, armor: 1400, hull: 1500, cap: 800, capRegen: 14,
+    cargo: 2600, slots: { high: 4, mid: 2, low: 2 }, maxLocks: 3, lockRange: 28000, lockTime: 2.5,
+    bonus: { mining: 0.45, cargo: 0.25 }, desc: 'Рабочая лошадка корпоративных рудников: +45% к добыче, +25% к трюму, четыре порта под буры.',
+    lore: 'Строится по контракту для подрядчиков Консорциума. Передние захваты держат астероид, пока буры режут жилу, а боковые капсулы принимают руду прямо в трюм.'
+  },
+  argus: {
+    name: 'Аргус', cls: 'Крейсер охраны конвоев', price: 560000, color: 0xe0dac8, fac: 'cons', rep: 15,
+    maxSpeed: 250, align: 5.5, warpSpeed: 3, sig: 125, radius: 110,
+    shield: 4200, armor: 2200, hull: 2200, cap: 1500, capRegen: 24,
+    cargo: 500, slots: { high: 4, mid: 5, low: 3 }, maxLocks: 6, lockRange: 55000, lockTime: 2.5,
+    bonus: { pd: 0.5, turrets: 1, damage: 0.1 }, desc: 'Щитовой крейсер сопровождения: мощный щит, ПРО перезаряжается вдвое быстрее, +1 развёртываемая турель, +10% урона.',
+    lore: 'Купол-излучатель над корпусом — фирменный знак охраны Консорциума. Сам по себе «Аргус» не гонится за пиратами: он стоит рядом с грузом и сбивает всё, что к нему летит.'
+  },
+  senator: {
+    name: 'Сенатор', cls: 'Флагманский линкор', price: 7500000, color: 0xe4ddc8, fac: 'cons', rep: 40,
+    maxSpeed: 110, align: 12, warpSpeed: 2, sig: 420, radius: 300,
+    shield: 16000, armor: 13000, hull: 13000, cap: 6500, capRegen: 70,
+    cargo: 1400, slots: { high: 8, mid: 6, low: 5 }, maxLocks: 8, lockRange: 85000, lockTime: 4.5,
+    bonus: { damage: 0.3, turrets: 1 }, desc: 'Флагман Консорциума: +30% урона, восемь орудийных портов, шесть средних слотов и штабная надстройка. Продаётся только союзникам.',
+    lore: 'Таких кораблей меньше двух десятков. Совет директоров выдаёт право на покупку лично — и всегда напоминает, что флагман должен возвращаться к причалу целым.',
+    req: { gunnery: 4, shields: 3 }
+  },
+  // Пограничная Лига — вольные колонисты: грубые модульные корпуса, фермы, контейнеры, оранжевые дюзы
+  brodyaga: {
+    name: 'Бродяга', cls: 'Колониальный фрегат', price: 40000, color: 0x6e6b4c, fac: 'liga', rep: 0,
+    maxSpeed: 310, align: 3.2, warpSpeed: 4.5, sig: 42, radius: 42,
+    shield: 550, armor: 650, hull: 600, cap: 380, capRegen: 9,
+    cargo: 950, slots: { high: 3, mid: 2, low: 2 }, maxLocks: 2, lockRange: 25000, lockTime: 2.2,
+    bonus: { mining: 0.2, damage: 0.1, cargo: 0.3 }, desc: 'Всё понемногу: +20% к добыче, +10% урона, +30% к трюму. Дешёвый и живучий старт на Пограничье.',
+    lore: 'Собран из того, что было на складе: кабина от буксира, ферма от старой мачты и контейнер на брюхе. В Лиге шутят, что «Бродяг» не строят — их выращивают.'
+  },
+  pastuh: {
+    name: 'Пастух', cls: 'Дроновый эсминец', price: 170000, color: 0x6a684a, fac: 'liga', rep: 15,
+    maxSpeed: 300, align: 4, warpSpeed: 4, sig: 75, radius: 75,
+    shield: 1100, armor: 1400, hull: 1200, cap: 700, capRegen: 13,
+    cargo: 400, slots: { high: 2, mid: 3, low: 3 }, maxLocks: 4, lockRange: 45000, lockTime: 2,
+    bonus: { drones: 0.4 }, desc: 'Открытые ангары на 100 м³ и +40% урона и добычи дронов. Пасёт рой дронов, сам держится в стороне.',
+    lore: 'Колонисты Рубежа пасут дронами и скот на фермах, и рудные поля. Боевой «Пастух» — тот же сельский носитель, только с бронёй и рациями пограничников.',
+    req: { drones: 1 }
+  },
+  kovcheg: {
+    name: 'Ковчег', cls: 'Колониальный транспорт', price: 650000, color: 0x707052, fac: 'liga', rep: 15,
+    maxSpeed: 150, align: 11, warpSpeed: 2, sig: 300, radius: 200,
+    shield: 3500, armor: 6500, hull: 8000, cap: 1400, capRegen: 16,
+    cargo: 18000, slots: { high: 2, mid: 4, low: 4 }, maxLocks: 2, lockRange: 30000, lockTime: 3.5,
+    bonus: { turrets: 2, turretDmg: 0.3 }, desc: 'Трюм 18 000 м³, толстая броня и +2 развёртываемые турели (+30% урона турелей): сам защищает свой груз.',
+    lore: 'Вращающееся жилое кольцо, связка контейнеров и шесть дюз. На таких Лига перевозит целые посёлки — вместе с жителями, скотом и оборонительными турелями.',
+    req: { trade: 1 }
+  },
+  taran: {
+    name: 'Таран', cls: 'Штурмовой крейсер', price: 1400000, color: 0x5e5c44, fac: 'liga', rep: 40,
+    maxSpeed: 270, align: 6, warpSpeed: 3, sig: 160, radius: 140,
+    shield: 3000, armor: 7000, hull: 5000, cap: 2200, capRegen: 28,
+    cargo: 600, slots: { high: 6, mid: 3, low: 4 }, maxLocks: 5, lockRange: 40000, lockTime: 2.5,
+    bonus: { damage: 0.3, speed: 0.15 }, desc: 'Бронированный клин для ближнего боя: +30% урона, +15% скорости, броня 7 000. Врывается в строй пиратов.',
+    lore: 'Носовой таран — не украшение: пограничники действительно сносят им пиратские заграждения. Продаётся только тем, кого Лига считает своими.',
+    req: { gunnery: 3 }
+  },
+  // Орден Предела — учёные: плавные «живые» корпуса, кристаллы и кольца с фиолетовым свечением
+  iskatel: {
+    name: 'Искатель', cls: 'Исследовательский фрегат', price: 130000, color: 0x3c3650, fac: 'orden', rep: 0,
+    maxSpeed: 430, align: 2.2, warpSpeed: 10, sig: 30, radius: 40,
+    shield: 650, armor: 380, hull: 420, cap: 600, capRegen: 14,
+    cargo: 350, slots: { high: 1, mid: 4, low: 2 }, maxLocks: 3, lockRange: 50000, lockTime: 1.5,
+    bonus: { scan: 1.0, speed: 0.1 }, desc: 'Лучший сканер в галактике: аномалии находятся вдвое быстрее, варп 10 а.е./с, +10% скорости.',
+    lore: 'Кольцо-резонатор вокруг корпуса скопировано с обломков Предтеч. Магистры Ордена отдают «Искатели» всем, кто готов летать туда, где карты ещё пусты.'
+  },
+  prizma: {
+    name: 'Призма', cls: 'Лучевой фрегат', price: 160000, color: 0x3a3450, fac: 'orden', rep: 15,
+    maxSpeed: 380, align: 2.8, warpSpeed: 5, sig: 40, radius: 44,
+    shield: 900, armor: 450, hull: 500, cap: 900, capRegen: 20,
+    cargo: 200, slots: { high: 4, mid: 2, low: 2 }, maxLocks: 3, lockRange: 40000, lockTime: 1.8,
+    bonus: { damage: 0.25 }, desc: 'Четыре орудийных порта, +25% урона и огромный накопитель: держит огонь лазеров дольше любого фрегата.',
+    lore: 'Между «рогами» корабля парит кристалл, фокусирующий энергию накопителя. Орден признаёт, что сам до конца не понимает, почему это работает.'
+  },
+  orakul: {
+    name: 'Оракул', cls: 'Крейсер поддержки', price: 720000, color: 0x3e3852, fac: 'orden', rep: 15,
+    maxSpeed: 240, align: 5.5, warpSpeed: 3.5, sig: 120, radius: 115,
+    shield: 2800, armor: 2200, hull: 2400, cap: 2000, capRegen: 30,
+    cargo: 500, slots: { high: 3, mid: 5, low: 3 }, maxLocks: 7, lockRange: 85000, lockTime: 2,
+    bonus: { drones: 0.45, scan: 0.5 }, desc: 'Сенсорный носитель: отсек дронов 200 м³, +45% к дронам, +50% к сканеру, 7 целей на дальности 85 км.',
+    lore: 'Три дуги вокруг ядра — антенны дальнего поиска. «Оракул» видит бой раньше всех и направляет туда рой, сам оставаясь за пределами досягаемости.',
+    req: { drones: 2 }
+  },
+  relikvariy: {
+    name: 'Реликварий', cls: 'Линкор Предтеч', price: 9000000, color: 0x332e46, fac: 'orden', rep: 40,
+    maxSpeed: 115, align: 12, warpSpeed: 2.2, sig: 400, radius: 290,
+    shield: 15000, armor: 11000, hull: 14000, cap: 7000, capRegen: 75,
+    cargo: 1200, slots: { high: 7, mid: 6, low: 5 }, maxLocks: 7, lockRange: 90000, lockTime: 4,
+    bonus: { missile: 0.4, missileSpeed: 0.3, damage: 0.15, pd: 0.5 }, desc: 'Линкор на технологиях Предтеч: ракеты +40% урона и +30% скорости, +15% урона орудий, ускоренная ПРО. Только для союзников Ордена.',
+    lore: 'Корпус выращен вокруг найденного в Глубине реликтового ядра — кристаллический гребень на спине светится, даже когда реактор заглушен.',
+    req: { gunnery: 4, shields: 3 }
+  }
 };
 
 // ---------- Модули ----------
@@ -343,7 +450,9 @@ Object.assign(ITEMS, {
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
 const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
   strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5],
-  gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0] };
+  gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0],
+  merkuriy: [0, 0], prorab: [40, 4], argus: [60, 5], senator: [150, 5], brodyaga: [15, 2], pastuh: [100, 5], kovcheg: [25, 3], taran: [50, 4],
+  iskatel: [10, 2], prizma: [15, 2], orakul: [200, 5], relikvariy: [150, 5] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
 // Назначение и класс мощи (I–V) — для каталога флота и единой серии фото
 const SHIP_ROLES = {
@@ -357,7 +466,20 @@ const SHIP_ROLE = { iskra: ['explore', 1], sokol: ['explore', 1], staratel: ['mi
   vihr: ['combat', 2], tyagach: ['transport', 2], burlak: ['mining', 2],
   strazh: ['combat', 3], burya: ['combat', 3], piligrim: ['carrier', 3],
   molot: ['combat', 4], citadel: ['combat', 4], leviafan: ['mining', 4], kit: ['transport', 4],
-  bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5] };
+  bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5],
+  merkuriy: ['transport', 1], prorab: ['mining', 2], argus: ['combat', 3], senator: ['combat', 5],
+  brodyaga: ['explore', 1], pastuh: ['carrier', 2], kovcheg: ['transport', 3], taran: ['combat', 4],
+  iskatel: ['explore', 2], prizma: ['combat', 2], orakul: ['carrier', 3], relikvariy: ['combat', 5] };
+// Фракции и их стиль кораблей (общие для сервера и клиента). Репутация: 0 — нейтралитет, 15 — уважение, 40 — союзник
+const FACTION_INFO = {
+  cons:  { name: 'Консорциум Арктура', short: 'Консорциум', color: '#e0a64a', regions: ['core'], shipyard: 'Верфи «Арктур-Индастриз»',
+           style: 'обтекаемые корпуса цвета слоновой кости с золотой отделкой' },
+  liga:  { name: 'Пограничная Лига', short: 'Лига', color: '#d8c27a', regions: ['border', 'low'], shipyard: 'Мастерские Пограничья',
+           style: 'грубые модульные корпуса из ферм и контейнеров, оранжевые дюзы' },
+  orden: { name: 'Орден Предела', short: 'Орден', color: '#a07cff', regions: ['null', 'deep'], shipyard: 'Лаборатории Предела',
+           style: 'плавные «живые» корпуса с кристаллами и кольцами фиолетового света' }
+};
+const REP_NEED = (v) => v >= 40 ? 'Союзник' : v >= 15 ? 'Уважение' : 'Нейтралитет';
 for (const [id, [role, tier]] of Object.entries(SHIP_ROLE)) { SHIPS[id].role = role; SHIPS[id].tier = tier; }
 
 // Какие руды встречаются при данном уровне безопасности
@@ -490,4 +612,4 @@ const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); retur
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, SHIP_ROLES, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };
+module.exports = { AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };

@@ -106,7 +106,7 @@ class Game {
     sess.send({
       t: 'welcome', name: p.name,
       data: {
-        ships: SHIPS, shipRoles: D.SHIP_ROLES, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
+        ships: SHIPS, shipRoles: D.SHIP_ROLES, factions: D.FACTION_INFO, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,
         stars: Object.fromEntries(Object.values(this.U.systems).map(x => [x.id, x.celestials[0].star])),
         stars2: Object.fromEntries(Object.values(this.U.systems).map(x => { const c = x.celestials.find(o => o.companion); return [x.id, c ? c.star : null]; })),
@@ -993,9 +993,17 @@ class Game {
     const roll = Math.random();
     const role = opts.role || (sys.def.sec < 0.8 && Math.random() < 0.28 ? 'hunter' : roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler');
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
-    const shipType = opts.shipType || (role === 'hunter' ? pick(['klinok', 'strazh', 'vihr', 'molot', 'piligrim', 'strizh']) : role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
+    let shipType = opts.shipType || (role === 'hunter' ? pick(['klinok', 'strazh', 'vihr', 'molot', 'piligrim', 'strizh']) : role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
       : role === 'hauler' ? pick(['tyagach', 'tyagach', 'tyagach', 'kit'])
       : pick(['klinok', 'strazh', 'iskra', 'strizh', 'sokol', 'vihr', 'piligrim', 'molot', 'citadel']));
+    // в регионах фракций часть пилотов летает на кораблях своей фракции
+    let facTag = '';
+    const fac = !opts.shipType && Object.keys(D.FACTION_INFO).find(f => D.FACTION_INFO[f].regions.includes(sys.def.region));
+    if (fac && Math.random() < 0.4) {
+      const roles = { hunter: ['combat', 'carrier'], miner: ['mining', 'explore'], hauler: ['transport'], traveler: null }[role];
+      const line = Object.keys(SHIPS).filter(id => SHIPS[id].fac === fac && (!roles || roles.includes(SHIPS[id].role)) && (SHIPS[id].tier < 5 || Math.random() < 0.15));
+      if (line.length) { shipType = pick(line); facTag = D.FACTION_INFO[fac].short + ': '; }
+    }
     let pos, vel = [0, 0, 0];
     const fromStation = sys.stations.length && Math.random() < 0.6;
     if (fromStation) {
@@ -1009,7 +1017,7 @@ class Game {
     }
     const t = SHIPS[shipType];
     const stats = this.calcStats(null, { type: shipType, fit: [] });
-    const name = opts.name || (CIV_NAMES[0][Math.floor(Math.random() * CIV_NAMES[0].length)] + ' ' + CIV_NAMES[1][Math.floor(Math.random() * CIV_NAMES[1].length)]);
+    const name = opts.name || (facTag + CIV_NAMES[0][Math.floor(Math.random() * CIV_NAMES[0].length)] + ' ' + CIV_NAMES[1][Math.floor(Math.random() * CIV_NAMES[1].length)]);
     const e = {
       id: 'civ_' + uid(), type: 'ship', civ: role, name, shipType, sys: sysId,
       pos, vel, heading: norm(vel[0] || vel[2] ? vel : [1, 0, 0]), stats, shield: stats.shield, armor: stats.armor, hull: stats.hull, cap: stats.cap,
