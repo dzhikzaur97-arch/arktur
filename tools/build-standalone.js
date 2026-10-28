@@ -124,13 +124,16 @@ window.VF_SAVES = {
 };
 const GAME = new __Game(__db, __save);
 window.__VF_GAME = GAME; // для отладки из консоли браузера
-let __last = Date.now();
+// симуляция — фиксированный шаг 0,1 с с накопителем: таймеры браузера «плавают», а физика не должна
+let __last = Date.now(), __acc = 0;
 setInterval(() => {
   const n = Date.now();
   if (window.VF_PAUSED) { if (!__pauseStart) __pauseStart = n; __last = n; return; }
   if (__pauseStart) { __pausedTotal += n - __pauseStart; __pauseStart = 0; }
-  GAME.tick(Math.min(0.5, (n - __last) / 1000)); __last = n;
-}, 100);
+  __acc = Math.min(__acc + (n - __last) / 1000, 0.5); __last = n;
+  for (let i = 0; i < 5 && __acc >= 0.0995; i++) { GAME.tick(0.1); __acc -= 0.1; }
+  if (__acc < 0) __acc = 0;
+}, 50);
 setInterval(() => __save(true), 15000);
 
 class LocalSocket {

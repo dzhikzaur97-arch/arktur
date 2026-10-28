@@ -7,12 +7,15 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const FAR_START = 1.5e6; // дальше этого расстояния объекты «сжимаются» с сохранением углового размера
 
-let renderer, composer, bloom, grade, godRays, scene, camera, sunLight, sunLight2, rimLight, ambient, pmrem;
+let renderer, composer, bloom, grade, godRays, smaa, fxaa, afterimage, scene, camera, sunLight, sunLight2, rimLight, ambient, pmrem;
 let curSuns = { a: null, b: null }; // основная звезда и компаньон двойной системы
 let celGroup, entGroup, fxGroup, warpLines, dust, starField, skyRT, envRT, skyDome;
 const celMeshes = new Map();   // id -> { obj, data }
@@ -46,19 +49,59 @@ export function prewarm(ships, drones = {}) {
   };
   setTimeout(step, 300);
 }
-// Качество графики: high — всё; medium — без теней и с меньшим разрешением; low — без свечения, следов и постэффектов
-export function setQuality(q) {
-  quality = q;
-  if (!renderer) return;
-  renderer.setPixelRatio(Math.min(q === 'high' ? 1.5 : q === 'medium' ? 1.25 : 1, devicePixelRatio));
-  sunLight.castShadow = q !== 'low';
-  { const ms = q === 'high' ? 2048 : 1024; if (sunLight.shadow.mapSize.x !== ms) { sunLight.shadow.mapSize.set(ms, ms); if (sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; } } }
-  bloom.enabled = q !== 'low';
-  grade.enabled = q !== 'low';
-  godRays.uniforms.rays.value = q !== 'low' ? 1 : 0;
-  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { const n = q === 'high' ? 2 : 0; if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
-  if (q === 'low') { for (const [id, tr] of trails) { fxGroup.remove(tr.mesh); trails.delete(id); } }
+// ======================================================================
+// Настройки графики: профиль + отдельные параметры (сохраняются клиентом в localStorage)
+// scale — масштаб рендера относительно родного разрешения экрана (1 = пиксель в пиксель);
+// aa — сглаживание: off | fxaa | smaa | msaa2 | msaa4 | msaa8 | msaa4s | msaa8s (MSAA + SMAA);
+// tex — текстуры и детализация моделей (low/med/high/ultra, применяются после перезапуска);
+// shadows — размер карты теней (0 — без теней); refl — отражения окружения; fx — лучи, следы, частицы;
+// dist — дальность прорисовки; bloom — сила свечения (0 — выкл.); mblur — размытие в движении; fov; shake — тряска камеры
+// ======================================================================
+export const GFX_PROFILES = {
+  low:    { scale: 0.75, aa: 'fxaa',   tex: 'low',   shadows: 0,    refl: false, fx: 'low',  dist: 'low',   bloom: 0.35, mblur: false },
+  medium: { scale: 1,    aa: 'smaa',   tex: 'med',   shadows: 1024, refl: true,  fx: 'med',  dist: 'med',   bloom: 0.5,  mblur: false },
+  high:   { scale: 1,    aa: 'msaa4',  tex: 'high',  shadows: 2048, refl: true,  fx: 'high', dist: 'high',  bloom: 0.55, mblur: false },
+  ultra:  { scale: 1,    aa: 'msaa8s', tex: 'ultra', shadows: 4096, refl: true,  fx: 'high', dist: 'ultra', bloom: 0.6,  mblur: false }
+};
+let gfx = { ...GFX_PROFILES.high, fov: 60, shake: 0.5 };
+export function getGfx() { return gfx; }
+// текстуры и детализация моделей фиксируются при запуске (модели строятся и кэшируются один раз)
+const TEX_RES = { low: 512, med: 1024, high: 1024, ultra: 2048 };
+const DETAIL = { low: 0.7, med: 1, high: 1.3, ultra: 1.7 };
+const DIST_K = { low: 0.6, med: 1, high: 1.5, ultra: 2.2 }; // дальность прорисовки: следы, переходы LOD
+const distK = () => DIST_K[gfx.dist] || 1;
+let texLevel = 'high';
+export function setTexLevel(t) { if (!renderer) texLevel = t; }
+let shakeAmp = 0;
+export function shake(k) { shakeAmp = Math.min(1.5, Math.max(shakeAmp, k * (gfx.shake ?? 0.5))); }
+export function setGraphics(g) {
+  gfx = { ...gfx, ...g };
+  quality = gfx.fx === 'low' ? 'low' : gfx.shadows >= 2048 ? 'high' : 'medium';
+  if (!renderer) { texLevel = gfx.tex; return; }
+  const maxS = renderer.capabilities.maxSamples || 4;
+  const samples = Math.min(maxS, { msaa2: 2, msaa4: 4, msaa8: 8, msaa4s: 4, msaa8s: 8 }[gfx.aa] || 0);
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+  smaa.enabled = gfx.aa === 'smaa' || gfx.aa === 'msaa4s' || gfx.aa === 'msaa8s';
+  fxaa.enabled = gfx.aa === 'fxaa';
+  sunLight.castShadow = gfx.shadows > 0;
+  if (gfx.shadows && sunLight.shadow.mapSize.x !== gfx.shadows) { sunLight.shadow.mapSize.set(gfx.shadows, gfx.shadows); if (sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; } }
+  scene.environmentIntensity = gfx.refl ? 0.95 : 0.3;
+  bloom.enabled = gfx.bloom > 0; bloom.strength = gfx.bloom;
+  godRays.uniforms.rays.value = gfx.fx === 'high' ? 1 : 0; // лучи от звёзд — 60 выборок на пиксель, только на высоких эффектах
+  afterimage.enabled = !!gfx.mblur;
+  if (gfx.fx === 'low') { for (const [id, tr] of trails) { fxGroup.remove(tr.mesh); tr.mesh.geometry.dispose(); trails.delete(id); } }
   resize();
+}
+// совместимость со старым переключателем качества
+export function setQuality(q) { setGraphics(GFX_PROFILES[q] || GFX_PROFILES.high); }
+// сведения о видеокарте и буфере (для окна настроек и теста производительности)
+export function gpuInfo() {
+  if (!renderer) return {};
+  const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+  return { gpu: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), maxSamples: renderer.capabilities.maxSamples, aniso: renderer.capabilities.getMaxAnisotropy(),
+    buffer: [sz.x, sz.y], pixelRatio: renderer.getPixelRatio(), calls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+    geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, programs: (renderer.info.programs || []).length };
 }
 
 export const cam = { yaw: 0.6, pitch: 0.3, dist: 600, target: 600 };
@@ -205,7 +248,7 @@ function canvasTex(w, h, draw, srgb = true) {
   draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = maxAniso();
   return t;
 }
 
@@ -283,12 +326,15 @@ function plumeTexture() {
 // шероховатость и металличность (G/B каналы), светящиеся окна
 // Рельеф, металл и огни зависят только от фракции — их считаем один раз (карта нормалей — дорогая:
 // чтение пикселей и фильтр Собеля), а для каждой окраски перерисовываем лишь цветовую карту
+// анизотропная фильтрация — максимум видеокарты (16× на современных), на низком качестве 4×
+const maxAniso = () => renderer ? Math.min(texLevel === 'low' ? 4 : 16, renderer.capabilities.getMaxAnisotropy()) : 8;
 const hullShared = new Map();
 function hullSet(paint, accent, faction, seed) {
-  const W = 512, r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
-  const mk = (size = W, read = false) => { const c = document.createElement('canvas'); c.width = c.height = size; return [c, c.getContext('2d', read ? { willReadFrequently: true } : undefined)]; };
+  // рисуем в логических координатах 512×512, холсты — в разрешении уровня качества (512 / 1024 / 2048)
+  const W = 512, RES = TEX_RES[texLevel] || 1024, r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
+  const mk = (size = RES, read = false) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d', read ? { willReadFrequently: true } : undefined); g.setTransform(size / W, 0, 0, size / W, 0, 0); return [c, g]; };
   // если общие карты уже есть, рисуем их на холстах 1×1 — вызовы те же (та же последовательность случайных чисел), но почти бесплатно
-  const [cc, cg] = mk(), [hc, hg] = mk(shared ? 1 : W, true), [oc, og] = mk(shared ? 1 : W), [ec, eg] = mk(shared ? 1 : W);
+  const [cc, cg] = mk(), [hc, hg] = mk(shared ? 1 : RES, true), [oc, og] = mk(shared ? 1 : RES), [ec, eg] = mk(shared ? 1 : RES);
   const P = new THREE.Color(paint), A = new THREE.Color(accent);
   const rgb = (c, k = 1) => `rgb(${Math.min(255, c.r * 255 * k) | 0},${Math.min(255, c.g * 255 * k) | 0},${Math.min(255, c.b * 255 * k) | 0})`;
   const gray = (v) => `rgb(${v | 0},${v | 0},${v | 0})`;
@@ -378,21 +424,21 @@ function hullSet(paint, accent, faction, seed) {
   const tex = (c, srgb) => {
     const t = new THREE.CanvasTexture(c);
     if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = maxAniso();
     return t;
   };
   if (shared) return { map: tex(cc, true), ...shared };
   // карта нормалей из карты высот (оператор Собеля)
-  const hd = hg.getImageData(0, 0, W, W).data;
-  const nd = hg.createImageData(W, W), nn = nd.data;
-  const H = (x, y) => hd[(((y + W) % W) * W + ((x + W) % W)) * 4] / 255;
-  const k = 3.2;
-  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+  const hd = hg.getImageData(0, 0, RES, RES).data;
+  const nd = hg.createImageData(RES, RES), nn = nd.data;
+  const H = (x, y) => hd[(((y + RES) % RES) * RES + ((x + RES) % RES)) * 4] / 255;
+  const k = 3.2 * RES / W; // рельеф одинаковой силы при любом разрешении
+  for (let y = 0; y < RES; y++) for (let x = 0; x < RES; x++) {
     const dx = (H(x + 1, y - 1) + 2 * H(x + 1, y) + H(x + 1, y + 1)) - (H(x - 1, y - 1) + 2 * H(x - 1, y) + H(x - 1, y + 1));
     const dy = (H(x - 1, y + 1) + 2 * H(x, y + 1) + H(x + 1, y + 1)) - (H(x - 1, y - 1) + 2 * H(x, y - 1) + H(x + 1, y - 1));
     let nx = -dx * k, ny = dy * k, nz = 1;
     const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
-    const i = (y * W + x) * 4;
+    const i = (y * RES + x) * 4;
     nn[i] = (nx * 0.5 + 0.5) * 255; nn[i + 1] = (ny * 0.5 + 0.5) * 255; nn[i + 2] = (nz * 0.5 + 0.5) * 255; nn[i + 3] = 255;
   }
   const [nc, ng] = mk(); ng.putImageData(nd, 0, 0);
@@ -667,6 +713,7 @@ function glowMat(color, k = 3) {
 
 // Корпус: тело вращения по профилю [t (0 корма → 1 нос), радиус 0..1], вытянуто вдоль +Z
 function lathe(len, rad, profile, seg = 28) {
+  if (seg >= 16) seg = Math.round(seg * (DETAIL[texLevel] || 1)); // круглые корпуса глаже на высоком качестве (гранёные — как задуманы)
   const pts = profile.map(([t, r]) => new THREE.Vector2(Math.max(0.001, r * rad), (t - 0.5) * len));
   const g = new THREE.LatheGeometry(pts, seg);
   g.rotateX(Math.PI / 2);
@@ -730,7 +777,7 @@ const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 
 
 
 // Коробка со скруглёнными рёбрами — корпуса не выглядят «кубиками»
-const rbox = (w, h, d) => new RoundedBoxGeometry(w, h, d, 3, Math.min(w, h, d) * 0.22);
+const rbox = (w, h, d) => new RoundedBoxGeometry(w, h, d, texLevel === 'ultra' ? 4 : 3, Math.min(w, h, d) * 0.22);
 
 // Отрезок манипулятора между двумя точками
 function armSegment(g, a, b, r, mat) {
@@ -1347,10 +1394,11 @@ function setEngines(obj, frac, time) {
 // Астероиды
 // ======================================================================
 const astGeoCache = [];
-function asteroidGeo(variant) {
-  if (astGeoCache[variant]) return astGeoCache[variant];
+function asteroidGeo(variant, detail = 5) {
+  const ck = variant + ':' + detail;
+  if (astGeoCache[ck]) return astGeoCache[ck];
   const n = makeNoise(variant * 977 + 13), n2 = makeNoise(variant * 31 + 7);
-  let geo = new THREE.IcosahedronGeometry(1, 5);
+  let geo = new THREE.IcosahedronGeometry(1, detail);
   geo.deleteAttribute('uv'); geo.deleteAttribute('normal');
   geo = mergeVertices(geo);
   const pos = geo.attributes.position;
@@ -1373,7 +1421,7 @@ function asteroidGeo(variant) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  astGeoCache[variant] = geo;
+  astGeoCache[ck] = geo;
   return geo;
 }
 
@@ -1404,29 +1452,35 @@ const ORE_LOOK = {
   pbase_rock: { rock: [0.2, 0.17, 0.16], vein: [0.5, 0.2, 0.12] } // скала пиратской базы
 };
 const astMatCache = new Map();
+// Астероид с уровнями детализации (LOD): вблизи — плотная сетка, вдали — грубее; переходы на расстояниях,
+// где разница меньше пикселя. Окраска вершин одна и та же функция от точки — смена уровня незаметна.
 function asteroidModel(radius, seed, ore) {
   const variant = seed % 8;
-  const key = ore + variant;
-  if (!astMatCache.has(key)) {
-    const base = asteroidGeo(variant);
-    const look = ORE_LOOK[ore] || ORE_LOOK.ore_ferit;
-    const geo = base.clone();
-    const c = geo.attributes.color;
-    for (let i = 0; i < c.count; i++) {
-      const s = c.getX(i), vein = c.getZ(i);
-      c.setXYZ(i, lerp(look.rock[0] * s, look.vein[0], vein), lerp(look.rock[1] * s, look.vein[1], vein), lerp(look.rock[2] * s, look.vein[2], vein));
+  const near = texLevel === 'ultra' ? 8 : texLevel === 'low' ? 3 : 5;
+  const levels = [[near, 0], [3, 22], [1, 70]];
+  const look = ORE_LOOK[ore] || ORE_LOOK.ore_ferit;
+  const lod = new THREE.LOD();
+  for (const [detail, d] of levels) {
+    const key = ore + variant + ':' + detail;
+    if (!astMatCache.has(key)) {
+      const geo = asteroidGeo(variant, detail).clone();
+      const c = geo.attributes.color;
+      for (let i = 0; i < c.count; i++) {
+        const s0 = c.getX(i), vein = c.getZ(i);
+        c.setXYZ(i, lerp(look.rock[0] * s0, look.vein[0], vein), lerp(look.rock[1] * s0, look.vein[1], vein), lerp(look.rock[2] * s0, look.vein[2], vein));
+      }
+      let mat = astMatCache.get('mat:' + ore);
+      if (!mat) { mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.08, flatShading: false, envMapIntensity: 0.4 }); rockDetail(mat); astMatCache.set('mat:' + ore, mat); }
+      astMatCache.set(key, { geo, mat });
     }
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.08, flatShading: false, envMapIntensity: 0.4 });
-    rockDetail(mat);
-    astMatCache.set(key, { geo, mat });
+    const { geo, mat } = astMatCache.get(key);
+    lod.addLevel(new THREE.Mesh(geo, mat), d * radius * distK());
   }
-  const { geo, mat } = astMatCache.get(key);
-  const m = new THREE.Mesh(geo, mat);
   const r = seeded(seed);
-  m.rotation.set(r() * 6, r() * 6, r() * 6);
-  m.scale.setScalar(radius);
-  m.userData.spin = (r() - 0.5) * 0.04;
-  return m;
+  lod.rotation.set(r() * 6, r() * 6, r() * 6);
+  lod.scale.setScalar(radius);
+  lod.userData.spin = (r() - 0.5) * 0.04;
+  return lod;
 }
 
 // ======================================================================
@@ -1648,12 +1702,14 @@ function wreckModel(radius) {
   const g = new THREE.Group();
   const D = darkMetal();
   const burnt = new THREE.MeshStandardMaterial({ color: 0x302820, map: sharedTextures().hull, metalness: 0.6, roughness: 0.85 });
+  g.userData.owned = true; burnt.userData.owned = true; // свои геометрии и материалы — освобождаются при удалении обломка
   for (let i = 0; i < 9; i++) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(radius * (0.2 + Math.random() * 0.8), radius * (0.05 + Math.random() * 0.2), radius * (0.15 + Math.random() * 0.6)), i % 2 ? D : burnt);
     b.position.set((Math.random() - 0.5) * radius * 1.5, (Math.random() - 0.5) * radius * 0.6, (Math.random() - 0.5) * radius * 1.5);
     b.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3); g.add(b);
   }
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedTextures().glow, color: new THREE.Color(0xff7020).multiplyScalar(2), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
+  s.material.userData.owned = true;
   s.scale.setScalar(radius * 1.2); g.add(s); g.userData.flicker = s;
   return g;
 }
@@ -1899,8 +1955,11 @@ let contextLost = false, onLost = null, onRestored = null;
 export function onContext(lost, restored) { onLost = lost; onRestored = restored; }
 export function isContextLost() { return contextLost; }
 export function init(canvas) {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(1.5, devicePixelRatio));
+  // сглаживание делает композитор (MSAA в его буферах, SMAA/FXAA проходами): MSAA холста при этом
+  // только тратил бы видеопамять — на 4K это сотни мегабайт
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+  renderer.info.autoReset = false;
+  renderer.setPixelRatio(Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1)));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.28;
   renderer.shadowMap.enabled = true;
@@ -1948,7 +2007,7 @@ export function init(canvas) {
   scene.add(warpLines);
 
   // сглаживание MSAA прямо в буфере постобработки (иначе после постэффектов края «лесенкой»)
-  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 2 }));
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 0 }));
   composer.addPass(new RenderPass(scene, camera));
   // звёзды в кадре: «божественные» лучи (радиальное размытие ярких пикселей — силуэты кораблей режут свет),
   // ореол с анаморфной полосой и блики объектива; видимость звезды проверяется по яркости её центра на экране
@@ -1992,26 +2051,31 @@ export function init(canvas) {
         gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), 1.0); }`
   });
   composer.addPass(godRays);
-  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.5, 0.85);
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.45, 0.88);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+  // размытие в движении (по умолчанию выключено)
+  afterimage = new AfterimagePass(0.72); afterimage.enabled = false; composer.addPass(afterimage);
   grade = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
       void main(){
         vec2 d = vUv - 0.5;
-        // лёгкая хроматическая аберрация к краям
-        float ca = dot(d, d) * 0.006;
-        vec4 c = vec4(texture2D(tDiffuse, vUv + d * ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - d * ca).b, 1.0);
+        vec4 c = texture2D(tDiffuse, vUv);
         float v = smoothstep(0.95, 0.3, length(d * vec2(1.0, 0.85)));
-        c.rgb *= mix(0.72, 1.0, v);
-        float n = fract(sin(dot(vUv * vec2(1931.7, 1087.3) + time, vec2(12.9898, 78.233))) * 43758.5453);
-        c.rgb += (n - 0.5) * 0.022;
-        gl_FragColor = c;
+        c.rgb *= mix(0.8, 1.0, v); // мягкая виньетка
+        // неподвижный дизеринг ±1/255: убирает полосы на градиентах неба, не мерцает и не «шумит»
+        float n1 = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        float n2 = fract(sin(dot(gl_FragCoord.xy + 19.19, vec2(39.3468, 11.135))) * 24634.6345);
+        c.rgb += (n1 + n2 - 1.0) / 255.0;
+        gl_FragColor = vec4(c.rgb, 1.0);
       }`
   });
   composer.addPass(grade);
+  // сглаживание после тонального отображения: SMAA (края и мелкие детали) или FXAA (самое дешёвое)
+  smaa = new SMAAPass(innerWidth, innerHeight); smaa.enabled = false; composer.addPass(smaa);
+  fxaa = new ShaderPass(FXAAShader); fxaa.enabled = false; composer.addPass(fxaa);
 
   buildSky('lobby', 1);
   // потеря WebGL-контекста (нехватка видеопамяти, сон ноутбука, смена GPU): не даём экрану остаться чёрным
@@ -2028,9 +2092,13 @@ export function init(canvas) {
 }
 
 function resize() {
+  // буфер WebGL = размер окна × devicePixelRatio × масштаб рендера: по умолчанию пиксель в пиксель, без растяжения
+  renderer.setPixelRatio(Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1)));
   renderer.setSize(innerWidth, innerHeight, false);
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(innerWidth, innerHeight);
+  const pr = renderer.getPixelRatio();
+  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 }
 
@@ -2085,6 +2153,11 @@ function removeEnt(id) {
   if (!r) return;
   entGroup.remove(r.obj);
   entMeshes.delete(id);
+  // общие (кэшированные) модели не трогаем; уникальные — освобождаем, иначе видеопамять растёт весь сеанс
+  if (r.obj.userData.owned) r.obj.traverse(o => {
+    if (o.isMesh && !o.isSprite) o.geometry.dispose();
+    if (o.material && o.material.userData.owned) o.material.dispose();
+  });
 }
 
 let myShip = null, myShipType = null;
@@ -2112,15 +2185,22 @@ function placeFar(obj, rel, radius, isUnit) {
 // Кадр
 // ======================================================================
 export function frame(view, dt, time) {
+  renderer.info.reset(); // счётчики за весь кадр (все проходы композитора), для оверлея производительности
   if (contextLost) return;
   GU.time.value = time;
   grade.uniforms.time.value = time % 100;
   const origin = view.origin;
 
-  cam.dist += (cam.target - cam.dist) * Math.min(1, dt * 8);
+  cam.dist += (cam.target - cam.dist) * (1 - Math.exp(-dt * 8)); // экспоненциально — не зависит от частоты кадров
   const cp = Math.cos(cam.pitch);
   camera.position.set(Math.sin(cam.yaw) * cp * cam.dist, Math.sin(cam.pitch) * cam.dist, Math.cos(cam.yaw) * cp * cam.dist);
   camera.lookAt(0, 0, 0);
+  // тряска камеры (попадания, взрывы рядом): затухает экспоненциально, сила — из настроек
+  if (shakeAmp > 0.002) {
+    const k = shakeAmp * cam.dist * 0.012;
+    camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; camera.position.z += (Math.random() - 0.5) * k;
+    shakeAmp *= Math.exp(-dt * 7);
+  }
   camera.near = Math.max(0.5, cam.dist * 0.01);
   camera.updateProjectionMatrix();
   if (starField) starField.position.copy(camera.position);
@@ -2199,7 +2279,7 @@ export function frame(view, dt, time) {
     const yawRate = (prevH[2] * h[0] - prevH[0] * h[2]) / Math.max(dt, 0.001);
     myShip.userData.prevH = [h[0], h[1], h[2]];
     const wantBank = Math.max(-0.6, Math.min(0.6, -yawRate * 1.5)) + (view.roll || 0);
-    myShip.userData.bank = (myShip.userData.bank || 0) + (wantBank - (myShip.userData.bank || 0)) * Math.min(1, dt * 3);
+    myShip.userData.bank = (myShip.userData.bank || 0) + (wantBank - (myShip.userData.bank || 0)) * (1 - Math.exp(-dt * 3));
     myShip.rotateZ(myShip.userData.bank);
     const sf = Math.hypot(...view.me.v) / (view.me.max.spd || 1);
     setEngines(myShip, sf, time);
@@ -2221,14 +2301,14 @@ export function frame(view, dt, time) {
       const sf = e.v ? Math.hypot(...e.v) / (t ? t.maxSpeed : 300) : 0;
       setEngines(rec.obj, sf, time);
       if (e.pbs) { if (!rec.dome) rec.obj.traverse(o => { if (o.userData.dome) rec.dome = o; }); if (rec.dome) rec.dome.visible = e.pbs === 'waves'; } // щит пиратской базы
-      if (quality !== 'low' && eh && Math.hypot(...rel) < 60000) updateTrail(e.id, e.dp, eh, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
+      if (quality !== 'low' && eh && Math.hypot(...rel) < (gfx.fx === 'high' ? 60000 : 20000) * distK()) updateTrail(e.id, e.dp, eh, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1, time);
     } else if (e.k === 'm') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1.2, time);
-      if (quality !== 'low' && Math.hypot(...rel) < 80000) updateTrail(e.id, e.dp, e.dh || e.h || [0, 0, 1], e.tp ? 14 : 8, 1, e.c || 0xffa040, origin, time, false);
+      if (quality !== 'low' && Math.hypot(...rel) < 80000 * distK()) updateTrail(e.id, e.dp, e.dh || e.h || [0, 0, 1], e.tp ? 14 : 8, 1, e.c || 0xffa040, origin, time, false);
     } else if (e.k === 't') { const head = rec.obj.userData.head; if (head) head.rotation.y = time * 0.6; setEngines(rec.obj, 0.2, time); }
     else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
     else if (e.k === 'w') rec.obj.userData.flicker.material.opacity = 0.5 + 0.5 * Math.random();
@@ -2499,10 +2579,11 @@ function updateWarp(view, dt) {
   const w = view.me && view.me.warp;
   const m = warpLines.material;
   const target = w && w.prog > 0.04 && w.prog < 0.96 ? 1 : 0;
-  m.opacity += (target - m.opacity) * Math.min(1, dt * 3);
-  camera.fov += ((target ? 78 : 60) - camera.fov) * Math.min(1, dt * 2.5);
+  m.opacity += (target - m.opacity) * (1 - Math.exp(-dt * 3));
+  const fov0 = gfx.fov || 60;
+  camera.fov += ((target ? fov0 + 18 : fov0) - camera.fov) * (1 - Math.exp(-dt * 2.5));
   camera.updateProjectionMatrix();
-  bloom.strength = 0.7 + m.opacity * 0.5;
+  bloom.strength = (gfx.bloom || 0) * (1 + m.opacity * 0.7);
   if (m.opacity < 0.01) { warpLines.visible = false; return; }
   warpLines.visible = true;
   const v = view.me.v;
@@ -2702,6 +2783,7 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
 // ---------- для мира поверхности планет (surface.js) ----------
 // Отрисовать другую сцену через общий конвейер постэффектов (свечение, цветокоррекция)
 export function renderOther(sc, cam) {
+  renderer.info.reset();
   if (contextLost) return;
   const rp = composer.passes[0], s0 = rp.scene, c0 = rp.camera;
   godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; // проход остаётся — он же защищает от NaN

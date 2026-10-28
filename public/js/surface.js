@@ -266,8 +266,8 @@ export function enter(info) {
   const hemi = new THREE.HemisphereLight(col(pal.sky), col(pal.mid), 0.6); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 2.4);
   sun.color.set(R.starLook(info.star).light);
-  sun.castShadow = R.getQuality() !== 'low';
-  sun.shadow.mapSize.setScalar(R.getQuality() === 'high' ? 2048 : 1024); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+  sun.castShadow = R.getGfx().shadows > 0;
+  sun.shadow.mapSize.setScalar(Math.min(4096, R.getGfx().shadows || 1024)); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
   Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 400 });
   scene.add(sun, sun.target);
   const moon = new THREE.DirectionalLight(0x8aa0ff, 0); scene.add(moon);
@@ -422,7 +422,7 @@ function buildChunk(cx, cz) {
   const decor = PG.chunkDecor(P, cx, cz);
   for (const d of decor) { if (!W.K[d.kind]) continue; (byKind[d.kind] = byKind[d.kind] || []).push(d); }
   const meshes = [], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-  const shadows = R.getQuality() !== 'low';
+  const shadows = R.getGfx().shadows > 0;
   for (const [k, list] of Object.entries(byKind)) {
     const kind = W.K[k]; if (!kind) continue;
     for (const [geo2, mat] of [[kind.solid, W.floraMat], [kind.glow, W.glowMat]]) {
@@ -458,7 +458,7 @@ function hideNode(id) {
 }
 function updateChunks() {
   const P = W.P, wx = W.origin[0] + W.pos.x, wz = W.origin[1] + W.pos.z;
-  const pcx = Math.floor(wx / CH), pcz = Math.floor(wz / CH), RAD = { low: 2, medium: 3, high: 3 }[R.getQuality()] || 3;
+  const pcx = Math.floor(wx / CH), pcz = Math.floor(wz / CH), RAD = { low: 2, med: 3, high: 4, ultra: 5 }[R.getGfx().dist] || 3;
   const want = new Set();
   for (let dz = -RAD; dz <= RAD; dz++) for (let dx = -RAD; dx <= RAD; dx++) { if (dx * dx + dz * dz > (RAD + 0.5) * (RAD + 0.5)) continue; want.add((pcx + dx) + ':' + (pcz + dz)); }
   for (const [k, ch] of W.chunks) if (!want.has(k) && (Math.abs(ch.cx - pcx) > RAD + 1 || Math.abs(ch.cz - pcz) > RAD + 1)) { dropChunk(ch); W.chunks.delete(k); }
@@ -829,45 +829,55 @@ export function frame(dt, nowMs) {
   if (W.keys.has('KeyW')) mz += 1; if (W.keys.has('KeyS')) mz -= 1; if (W.keys.has('KeyD')) mx += 1; if (W.keys.has('KeyA')) mx -= 1;
   if (W.touch) { mx += W.touch.x; mz += W.touch.y; }
   const ml = Math.hypot(mx, mz) || 1, moving = Math.abs(mx) + Math.abs(mz) > 0.05;
-  const sprint = (W.keys.has('ShiftLeft') || W.keys.has('ShiftRight')) && W.stamina > 0.05 && moving;
-  W.stamina = clamp(W.stamina + (sprint ? -0.28 : 0.16) * dt, 0, 1);
-  const gy = PG.height(P, W.pos.x + ox, W.pos.z + oz);
-  const inLiquid = P.liquidY !== null && P.liquid !== 'ice' && W.pos.y < P.liquidY - 0.6;
-  const speed = inLiquid ? 2.6 : sprint ? 8.5 : 5;
-  const wish = new THREE.Vector3().addScaledVector(fwd, mz / ml).addScaledVector(right, mx / ml).multiplyScalar(moving ? speed : 0);
-  const accel = W.ground || inLiquid ? 12 : 3;
-  W.vel.x += (wish.x - W.vel.x) * Math.min(1, accel * dt); W.vel.z += (wish.z - W.vel.z) * Math.min(1, accel * dt);
-  // прыжок и ранец
-  const jetting = W.keys.has('Space') && !W.ground && W.jet > 0.01 && !inLiquid;
-  if (W.keys.has('Space') && W.ground && !W.jumpHeld) { W.vel.y = 5.2; W.ground = false; }
-  W.jumpHeld = W.keys.has('Space') && W.ground;
-  if (jetting) { W.vel.y = Math.min(W.vel.y + (g + 16) * dt, 8.5); W.jet = Math.max(0, W.jet - dt * (lv.jet >= 2 ? 0.16 : 0.32)); }
-  else if (W.ground) W.jet = Math.min(1, W.jet + dt * 0.45);
-  W.player.jets.forEach(j => { j.visible = jetting; j.scale.y = 0.8 + Math.random() * 0.5; });
-  if (inLiquid) { W.vel.y += (P.liquidY - 1.1 - W.pos.y) * 4 * dt; W.vel.y *= 0.9; }
-  else W.vel.y -= g * dt;
-  W.pos.addScaledVector(W.vel, dt);
-  // столкновения с деревьями и валунами
-  const pxw = W.pos.x + ox, pzw = W.pos.z + oz;
-  for (const ch of W.chunks.values()) {
-    if (Math.abs((ch.cx + 0.5) * CH - pxw) > CH || Math.abs((ch.cz + 0.5) * CH - pzw) > CH) continue;
-    for (const n of ch.nodes) {
-      if (W.depleted.has(n.id) || !(n.kind === 'tree' || n.kind === 'boulder' || n.kind === 'metal')) continue;
-      const rr = (n.kind === 'tree' ? 0.5 : n.kind === 'metal' ? 2.6 : 2.2) * n.s, ddx = pxw - n.x, ddz = pzw - n.z, dd = Math.hypot(ddx, ddz);
-      if (dd < rr && dd > 0.001) { W.pos.x += ddx / dd * (rr - dd); W.pos.z += ddz / dd * (rr - dd); }
+  // физика — фиксированный шаг 1/60 с, отображение интерполируется между шагами (плавно при любом FPS)
+  const STEP = 1 / 60;
+  if (!W.prevPos || W.prevPos.distanceToSquared(W.pos) > 400) { W.prevPos = W.pos.clone(); W.rpos = W.pos.clone(); W.acc = 0; }
+  W.acc = Math.min((W.acc || 0) + dt, STEP * 8);
+  let jetting = false;
+  while (W.acc >= STEP) {
+    const h = STEP; W.acc -= STEP;
+    W.prevPos.copy(W.pos);
+    const sprint = (W.keys.has('ShiftLeft') || W.keys.has('ShiftRight')) && W.stamina > 0.05 && moving;
+    W.stamina = clamp(W.stamina + (sprint ? -0.28 : 0.16) * h, 0, 1);
+    const inLiquid = P.liquidY !== null && P.liquid !== 'ice' && W.pos.y < P.liquidY - 0.6;
+    const speed = inLiquid ? 2.6 : sprint ? 8.5 : 5;
+    const wish = new THREE.Vector3().addScaledVector(fwd, mz / ml).addScaledVector(right, mx / ml).multiplyScalar(moving ? speed : 0);
+    const accel = W.ground || inLiquid ? 12 : 3;
+    W.vel.x += (wish.x - W.vel.x) * Math.min(1, accel * h); W.vel.z += (wish.z - W.vel.z) * Math.min(1, accel * h);
+    // прыжок и ранец
+    jetting = W.keys.has('Space') && !W.ground && W.jet > 0.01 && !inLiquid;
+    if (W.keys.has('Space') && W.ground && !W.jumpHeld) { W.vel.y = 5.2; W.ground = false; }
+    W.jumpHeld = W.keys.has('Space') && W.ground;
+    if (jetting) { W.vel.y = Math.min(W.vel.y + (g + 16) * h, 8.5); W.jet = Math.max(0, W.jet - h * (lv.jet >= 2 ? 0.16 : 0.32)); }
+    else if (W.ground) W.jet = Math.min(1, W.jet + h * 0.45);
+    if (inLiquid) { W.vel.y += (P.liquidY - 1.1 - W.pos.y) * 4 * h; W.vel.y *= 0.9; }
+    else W.vel.y -= g * h;
+    W.pos.addScaledVector(W.vel, h);
+    // столкновения с деревьями и валунами
+    const qx = W.pos.x + ox, qz = W.pos.z + oz;
+    for (const ch of W.chunks.values()) {
+      if (Math.abs((ch.cx + 0.5) * CH - qx) > CH || Math.abs((ch.cz + 0.5) * CH - qz) > CH) continue;
+      for (const n of ch.nodes) {
+        if (W.depleted.has(n.id) || !(n.kind === 'tree' || n.kind === 'boulder' || n.kind === 'metal')) continue;
+        const rr = (n.kind === 'tree' ? 0.5 : n.kind === 'metal' ? 2.6 : 2.2) * n.s, ddx = qx - n.x, ddz = qz - n.z, dd = Math.hypot(ddx, ddz);
+        if (dd < rr && dd > 0.001) { W.pos.x += ddx / dd * (rr - dd); W.pos.z += ddz / dd * (rr - dd); }
+      }
     }
+    const sr = W.shipR * 0.55; if (Math.hypot(W.pos.x, W.pos.z) < sr && W.pos.y < PG.height(P, ox, oz) + 4) { const d = Math.hypot(W.pos.x, W.pos.z) || 1; W.pos.x *= sr / d; W.pos.z *= sr / d; }
+    const gh = PG.height(P, W.pos.x + ox, W.pos.z + oz);
+    const floor = P.liquid === 'ice' && P.liquidY !== null ? Math.max(gh, P.liquidY) : gh;
+    if (W.pos.y <= floor) { if (!W.ground && W.vel.y < -14) hurt(Math.round((-W.vel.y - 14) * 4), 'падение'); W.pos.y = floor; W.vel.y = Math.max(0, W.vel.y); W.ground = true; }
+    else if (W.pos.y > floor + 0.15) W.ground = false;
+    // лава и кислота
+    if (P.liquidY !== null && W.pos.y < P.liquidY + 0.2 && (P.liquid === 'lava' || P.liquid === 'acid')) { hurt((P.liquid === 'lava' ? 30 : 8) * h, P.liquid === 'lava' ? 'лава' : 'кислота'); if (P.liquid === 'lava') W.vel.y = Math.max(W.vel.y, 4); }
   }
-  const sr = W.shipR * 0.55; if (Math.hypot(W.pos.x, W.pos.z) < sr && W.pos.y < PG.height(P, ox, oz) + 4) { const d = Math.hypot(W.pos.x, W.pos.z) || 1; W.pos.x *= sr / d; W.pos.z *= sr / d; }
-  const gh = PG.height(P, W.pos.x + ox, W.pos.z + oz);
-  const floor = P.liquid === 'ice' && P.liquidY !== null ? Math.max(gh, P.liquidY) : gh;
-  if (W.pos.y <= floor) { if (!W.ground && W.vel.y < -14) hurt(Math.round((-W.vel.y - 14) * 4), 'падение'); W.pos.y = floor; W.vel.y = Math.max(0, W.vel.y); W.ground = true; }
-  else if (W.pos.y > floor + 0.15) W.ground = false;
-  // лава и кислота
-  if (P.liquidY !== null && W.pos.y < P.liquidY + 0.2 && (P.liquid === 'lava' || P.liquid === 'acid')) { hurt((P.liquid === 'lava' ? 30 : 8) * dt, P.liquid === 'lava' ? 'лава' : 'кислота'); if (P.liquid === 'lava') W.vel.y = Math.max(W.vel.y, 4); }
+  W.player.jets.forEach(j => { j.visible = jetting; j.scale.y = 0.8 + Math.random() * 0.5; });
+  W.rpos.lerpVectors(W.prevPos, W.pos, W.acc / STEP);
+  const pxw = W.pos.x + ox, pzw = W.pos.z + oz;
 
   // модель игрока
   const pg = W.player.g;
-  pg.position.copy(W.pos);
+  pg.position.copy(W.rpos);
   const hv = Math.hypot(W.vel.x, W.vel.z);
   if (hv > 0.3) pg.rotation.y = Math.atan2(W.vel.x, W.vel.z);
   else if (W.firing) pg.rotation.y = W.yaw + Math.PI;
@@ -880,13 +890,13 @@ export function frame(dt, nowMs) {
   // камера: из-за плеча (или от первого лица)
   const cp = Math.cos(W.pitch);
   const look = new THREE.Vector3(-Math.sin(W.yaw) * cp, Math.sin(W.pitch), -Math.cos(W.yaw) * cp);
-  const head = new THREE.Vector3(W.pos.x, W.pos.y + 1.65, W.pos.z);
+  const head = new THREE.Vector3(W.rpos.x, W.rpos.y + 1.65, W.rpos.z);
   const shoulder = head.clone().addScaledVector(right, W.camDist > 0.6 ? 0.55 : 0);
   W.cam.position.copy(shoulder).addScaledVector(look, -W.camDist);
   const ch2 = PG.height(P, W.cam.position.x + ox, W.cam.position.z + oz) + 0.4;
   if (W.cam.position.y < ch2) W.cam.position.y = ch2;
   W.cam.lookAt(shoulder.clone().addScaledVector(look, 30));
-  W.cam.aspect = innerWidth / innerHeight; W.cam.updateProjectionMatrix();
+  W.cam.aspect = innerWidth / innerHeight; W.cam.fov = (R.getGfx().fov || 60) + 10; W.cam.updateProjectionMatrix();
 
   // ---------- мультитул ----------
   if (!W.firing || W.overheat > 0) W.heat = Math.max(0, W.heat - dt * 0.45);

@@ -71,10 +71,19 @@ function togglePanel(name, force) {
 // Настройки игрока (хранятся только в этом браузере)
 // ======================================================================
 const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, vSfx: 1, vUi: 1, vMusic: 0.5, ui: 1, labels: false, sens: 1,
-  invX: false, invY: false, flash: true, threats: true, cb: false, keys: {} };
+  invX: false, invY: false, flash: true, threats: true, cb: false, keys: {},
+  gfx: null, fov: 60, shake: 0.5, fpsCap: 0, perf: false };
 let CFG = { ...CFG_DEFAULT };
 try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
 function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
+// Графика: профиль (низкий/средний/высокий/ультра) или пользовательский набор; угол обзора и тряска — отдельно
+const perf = { buf: new Float64Array(600), n: 0, last: 0, cpu: 0, shown: 0, el: null };
+let bench = null; // идёт встроенный тест производительности
+const PROFILE_NAMES = { low: 'Низкий', medium: 'Средний', high: 'Высокий', ultra: 'Ультра', custom: 'Пользовательский' };
+function effectiveGfx() {
+  const base = CFG.quality === 'custom' ? { ...R.GFX_PROFILES.high, ...(CFG.gfx || {}) } : (R.GFX_PROFILES[CFG.quality] || R.GFX_PROFILES.high);
+  return { ...base, fov: CFG.fov, shake: CFG.shake };
+}
 
 // ======================================================================
 // Звук: всё синтезируется на лету через Web Audio, без файлов
@@ -269,6 +278,9 @@ function playFx(fx) {
   else if (fx.k === 'mine') Sound.mine(v * 0.8, Math.min(6, fx.dur || 5));
   else if (fx.k === 'boom') Sound.boom(v, (fx.size || 0) > 500);
   else if (fx.k === 'jump') Sound.whoosh(v * 0.7, false, 1.5);
+  // тряска камеры: близкие взрывы и попадания по нам (сила — в настройках, 0 выключает)
+  if (fx.k === 'boom' && v > 0.25) R.shake(v * ((fx.size || 0) > 500 ? 0.9 : 0.45));
+  else if (fx.k === 'beam' && S.me && fx.to === S.me.id) R.shake(0.12);
 }
 addEventListener('mousedown', () => Sound.init(), { capture: true });
 addEventListener('keydown', () => Sound.init(), { capture: true });
@@ -661,6 +673,8 @@ function toggleModule(slot) {
 // Ввод
 // ======================================================================
 const canvas = $('#scene');
+R.setGraphics(effectiveGfx()); // до создания рендера: от профиля зависят разрешение текстур и детализация моделей
+const TEX_AT_START = effectiveGfx().tex;
 R.init(canvas);
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
@@ -668,7 +682,9 @@ window.__VF_CAM = R.cam; // инструменты сборки и отладк�
 window.__VF_SF = SF; // отладка мира поверхности
 // потеря WebGL-контекста: сообщаем, снижаем качество (обычно причина — нехватка видеопамяти) и восстанавливаемся
 R.onContext(() => note('Видеокарта сбросила графику — восстанавливаю…', 'warn'), () => {
-  if (CFG.quality === 'high') { CFG.quality = 'medium'; saveCfg(); applyCfg(); }
+  const down = { ultra: 'high', high: 'medium' }[CFG.quality];
+  if (down) { CFG.quality = down; saveCfg(); applyCfg(); }
+  else if (CFG.quality === 'custom') { CFG.gfx = { ...CFG.gfx, scale: Math.min(1, CFG.gfx.scale || 1), shadows: Math.min(1024, CFG.gfx.shadows || 0) }; saveCfg(); applyCfg(); }
   if (S.sys && !SF.active()) R.setSystem(S.sys);
   note('Графика восстановлена', 'good');
 });
@@ -1539,7 +1555,7 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
@@ -1560,6 +1576,7 @@ function renderWin() {
   if (S.win === 'assets') return setHTML(el, assetsHTML());
   if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
   if (S.win === 'settings') return setHTML(el, settingsHTML());
+  if (S.win === 'bench') return setHTML(el, benchHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
   if (S.win === 'build') {
     // форма маршрута не сбрасывается при обновлении окна
@@ -2128,7 +2145,7 @@ function settingsHTML() {
   return `<div class="settings">
     <div class="set-tabs">${['Графика', 'Звук', 'Интерфейс', 'Управление', 'Игра'].map((t, i) => `<button data-a="setTab" data-id="${i}" class="${(S.setTab || 0) === i ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="set-p ${(S.setTab || 0) === 0 ? '' : 'hidden'}">
-      <label>Качество графики<select id="cfg-quality">${opt('high', CFG.quality, 'Высокое — тени, свечение, следы')}${opt('medium', CFG.quality, 'Среднее — без теней')}${opt('low', CFG.quality, 'Низкое — для слабых компьютеров')}</select></label>
+      ${gfxHTML(opt, rng, chk)}
       ${chk('cfg-flash', CFG.flash, 'Яркие вспышки взрывов (выключите, если вспышки неприятны)')}
       ${chk('cfg-labels', CFG.labels, 'Подписи у всех объектов в космосе')}
     </div>
@@ -2159,6 +2176,46 @@ function settingsHTML() {
     </div>
   </div>`;
 }
+function gfxHTML(opt, rng, chk) {
+  const g = effectiveGfx(), sel = (id, cur, list) => `<select id="${id}">${list.map(([v, l]) => opt(v, cur, l)).join('')}</select>`;
+  return `<label>Профиль графики${sel('cfg-quality', CFG.quality, [['low', 'Низкий — для слабых компьютеров'], ['medium', 'Средний — сбалансированный'], ['high', 'Высокий — MSAA 4×, тени 2048'], ['ultra', 'Ультра — MSAA 8× + SMAA, тени 4096, текстуры 2K'], ['custom', 'Пользовательский']])}</label>
+    <div class="muted small">Любая настройка ниже переключает профиль на «Пользовательский». Всё сохраняется между запусками.</div>
+    ${rng('gfx-scale', 'Масштаб рендера', g.scale, 0.5, 2, 0.05, (v) => Math.round(v * 100) + '%')}
+    <div class="muted small">Разрешение кадра: <b id="gfx-res">${resText(g.scale)}</b>. 100% — родное разрешение окна (на мониторе 1440p — 2560×1440). Больше 100% — суперсэмплинг (ещё чище, дороже); меньше — быстрее, но мягче. Апскейлинг по умолчанию выключен.</div>
+    <label>Сглаживание${sel('gfx-aa', g.aa, [['off', 'Выключено'], ['fxaa', 'FXAA — быстрое, чуть мягче'], ['smaa', 'SMAA — чёткое, без размытия'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4× — края геометрии без «лесенки»'], ['msaa8', 'MSAA 8×'], ['msaa4s', 'MSAA 4× + SMAA'], ['msaa8s', 'MSAA 8× + SMAA — максимум']])}</label>
+    <div class="muted small">Временное сглаживание (TAA) не используется: на быстрых кораблях на чёрном фоне оно оставляет шлейфы. MSAA не размывает и не дрожит в движении.</div>
+    <label>Текстуры${sel('gfx-tex', g.tex, [['low', 'Низкие — 512'], ['med', 'Средние — 1K'], ['high', 'Высокие — 1K, детальнее модели'], ['ultra', 'Ультра — 2K, самые гладкие модели']])}</label>
+    <label>Тени${sel('gfx-shadows', g.shadows, [[0, 'Выключены'], [1024, 'Средние — 1024'], [2048, 'Высокие — 2048'], [4096, 'Ультра — 4096']])}</label>
+    <label>Эффекты${sel('gfx-fx', g.fx, [['low', 'Низкие — без следов двигателей и лучей'], ['med', 'Средние — без лучей от звёзд, следы только у близких кораблей'], ['high', 'Высокие — лучи от звёзд, все следы']])}</label>
+    <label>Дальность прорисовки${sel('gfx-dist', g.dist, [['low', 'Близкая'], ['med', 'Средняя'], ['high', 'Дальняя'], ['ultra', 'Максимальная']])}</label>
+    ${rng('gfx-bloom', 'Свечение (bloom)', g.bloom, 0, 1, 0.05, (v) => Math.round(v * 100) + '%')}
+    ${chk('gfx-refl', g.refl, 'Отражения окружения на металле и стекле')}
+    ${chk('gfx-mblur', g.mblur, 'Размытие в движении (по умолчанию выключено)')}
+    ${rng('cfg-fov', 'Угол обзора', CFG.fov, 50, 90, 1, (v) => v + '°')}
+    ${rng('cfg-shake', 'Тряска камеры (взрывы, попадания)', CFG.shake, 0, 1, 0.05, (v) => Math.round(v * 100) + '%')}
+    <label>Ограничение кадров${sel('cfg-fpsCap', CFG.fpsCap, [[0, 'Нет — до частоты монитора'], [30, '30 кадров/с'], [60, '60 кадров/с'], [90, '90 кадров/с'], [120, '120 кадров/с'], [144, '144 кадра/с'], [165, '165 кадров/с'], [240, '240 кадров/с']])}</label>
+    <div class="muted small">Вертикальная синхронизация в браузере включена всегда: кадр выводится по сигналу монитора, разрывов изображения нет. Выключить её игра не может — только сам браузер.</div>
+    ${chk('cfg-perf', CFG.perf, 'Показатели производительности на экране (FPS, 1% low, время кадра, вызовы отрисовки)')}
+    ${chk('cfg-autoQ', CFG.autoQ !== false, 'Автоматически снижать профиль, если кадров мало')}
+    ${chk('cfg-flash', CFG.flash, 'Яркие вспышки взрывов (выключите, если вспышки неприятны)')}
+    ${chk('cfg-labels', CFG.labels, 'Подписи у всех объектов в космосе')}
+    <h3>Система</h3>${sysInfoHTML()}
+    <p><button data-a="bench" class="primary">Тест производительности: 5 сцен</button> ${benchHistory().length ? '<button data-a="benchShow">Результаты тестов</button>' : ''}</p>
+    <div class="muted small">Тест по очереди показывает открытый космос, плотный пояс астероидов, подлёт к планете, бой нескольких кораблей и быстрый поворот камеры — по 10 секунд — и считает средний FPS, 1% low и время кадра. Запускайте из полёта в одиночной игре.</div>`;
+}
+function resText(scale) {
+  const pr = Math.min(4, (devicePixelRatio || 1) * scale);
+  return Math.round(innerWidth * pr) + '×' + Math.round(innerHeight * pr);
+}
+function sysInfoHTML() {
+  const g = R.gpuInfo(), dpr = devicePixelRatio || 1;
+  const mem = navigator.deviceMemory ? (navigator.deviceMemory >= 8 ? '8 ГБ или больше (точнее браузер не сообщает)' : navigator.deviceMemory + ' ГБ') : 'браузер не сообщает';
+  return `<div class="small">Видеокарта: <b>${esc(g.gpu || 'неизвестно')}</b><br>
+    Экран: <b>${Math.round(screen.width * dpr)}×${Math.round(screen.height * dpr)}</b> (масштаб системы ${Math.round(dpr * 100)}%), окно игры ${Math.round(innerWidth * dpr)}×${Math.round(innerHeight * dpr)}, буфер рендера ${g.buffer ? g.buffer.join('×') : '?'}<br>
+    Процессор: ${navigator.hardwareConcurrency || '?'} логических потоков · ОЗУ: ${mem}<br>
+    MSAA до ${g.maxSamples || '?'}× · анизотропия до ${g.aniso || '?'}×</div>
+    <div class="muted small">Точную модель процессора и объём памяти браузер не раскрывает — их видно в «Диспетчер задач → Производительность» (Windows).</div>`;
+}
 function savesHTML() {
   const st = window.VF_SAVES.status();
   const when = (m) => m && m.when ? new Date(m.when).toLocaleString('ru-RU') : '';
@@ -2183,7 +2240,8 @@ async function exportSave() {
   const l = document.createElement('a'); l.href = u; l.download = filename; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
 }
 function applyCfg() {
-  R.setQuality(CFG.quality);
+  R.setGraphics(effectiveGfx());
+  perfShow(CFG.perf);
   $('#ui').style.zoom = CFG.ui;
   Sound.setVolume(CFG.volume);
   Sound.setBus('sfx', CFG.vSfx); Sound.setBus('ui', CFG.vUi); Sound.setBus('music', CFG.vMusic);
@@ -2192,11 +2250,32 @@ function applyCfg() {
 }
 $('#win-body').addEventListener('input', (e) => {
   const id = e.target.id;
-  if (!id.startsWith('cfg-')) return;
-  if (id === 'cfg-quality') { CFG.quality = e.target.value; CFG.autoQ = false; }
-  const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1) }[id] || ((v) => Math.round(v * 100) + '%');
-  for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
-  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  if (!id.startsWith('cfg-') && !id.startsWith('gfx-')) return;
+  if (id === 'cfg-quality') {
+    const prev = effectiveGfx();
+    CFG.quality = e.target.value; CFG.autoQ = false;
+    if (CFG.quality === 'custom' && !CFG.gfx) { const { fov, shake, ...rest } = prev; CFG.gfx = rest; }
+    saveCfg(); applyCfg();
+    $('#win-body')._h = null; renderWin(); // ползунки уже сдвинуты вручную — перерисовать окно принудительно
+    if (effectiveGfx().tex !== TEX_AT_START) note('Качество текстур и моделей применится после перезапуска игры', 'info');
+    return;
+  }
+  const GK = { 'gfx-scale': 'n', 'gfx-aa': 's', 'gfx-tex': 's', 'gfx-shadows': 'n', 'gfx-refl': 'c', 'gfx-fx': 's', 'gfx-dist': 's', 'gfx-bloom': 'n', 'gfx-mblur': 'c' }[id];
+  if (GK) {
+    const { fov, shake, ...cur } = effectiveGfx(), k = id.slice(4);
+    CFG.gfx = { ...cur, [k]: GK === 'n' ? +e.target.value : GK === 'c' ? e.target.checked : e.target.value };
+    CFG.quality = 'custom'; CFG.autoQ = false;
+    const q = $('#cfg-quality'); if (q) q.value = 'custom';
+    const lab = $('#' + id + '-v'); if (lab) lab.textContent = Math.round(CFG.gfx[k] * 100) + '%';
+    if (k === 'scale') $('#gfx-res').textContent = resText(CFG.gfx.scale);
+    saveCfg(); applyCfg();
+    if (k === 'tex' && CFG.gfx.tex !== TEX_AT_START) note('Качество текстур и моделей применится после перезапуска игры', 'info');
+    return;
+  }
+  if (id === 'cfg-fpsCap') CFG.fpsCap = +e.target.value;
+  const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1), 'cfg-fov': (v) => v + '°' }[id] || ((v) => Math.round(v * 100) + '%');
+  for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
+  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
 });
@@ -2468,6 +2547,10 @@ function onActionClick(e) {
     case 'buyCons': send({ t: 'buy', item: d.item, qty: +$('#cq-' + d.item).value }); break;
     case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item); break;
     case 'rebind': rebinding = d.id; renderWin(); break;
+    case 'bench': runBench(); break;
+    case 'benchShow': openWin('bench', null, true); break;
+    case 'benchCopy': copyText(benchText(benchHistory()[0])); break;
+    case 'benchClear': try { localStorage.removeItem('vf-bench'); } catch {} renderWin(); break;
     case 'resetKeys': CFG.keys = {}; saveCfg(); renderWin(); note('Раскладка сброшена'); break;
     case 'slotSave': { const r = window.VF_SAVES.save(d.id); note(r.ok ? 'Игра сохранена' : 'Не удалось сохранить: ' + r.msg, r.ok ? 'good' : 'bad'); renderWin(); break; }
     case 'slotLoad': modal('<p>Загрузить это сохранение? Текущий прогресс будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => { const r = window.VF_SAVES.load(d.id); if (!r.ok) note(r.msg, 'bad'); }, 'primary']]); break;
@@ -2728,20 +2811,171 @@ let lastFrame = performance.now(), lastUi = 0;
 // Автоподстройка качества: если кадров мало, снижаем графику (только пока игрок сам не выбрал качество)
 const fps = { t0: 0, n: 0 };
 function autoQuality(now, dt) {
-  if (CFG.autoQ === false || !S.me || S.docked || document.hidden) { fps.t0 = 0; return; }
+  if (CFG.autoQ === false || CFG.quality === 'custom' || bench || CFG.fpsCap || !S.me || S.docked || document.hidden) { fps.t0 = 0; return; }
   if (!fps.t0) { fps.t0 = now; fps.n = 0; return; }
   fps.n++;
   if (now - fps.t0 < 5000) return;
   const f = fps.n * 1000 / (now - fps.t0);
   fps.t0 = 0;
-  const next = f < 40 && CFG.quality === 'high' ? 'medium' : f < 26 && CFG.quality === 'medium' ? 'low' : null;
+  const next = f < 50 && CFG.quality === 'ultra' ? 'high' : f < 40 && CFG.quality === 'high' ? 'medium' : f < 26 && CFG.quality === 'medium' ? 'low' : null;
   if (next) { CFG.quality = next; saveCfg(); applyCfg(); note(`Графика упрощена для плавности (${Math.round(f)} кадров/с). Изменить можно в настройках ⚙`, 'info'); }
 }
+// ======================================================================
+// Производительность: оверлей (FPS, 1% low, время кадра) и встроенный тест 5 сцен
+// ======================================================================
+function perfShow(on) {
+  if (on && !perf.el) {
+    perf.el = document.createElement('div'); perf.el.id = 'perf';
+    perf.el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:4px;z-index:60;pointer-events:none;font:11px/1.35 ui-monospace,Consolas,monospace;color:#cfe6ff;background:rgba(4,10,20,.72);border:1px solid rgba(120,170,255,.25);border-radius:4px;padding:3px 8px;white-space:pre;text-align:center';
+    document.body.appendChild(perf.el);
+  }
+  if (perf.el) perf.el.style.display = on ? '' : 'none';
+}
+// статистика по набору интервалов между кадрами (мс)
+function frameStats(arr) {
+  const n = arr.length; if (!n) return null;
+  const s = Array.from(arr).sort((a, b) => a - b), sum = s.reduce((a, b) => a + b, 0), worst = s.slice(Math.floor(n * 0.99));
+  return { n, avgFps: 1000 * n / sum, low1: 1000 * worst.length / worst.reduce((a, b) => a + b, 0), avgMs: sum / n, maxMs: s[n - 1], over33: arr.filter(x => x > 33.4).length };
+}
+function perfTick(now, cpuMs) {
+  const ft = perf.last ? now - perf.last : 0; perf.last = now;
+  if (ft > 0 && ft < 2000) { perf.buf[perf.n % perf.buf.length] = ft; perf.n++; }
+  perf.cpu += (cpuMs - perf.cpu) * 0.1;
+  if (bench && ft > 0) benchFrame(now, ft);
+  if (!CFG.perf || !perf.el || now - perf.shown < 500) return;
+  perf.shown = now;
+  const st = frameStats(perf.buf.subarray(0, Math.min(perf.n, perf.buf.length)));
+  if (!st) return;
+  const g = R.gpuInfo(), mem = performance.memory ? ' · JS ' + Math.round(performance.memory.usedJSHeapSize / 1048576) + ' МБ' : '';
+  perf.el.textContent = `FPS ${st.avgFps.toFixed(0)} · 1% low ${st.low1.toFixed(0)} · кадр ${st.avgMs.toFixed(1)} мс (макс ${st.maxMs.toFixed(0)}) · ЦП ${perf.cpu.toFixed(1)} мс\n`
+    + `${g.buffer ? g.buffer.join('×') : ''} · ${PROFILE_NAMES[CFG.quality] || ''} · вызовов ${g.calls} · треуг. ${(g.tris / 1e6).toFixed(2)} М · текстур ${g.textures} · геом. ${g.geometries}${mem}`;
+}
+
+const BENCH_SCENES = [['space', 'Открытый космос'], ['belt', 'Плотный пояс астероидов'], ['planet', 'Подлёт к планете'], ['combat', 'Бой нескольких кораблей'], ['spin', 'Быстрый поворот камеры']];
+const BENCH_WARM = 3000, BENCH_RUN = 10000;
+let benchRuns = 0; // первый прогон за сеанс заполняет кэши моделей — рост памяти в нём ожидаем
+function benchHistory() { try { return JSON.parse(localStorage.getItem('vf-bench') || '[]'); } catch { return []; } }
+function memSnap() { const g = R.gpuInfo(); return { geo: g.geometries, tex: g.textures, heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null }; }
+function runBench() {
+  const G = window.__VF_GAME;
+  if (!G) return note('Встроенный тест работает в одиночной игре. В сетевой включите показатели производительности и полетайте сами.', 'warn');
+  if (!S.me || S.docked || SF.active()) return note('Отстыкуйтесь от станции: тест запускается из полёта в космосе', 'warn');
+  const s = [...G.sessions].find(x => !x.isBot && x.ent), e = s && s.ent;
+  if (!e || e.warp) return note('Дождитесь выхода из варпа', 'warn');
+  if (s.auto) G.autoStop(s, 'Автоигра выключена на время теста');
+  closeWin();
+  bench = { G, e, sys: G.U.systems[e.sys], i: -1, res: [], npcs: [], mem0: memSnap(),
+    save: { pos: e.pos.slice(), vel: e.vel.slice(), cmd: e.cmd, inv: e.invulnUntil, yaw: R.cam.yaw, pitch: R.cam.pitch, target: R.cam.target } };
+  bench.el = document.createElement('div');
+  bench.el.style.cssText = 'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);z-index:70;background:rgba(4,10,20,.85);border:1px solid rgba(120,170,255,.35);border-radius:6px;padding:8px 14px;color:#dbeaff;font:13px system-ui,sans-serif;text-align:center';
+  bench.el.innerHTML = '<div id="bench-t"></div><button id="bench-stop" style="margin-top:6px">Прервать тест</button>';
+  document.body.appendChild(bench.el);
+  bench.el.querySelector('#bench-stop').onclick = () => benchDone(true);
+  benchNext();
+}
+function benchClean() {
+  const b = bench; clearInterval(b.mv);
+  for (const n of b.npcs) if (b.G.ents.has(n.id)) b.G.removeEntity(n);
+  b.npcs = [];
+}
+function benchNext() {
+  const b = bench; b.i++;
+  benchClean();
+  if (b.i >= BENCH_SCENES.length) return benchDone(false);
+  const [sc] = BENCH_SCENES[b.i], G = b.G, e = b.e, sys = b.sys;
+  e.vel = [0, 0, 0]; e.cmd = { type: 'stop' }; e.autopilot = null; e.invulnUntil = G.now + 1e9;
+  R.cam.target = R.cam.dist = 300; R.cam.pitch = 0.2;
+  const far = [b.save.pos[0] + 4e9, b.save.pos[1] + 2e8, b.save.pos[2] - 3e9]; // пустой участок системы
+  if (sc === 'space' || sc === 'combat') e.pos = far.slice();
+  if ((sc === 'belt' || sc === 'spin') && sys.belts && sys.belts[0]) e.pos = sys.belts[0].pos.slice();
+  if (sc === 'planet') {
+    const pl = sys.celestials.find(x => x.kind === 'planet'), t0 = performance.now();
+    if (pl) b.mv = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / (BENCH_WARM + BENCH_RUN)), alt = 3e6 * (1 - k) + 6e4 * k; e.pos = [pl.pos[0] + pl.radius + alt, pl.pos[1], pl.pos[2]]; }, 33);
+  }
+  if (sc === 'combat') for (let i = 0; i < 6; i++) {
+    const a = i / 6 * Math.PI * 2, n = G.spawnNpc(['raider', 'reaper', 'corsair'][i % 3], e.sys, [e.pos[0] + Math.cos(a) * 6000, e.pos[1], e.pos[2] + Math.sin(a) * 6000]);
+    if (n) { n.npcTarget = e.id; b.npcs.push(n); }
+  }
+  b.phase = 'warm'; b.t0 = performance.now(); b.frames = []; b.calls = 0; b.tris = 0;
+  benchLabel();
+}
+function benchLabel() {
+  const b = bench, el = b.el.querySelector('#bench-t');
+  el.textContent = `Тест производительности · сцена ${b.i + 1} из ${BENCH_SCENES.length}: ${BENCH_SCENES[b.i][1]} · ${b.phase === 'warm' ? 'подготовка' : 'замер'}`;
+}
+function benchFrame(now, ft) {
+  const b = bench;
+  if (b.i < 0 || b.i >= BENCH_SCENES.length) return;
+  R.cam.yaw += (BENCH_SCENES[b.i][0] === 'spin' ? 3 : 0.3) * ft / 1000; // 3 рад/с — быстрый разворот камеры
+  if (b.phase === 'warm') { if (now - b.t0 > BENCH_WARM) { b.phase = 'run'; b.t0 = now; b.frames = []; benchLabel(); } return; }
+  b.frames.push(ft);
+  const g = R.gpuInfo(); b.calls = Math.max(b.calls, g.calls || 0); b.tris = Math.max(b.tris, g.tris || 0);
+  if (now - b.t0 < BENCH_RUN) return;
+  const st = frameStats(b.frames);
+  b.res.push({ sc: BENCH_SCENES[b.i][0], name: BENCH_SCENES[b.i][1], avgFps: +st.avgFps.toFixed(1), low1: +st.low1.toFixed(1), avgMs: +st.avgMs.toFixed(2), maxMs: +st.maxMs.toFixed(1), over33: st.over33, frames: st.n, calls: b.calls, tris: b.tris });
+  benchNext();
+}
+function benchDone(aborted) {
+  const b = bench; if (!b) return;
+  benchClean();
+  const e = b.e, sv = b.save;
+  e.pos = sv.pos; e.vel = sv.vel; e.cmd = sv.cmd; e.invulnUntil = Math.max(sv.inv || 0, b.G.now + 3000);
+  R.cam.yaw = sv.yaw; R.cam.pitch = sv.pitch; R.cam.target = sv.target;
+  b.el.remove(); bench = null;
+  if (!b.res.length) return note('Тест прерван', 'info');
+  const g = R.gpuInfo(), gx = effectiveGfx();
+  const run = { when: Date.now(), profile: PROFILE_NAMES[CFG.quality], gfx: { scale: gx.scale, aa: gx.aa, tex: gx.tex, shadows: gx.shadows }, buffer: g.buffer, gpu: g.gpu,
+    cap: CFG.fpsCap, aborted, scenes: b.res, mem0: b.mem0, mem1: memSnap(), first: !benchRuns++ };
+  const hist = [run, ...benchHistory()].slice(0, 8);
+  try { localStorage.setItem('vf-bench', JSON.stringify(hist)); } catch {}
+  openWin('bench', null, true);
+}
+const AA_NAMES = { off: 'без сглаживания', fxaa: 'FXAA', smaa: 'SMAA', msaa2: 'MSAA 2×', msaa4: 'MSAA 4×', msaa8: 'MSAA 8×', msaa4s: 'MSAA 4×+SMAA', msaa8s: 'MSAA 8×+SMAA' };
+function benchText(r) {
+  if (!r) return '';
+  const lines = [`Void Frontier — тест производительности, ${new Date(r.when).toLocaleString('ru-RU')}`,
+    `Видеокарта: ${r.gpu}`, `Разрешение кадра: ${(r.buffer || []).join('×')}, профиль: ${r.profile} (${AA_NAMES[r.gfx.aa] || r.gfx.aa}, тени ${r.gfx.shadows || 'выкл'}, масштаб ${Math.round(r.gfx.scale * 100)}%)${r.cap ? ', ограничение ' + r.cap + ' FPS' : ''}`,
+    'Сцена | средний FPS | 1% low | кадр, мс | макс, мс | кадров >33 мс | вызовов | треугольников'];
+  for (const x of r.scenes) lines.push(`${x.name} | ${x.avgFps} | ${x.low1} | ${x.avgMs} | ${x.maxMs} | ${x.over33} | ${x.calls} | ${x.tris}`);
+  lines.push(`Память: геометрий ${r.mem0.geo}→${r.mem1.geo}, текстур ${r.mem0.tex}→${r.mem1.tex}${r.mem1.heap ? `, JS ${r.mem0.heap}→${r.mem1.heap} МБ` : ''}`);
+  return lines.join('\n');
+}
+function benchHTML() {
+  const hist = benchHistory(), r = hist[0];
+  if (!r) return '<p class="muted">Тестов ещё не было. Запустите тест из настроек графики.</p>';
+  const ok = (x) => x.avgFps >= 60 && x.low1 >= 50 ? '<span class="good">✓</span>' : '<span class="bad">✗</span>';
+  const rows = r.scenes.map(x => `<tr><td>${esc(x.name)}</td><td><b>${x.avgFps}</b></td><td>${x.low1}</td><td>${x.avgMs}</td><td>${x.maxMs}</td><td>${x.over33}</td><td>${num(x.calls)}</td><td>${(x.tris / 1e6).toFixed(2)} М</td><td>${ok(x)}</td></tr>`).join('');
+  const cmp = hist.length > 1 ? `<h3>Сравнение запусков</h3><table class="tbl"><tr><th>Когда</th><th>Профиль</th><th>Кадр</th>${BENCH_SCENES.map(s => `<th>${s[1]}</th>`).join('')}</tr>
+    ${hist.map(h => `<tr><td>${new Date(h.when).toLocaleString('ru-RU')}</td><td>${esc(h.profile)}</td><td>${(h.buffer || []).join('×')}</td>${BENCH_SCENES.map(s => { const x = h.scenes.find(y => y.sc === s[0]); return `<td>${x ? `${x.avgFps} / ${x.low1}` : '—'}</td>`; }).join('')}</tr>`).join('')}</table>
+    <div class="muted small">В ячейках: средний FPS / 1% low.</div>` : '';
+  const leak = r.mem1.geo - r.mem0.geo, tleak = r.mem1.tex - r.mem0.tex;
+  return `<div class="small">${esc(r.gpu)} · кадр ${(r.buffer || []).join('×')} · профиль ${esc(r.profile)} (${AA_NAMES[r.gfx.aa] || r.gfx.aa}, тени ${r.gfx.shadows || 'выкл'}, масштаб ${Math.round(r.gfx.scale * 100)}%)${r.cap ? ` · ограничение ${r.cap} FPS` : ''}${r.aborted ? ' · <span class="bad">прерван</span>' : ''}</div>
+    <table class="tbl"><tr><th>Сцена</th><th>Средний FPS</th><th>1% low</th><th>Кадр, мс</th><th>Макс, мс</th><th>&gt;33 мс</th><th>Вызовов</th><th>Треуг.</th><th>60/50</th></tr>${rows}</table>
+    <div class="muted small">«60/50» — цель ТЗ: средний FPS не ниже 60 и 1% low не ниже 50. «&gt;33 мс» — число кадров дольше 33 мс (заметные подтормаживания). FPS не может быть выше частоты монитора: в браузере всегда включена вертикальная синхронизация.</div>
+    <div class="small">Память после теста: геометрий ${r.mem0.geo} → ${r.mem1.geo}, текстур ${r.mem0.tex} → ${r.mem1.tex}${r.mem1.heap ? `, JS ${r.mem0.heap} → ${r.mem1.heap} МБ` : ''}${r.first ? ' — первый прогон: модели сцен загружаются в кэш, рост ожидаем. Запустите тест ещё раз — во втором прогоне числа должны почти не меняться' : leak > 150 || tleak > 10 ? ' <span class="warn">— заметный рост, сообщите разработчику</span>' : ' — без утечек'}</div>
+    ${cmp}
+    <p><button data-a="benchCopy">Скопировать результат</button> <button data-a="bench">Запустить ещё раз</button> <button data-a="benchClear">Очистить историю</button></p>`;
+}
+function copyText(t) {
+  const done = () => note('Результат скопирован в буфер обмена', 'good');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, () => fallback());
+  else fallback();
+  function fallback() { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); done(); } catch { note('Не удалось скопировать', 'bad'); } a.remove(); }
+}
+
+let capNext = 0;
 function loop(now) {
   requestAnimationFrame(loop);
+  // ограничитель кадров: пропускаем вызовы монитора, пока не пришло время следующего кадра
+  if (CFG.fpsCap > 0) { const iv = 1000 / CFG.fpsCap; if (now < capNext - 1) return; capNext += iv; if (capNext < now) capNext = now + iv; }
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (!S.data) return;
+  const t0 = performance.now();
+  frameBody(now, dt);
+  perfTick(now, performance.now() - t0);
+}
+function frameBody(now, dt) {
   if (SF.active()) { SF.frame(dt, now); return; } // на поверхности планеты — свой мир
   if (S.me && S.meRec && !S.docked) {
     const rt = now + (S.timeOff || 0) - RENDER_DELAY;

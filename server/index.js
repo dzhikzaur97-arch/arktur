@@ -90,13 +90,15 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
-let last = Date.now();
+// фиксированный шаг симуляции с накопителем (догоняем не больше 5 шагов)
+let last = Date.now(), acc = 0;
+const STEP = TICK / 1000;
 setInterval(() => {
   const now = Date.now();
-  const dt = Math.min(0.5, (now - last) / 1000);
-  last = now;
-  game.tick(dt);
-}, TICK);
+  acc = Math.min(acc + (now - last) / 1000, 0.5); last = now;
+  for (let i = 0; i < 5 && acc >= STEP - 0.0005; i++) { game.tick(STEP); acc -= STEP; }
+  if (acc < 0) acc = 0;
+}, TICK / 2);
 
 function shutdown() { console.log('\nСохранение…'); for (const s of game.sessions) game.logout(s); dirty = true; flush(); process.exit(0); }
 process.on('SIGINT', shutdown);
