@@ -256,6 +256,7 @@ function skyMaterial() {
 // ======================================================================
 export function enter(info) {
   if (W) leave();
+  R.setExposure(1.02); // днём на планете света много (небо, рассеянный свет) — экспозиция ниже, чем в космосе
   const P = info.P;
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 3000);
@@ -330,6 +331,7 @@ export function enter(info) {
   beam.visible = false; scene.add(beam);
   const spark = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2, 1.2, 0.5) })); spark.visible = false; scene.add(spark);
 
+  terrainDetail(terrMat, [sx, sz]);
   const suit = info.suit;
   W = {
     P, info, scene, cam, sun, moon, hemi, sky, liquid, weather, terrMat, floraMat, glowMat, K, ship: shipG, shipPos: [sx, sz], shipR, shipBeacon: beacon, player, ring, beam, spark,
@@ -353,6 +355,7 @@ export function enter(info) {
 
 export function leave() {
   if (!W) return;
+  R.setExposure(R.SPACE_EXPOSURE);
   W.scene.traverse(o => { if (o.geometry && !o.userData.shared) o.geometry.dispose && o.geometry.dispose(); });
   if (document.pointerLockElement) document.exitPointerLock();
   W = null;
@@ -386,8 +389,38 @@ function makePlayer() {
 // ======================================================================
 // Чанки: рельеф, флора, узлы, стада
 // ======================================================================
-const TERR_SEG = 32;
+// Детализация земли в шейдере: пятна почвы на трёх масштабах и микрорельеф по нормали — вблизи
+// земля не выглядит заливкой одним цветом, а повторов не видно (шум непериодический)
+const TERRAIN_GLSL = `
+float tHash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float tNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(tHash(i), tHash(i + vec2(1.0, 0.0)), f.x), mix(tHash(i + vec2(0.0, 1.0)), tHash(i + vec2(1.0, 1.0)), f.x), f.y); }
+float tFbm(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * tNoise(p); p = p * 2.07 + 3.1; a *= 0.5; } return s; }
+`;
+function terrainDetail(mat, origin) {
+  const o = { value: new THREE.Vector2(origin[0] % 4096, origin[1] % 4096) };
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.tOrigin = o;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec2 tOrigin; varying vec2 vTW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTW = (modelMatrix * vec4(position, 1.0)).xz + tOrigin;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vTW;' + TERRAIN_GLSL)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  // мелкий шум гасим там, где он мельче пикселя (вдали) — иначе земля мерцает при движении камеры
+  float fMid = 1.0 - smoothstep(0.25, 0.8, length(fwidth(vTW * 0.55))), fFine = 1.0 - smoothstep(0.25, 0.8, length(fwidth(vTW * 4.3)));
+  float big = tFbm(vTW * 0.045), mid = tNoise(vTW * 0.55), fine = tFbm(vTW * 4.3);
+  diffuseColor.rgb *= 0.8 + 0.32 * big + (0.14 * mid - 0.07) * fMid + (0.22 * fine - 0.11) * fFine + 0.09;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  { float e = 0.08; vec2 q = vTW * 0.55; vec2 q2 = vTW * 4.3;
+    float n0 = tNoise(q), n2 = tNoise(q2);
+    float fM = 1.0 - smoothstep(0.25, 0.8, length(fwidth(q))), fF = 1.0 - smoothstep(0.25, 0.8, length(fwidth(q2)));
+    vec2 gr = vec2(tNoise(q + vec2(e, 0.0)) - n0, tNoise(q + vec2(0.0, e)) - n0) / e * 0.55 * 0.35 * fM
+            + vec2(tNoise(q2 + vec2(e, 0.0)) - n2, tNoise(q2 + vec2(0.0, e)) - n2) / e * 4.3 * 0.045 * fF;
+    normal = normalize(normal - mat3(viewMatrix) * vec3(gr.x, 0.0, gr.y)); }`);
+  };
+}
 function buildChunk(cx, cz) {
+  // сетка рельефа плотнее на высоких профилях: 2,5 м → 1,7 м → 1,25 м между вершинами
+  const TERR_SEG = { low: 24, med: 32, high: 48, ultra: 64 }[R.getGfx().dist] || 32;
   const P = W.P, ox = W.origin[0], oz = W.origin[1], N = TERR_SEG + 1, step = CH / TERR_SEG;
   // сетка высот с каймой в 1 вершину — нормали без швов между чанками
   const Hs = new Float32Array((N + 2) * (N + 2));

@@ -680,6 +680,7 @@ window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент �
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
 window.__VF_SF = SF; // отладка мира поверхности
+window.__VF_SCENE = R.debugScene; // отладка сцены космоса
 // потеря WebGL-контекста: сообщаем, снижаем качество (обычно причина — нехватка видеопамяти) и восстанавливаемся
 R.onContext(() => note('Видеокарта сбросила графику — восстанавливаю…', 'warn'), () => {
   const down = { ultra: 'high', high: 'medium' }[CFG.quality];

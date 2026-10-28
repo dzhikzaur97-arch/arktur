@@ -339,73 +339,71 @@ function hullSet(paint, accent, faction, seed) {
   const rgb = (c, k = 1) => `rgb(${Math.min(255, c.r * 255 * k) | 0},${Math.min(255, c.g * 255 * k) | 0},${Math.min(255, c.b * 255 * k) | 0})`;
   const gray = (v) => `rgb(${v | 0},${v | 0},${v | 0})`;
   const orm = (rough, metal) => `rgb(255,${rough | 0},${metal | 0})`;
-  cg.fillStyle = '#3c4046'; cg.fillRect(0, 0, W, W);
-  hg.fillStyle = gray(60); hg.fillRect(0, 0, W, W);
+  cg.fillStyle = '#1d2024'; cg.fillRect(0, 0, W, W); // фон = цвет швов между панелями
+  hg.fillStyle = gray(40); hg.fillRect(0, 0, W, W);
   og.fillStyle = orm(170, 200); og.fillRect(0, 0, W, W);
   eg.fillStyle = '#000'; eg.fillRect(0, 0, W, W);
-  const bareShare = faction === 'pirate' ? 0.35 : faction === 'dark' ? 0.7 : 0.18;
+  // Окраска крупными зонами (основной цвет, светлый второй цвет ливреи, голый металл, тёмные технические
+  // панели) — корпус читается как цельный, а не «лоскутный»; внутри зоны — тонкие швы, люки, решётки, заклёпки
+  const ZW = { player: [0.64, 0.22, 0.1, 0.04], guard: [0.62, 0.24, 0.1, 0.04], station: [0.55, 0.27, 0.13, 0.05], pirate: [0.5, 0.08, 0.27, 0.15], dark: [0, 0, 0.55, 0.45] }[faction] || [0.64, 0.22, 0.1, 0.04];
+  const pickZone = () => { let t = r(), i = 0; while (i < 3 && t > ZW[i]) { t -= ZW[i]; i++; } return i; };
   const codes = faction === 'pirate' ? ['СКВ', 'XX', '666', 'РЕЙД'] : faction === 'guard' ? ['СТРАЖ', 'ГП-1', 'ПОРЯДОК'] : ['VF', 'ВФ-07', 'ПФ-21', 'АРК', '12', 'Б-3'];
   const panels = [];
-  const split = (x, y, w, h, d) => {
-    if (d >= 6 || w < 50 || h < 50 || (d > 2 && r() < 0.22)) { panels.push([x, y, w, h]); return; }
-    if (w > h ? r() < 0.78 : r() < 0.22) { const k = w * (0.3 + r() * 0.4); split(x, y, k, h, d + 1); split(x + k, y, w - k, h, d + 1); }
-    else { const k = h * (0.3 + r() * 0.4); split(x, y, w, k, d + 1); split(x, y + k, w, h - k, d + 1); }
+  const split = (x, y, w, h, d, zone) => {
+    if (d === 2) zone = pickZone();
+    if (d >= 7 || w < 34 || h < 34 || (d > 3 && r() < 0.2)) { panels.push([x, y, w, h, zone]); return; }
+    if (w > h ? r() < 0.78 : r() < 0.22) { const k = w * (0.3 + r() * 0.4); split(x, y, k, h, d + 1, zone); split(x + k, y, w - k, h, d + 1, zone); }
+    else { const k = h * (0.3 + r() * 0.4); split(x, y, w, k, d + 1, zone); split(x, y + k, w, h - k, d + 1, zone); }
   };
-  split(0, 0, W, W, 0);
-  for (const [x, y, w, h] of panels) {
-    const gap = 2, X = x + gap, Y = y + gap, Wd = w - gap * 2, Hd = h - gap * 2;
-    const t = r();
-    if (t < bareShare) { // голый металл
-      const v = 0.75 + r() * 0.35;
-      cg.fillStyle = rgb(new THREE.Color(0.62, 0.64, 0.67), v); cg.fillRect(X, Y, Wd, Hd);
-      og.fillStyle = orm(145 + r() * 60, 190); og.fillRect(X, Y, Wd, Hd);
-      hg.fillStyle = gray(150 + r() * 20); hg.fillRect(X, Y, Wd, Hd);
-    } else if (t < bareShare + 0.08) { // решётка радиатора
-      cg.fillStyle = '#33373d'; cg.fillRect(X, Y, Wd, Hd);
-      og.fillStyle = orm(190, 120); og.fillRect(X, Y, Wd, Hd);
-      hg.fillStyle = gray(110); hg.fillRect(X, Y, Wd, Hd);
+  split(0, 0, W, W, 0, 0);
+  const S2 = P.clone().lerp(new THREE.Color(0.72, 0.74, 0.77), 0.55), BARE = new THREE.Color(0.5, 0.52, 0.55), DARK = new THREE.Color(0.16, 0.17, 0.19);
+  for (const [x, y, w, h, zone] of panels) {
+    const gap = 0.9, X = x + gap, Y = y + gap, Wd = w - gap * 2, Hd = h - gap * 2;
+    const kind = r() < 0.9 ? zone : (r() < 0.8 ? 2 : 3); // изредка — панель другого типа внутри зоны
+    const base = [P, S2, BARE, DARK][kind], v = 0.955 + r() * 0.09;
+    cg.fillStyle = rgb(base, v); cg.fillRect(X, Y, Wd, Hd);
+    og.fillStyle = kind === 2 ? orm(125 + r() * 50, 165) : kind === 3 ? orm(175, 150) : orm(100 + r() * 30, 30); og.fillRect(X, Y, Wd, Hd);
+    hg.fillStyle = gray(150 + r() * 10); hg.fillRect(X, Y, Wd, Hd);
+    // фаска по краю панели
+    hg.strokeStyle = gray(175); hg.lineWidth = 1.2; hg.strokeRect(X + 1.2, Y + 1.2, Wd - 2.4, Hd - 2.4);
+    const deco = r();
+    if (kind === 3 && Wd > 16 && Hd > 16) { // техническая панель: решётка радиатора
       const vert = Wd < Hd;
-      for (let k = 4; k < (vert ? Wd : Hd) - 2; k += 7) {
-        hg.fillStyle = gray(170); cg.fillStyle = '#6a7079';
-        if (vert) { hg.fillRect(X + k, Y + 3, 3, Hd - 6); cg.fillRect(X + k, Y + 3, 3, Hd - 6); }
-        else { hg.fillRect(X + 3, Y + k, Wd - 6, 3); cg.fillRect(X + 3, Y + k, Wd - 6, 3); }
+      for (let k = 3; k < (vert ? Wd : Hd) - 2; k += 4.5) {
+        hg.fillStyle = gray(185); cg.fillStyle = rgb(DARK, 1.9);
+        if (vert) { hg.fillRect(X + k, Y + 3, 1.6, Hd - 6); cg.fillRect(X + k, Y + 3, 1.6, Hd - 6); }
+        else { hg.fillRect(X + 3, Y + k, Wd - 6, 1.6); cg.fillRect(X + 3, Y + k, Wd - 6, 1.6); }
       }
-    } else { // окрашенная панель
-      const v = 0.9 + r() * 0.16;
-      cg.fillStyle = rgb(P, v); cg.fillRect(X, Y, Wd, Hd);
-      og.fillStyle = orm(115 + r() * 40, 40); og.fillRect(X, Y, Wd, Hd);
-      hg.fillStyle = gray(160 + r() * 15); hg.fillRect(X, Y, Wd, Hd);
-      // фаска по краю
-      hg.strokeStyle = gray(190); hg.lineWidth = 2; hg.strokeRect(X + 2, Y + 2, Wd - 4, Hd - 4);
-      const deco = r();
-      if (deco < 0.16 && Wd > 90) { // полосы фракционного цвета
-        cg.fillStyle = rgb(A); const sh = 6 + r() * 10, sy = Y + Hd * (0.2 + r() * 0.5);
-        cg.fillRect(X, sy, Wd, sh); cg.fillRect(X, sy + sh + 4, Wd, sh * 0.4);
-      } else if (deco < 0.24 && Wd > 70 && Hd > 30) { // полосы опасности
-        cg.save(); cg.beginPath(); cg.rect(X, Y + Hd - 18, Wd, 14); cg.clip();
-        cg.fillStyle = '#d8b020'; cg.fillRect(X, Y + Hd - 18, Wd, 14);
-        cg.fillStyle = '#16181a';
-        for (let k = -20; k < Wd + 20; k += 16) { cg.beginPath(); cg.moveTo(X + k, Y + Hd - 4); cg.lineTo(X + k + 8, Y + Hd - 4); cg.lineTo(X + k + 22, Y + Hd - 18); cg.lineTo(X + k + 14, Y + Hd - 18); cg.fill(); }
-        cg.restore();
-      } else if (deco < 0.36 && Wd > 80 && Hd > 40) { // маркировка
-        cg.fillStyle = P.getHSL({}).l > 0.5 ? 'rgba(25,28,32,0.85)' : 'rgba(235,238,242,0.85)';
-        cg.font = `bold ${Math.min(36, Hd * 0.45) | 0}px Arial, sans-serif`;
-        cg.fillText(codes[Math.floor(r() * codes.length)], X + 8, Y + Hd * 0.65);
-      } else if (deco < 0.44 && Wd > 60) { // иллюминаторы
-        const n = Math.floor(Wd / 12);
-        const wy = Y + Hd * (0.3 + r() * 0.4);
-        for (let k = 0; k < n; k++) {
-          cg.fillStyle = '#0a1018'; cg.fillRect(X + 6 + k * 12, wy, 7, 5);
-          hg.fillStyle = gray(110); hg.fillRect(X + 6 + k * 12, wy, 7, 5);
-          if (r() < 0.7) { eg.fillStyle = r() < 0.8 ? `rgba(255,${210 + r() * 30},${150 + r() * 60},1)` : 'rgba(160,215,255,1)'; eg.fillRect(X + 7 + k * 12, wy + 1, 5, 3); }
-        }
+    } else if (deco < 0.14 && Wd > 50 && kind !== 2) { // полосы фракционного цвета
+      cg.fillStyle = rgb(A); const sh = 3 + r() * 6, sy = Y + Hd * (0.2 + r() * 0.5);
+      cg.fillRect(X, sy, Wd, sh); cg.fillRect(X, sy + sh + 2.5, Wd, sh * 0.35);
+    } else if (deco < 0.19 && Wd > 50 && Hd > 20) { // полосы опасности
+      cg.save(); cg.beginPath(); cg.rect(X, Y + Hd - 10, Wd, 7); cg.clip();
+      cg.fillStyle = '#c9a21e'; cg.fillRect(X, Y + Hd - 10, Wd, 7);
+      cg.fillStyle = '#16181a';
+      for (let k = -12; k < Wd + 12; k += 9) { cg.beginPath(); cg.moveTo(X + k, Y + Hd - 3); cg.lineTo(X + k + 4.5, Y + Hd - 3); cg.lineTo(X + k + 11.5, Y + Hd - 10); cg.lineTo(X + k + 7, Y + Hd - 10); cg.fill(); }
+      cg.restore();
+    } else if (deco < 0.3 && Wd > 50 && Hd > 24 && kind < 2) { // маркировка
+      cg.fillStyle = base.getHSL({}).l > 0.45 ? 'rgba(25,28,32,0.8)' : 'rgba(235,238,242,0.8)';
+      cg.font = `bold ${Math.min(20, Hd * 0.42) | 0}px Arial, sans-serif`;
+      cg.fillText(codes[Math.floor(r() * codes.length)], X + 5, Y + Hd * 0.62);
+    } else if (deco < 0.4 && Wd > 40) { // иллюминаторы
+      const n = Math.floor((Wd - 6) / 7), wy = Y + Hd * (0.3 + r() * 0.4);
+      for (let k = 0; k < n; k++) {
+        cg.fillStyle = '#081018'; cg.fillRect(X + 4 + k * 7, wy, 4, 3);
+        hg.fillStyle = gray(100); hg.fillRect(X + 4 + k * 7, wy, 4, 3);
+        if (r() < 0.7) { eg.fillStyle = r() < 0.8 ? `rgba(255,${210 + r() * 30},${150 + r() * 60},1)` : 'rgba(160,215,255,1)'; eg.fillRect(X + 4.5 + k * 7, wy + 0.6, 3, 1.8); }
       }
-      // заклёпки вдоль краёв
-      if (r() < 0.35) {
-        hg.fillStyle = gray(235); cg.fillStyle = rgb(P, 1.15);
-        for (let k = 8; k < Wd - 6; k += 11) for (const yy of [Y + 5, Y + Hd - 5]) {
-          hg.beginPath(); hg.arc(X + k, yy, 1.8, 0, 7); hg.fill(); cg.beginPath(); cg.arc(X + k, yy, 1.4, 0, 7); cg.fill();
-        }
+    } else if (deco < 0.58 && Wd > 26 && Hd > 26) { // сервисный люк: утопленная рамка
+      const hw = Wd * (0.3 + r() * 0.35), hh = Hd * (0.3 + r() * 0.35), hx = X + (Wd - hw) * r(), hy = Y + (Hd - hh) * r();
+      hg.strokeStyle = gray(95); hg.lineWidth = 1; hg.strokeRect(hx, hy, hw, hh);
+      cg.strokeStyle = 'rgba(15,17,20,0.55)'; cg.lineWidth = 0.7; cg.strokeRect(hx, hy, hw, hh);
+    }
+    // заклёпки вдоль краёв
+    if (r() < 0.3 && kind !== 3) {
+      hg.fillStyle = gray(205); cg.fillStyle = rgb(base, 1.12);
+      for (let k = 5; k < Wd - 4; k += 6) for (const yy of [Y + 3, Y + Hd - 3]) {
+        hg.beginPath(); hg.arc(X + k, yy, 0.9, 0, 7); hg.fill(); cg.beginPath(); cg.arc(X + k, yy, 0.7, 0, 7); cg.fill();
       }
     }
   }
@@ -413,12 +411,12 @@ function hullSet(paint, accent, faction, seed) {
   for (let i = 0; i < 900; i++) {
     const x = r() * W, y = r() * W, l = 20 + r() * 120;
     const gr = cg.createLinearGradient(x, y, x, y + l);
-    gr.addColorStop(0, `rgba(15,12,10,${0.12 + r() * 0.15})`); gr.addColorStop(1, 'rgba(15,12,10,0)');
+    gr.addColorStop(0, `rgba(15,12,10,${(faction === 'pirate' ? 0.14 : 0.05) + r() * 0.08})`); gr.addColorStop(1, 'rgba(15,12,10,0)');
     cg.fillStyle = gr; cg.fillRect(x, y, 2 + r() * 8, l);
     og.fillStyle = `rgba(255,230,0,${0.15})`; og.fillRect(x, y, 2 + r() * 8, l * 0.6);
   }
   for (let i = 0; i < 1500; i++) {
-    cg.fillStyle = `rgba(200,205,210,${r() * 0.18})`;
+    cg.fillStyle = `rgba(200,205,210,${r() * (faction === 'pirate' ? 0.16 : 0.08)})`;
     cg.fillRect(r() * W, r() * W, 1 + r() * 14, 1);
   }
   const tex = (c, srgb) => {
@@ -693,7 +691,7 @@ function pbrMat(paint, faction, opts = {}) {
     map: set.map, normalMap: set.normalMap, normalScale: new THREE.Vector2(1.1, 1.1),
     roughnessMap: set.ormMap, metalnessMap: set.ormMap, roughness: 1, metalness: 1,
     emissiveMap: set.emissiveMap, emissive: 0xffffff, emissiveIntensity: 1.4,
-    clearcoat: faction === 'dark' ? 0 : 0.12, clearcoatRoughness: 0.55, envMapIntensity: 1.2, ...opts
+    clearcoat: faction === 'dark' ? 0 : 0.25, clearcoatRoughness: 0.4, envMapIntensity: 1.2, ...opts
   });
   m.userData.boxUV = true;
   matCache.set(key, m);
@@ -1267,7 +1265,7 @@ function buildShip(type, color, faction) {
       sp.rotation.set(0, 0, a - Math.PI / 2); g.add(sp);
     }
   }
-  applyBoxUV(g, R * 0.55, true);
+  applyBoxUV(g, R * 0.42, true);
   return g;
 }
 
@@ -1394,7 +1392,7 @@ function setEngines(obj, frac, time) {
 // Астероиды
 // ======================================================================
 const astGeoCache = [];
-function asteroidGeo(variant, detail = 5) {
+function asteroidGeo(variant, detail = 24) {
   const ck = variant + ':' + detail;
   if (astGeoCache[ck]) return astGeoCache[ck];
   const n = makeNoise(variant * 977 + 13), n2 = makeNoise(variant * 31 + 7);
@@ -1409,14 +1407,14 @@ function asteroidGeo(variant, detail = 5) {
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i).normalize();
-    let h = 1 + 0.32 * fbm(n, v.x * 1.3, v.y * 1.3, v.z * 1.3, 5) + 0.08 * ridged(n2, v.x * 4, v.y * 4, v.z * 4, 3);
+    let h = 1 + 0.34 * fbm(n, v.x * 1.3, v.y * 1.3, v.z * 1.3, 5) + 0.07 * ridged(n2, v.x * 4, v.y * 4, v.z * 4, 3) + 0.018 * fbm(n2, v.x * 9, v.y * 9, v.z * 9, 3);
     for (const [c, rad, depth] of craters) {
       const d = v.distanceTo(c);
       if (d < rad) { const k = d / rad; h -= depth * (1 - k * k) - (k > 0.75 ? depth * 0.6 * (1 - Math.abs(k - 0.87) * 8) : 0); }
     }
     pos.setXYZ(i, v.x * h * stretch[0], v.y * h * stretch[1], v.z * h * stretch[2]);
-    const shade = 0.55 + 0.35 * fbm(n2, v.x * 3, v.y * 3, v.z * 3, 3) + (h - 1) * 0.6;
-    const vein = smooth(0.62, 0.72, ridged(n, v.x * 2.2 + 5, v.y * 2.2, v.z * 2.2, 3));
+    const shade = 0.62 + 0.25 * fbm(n2, v.x * 3, v.y * 3, v.z * 3, 3) + (h - 1) * 0.3;
+    const vein = smooth(0.66, 0.74, ridged(n, v.x * 2.2 + 5, v.y * 2.2, v.z * 2.2, 3));
     colors.set([shade, shade, vein], i * 3); // b-канал временно хранит прожилки руды
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -1435,20 +1433,24 @@ function rockDetail(mat) {
       .replace('#include <common>', `#include <common>
 varying vec3 vObjP; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;
 ${GLSL_NOISE}`)
-      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse * (0.72 + 0.56 * fbm3(vObjP * 6.0)), opacity );')
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse * (0.74 + 0.36 * fbm3(vObjP * 6.0) + 0.12 * fbm3(vObjP * 31.0)), opacity );')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   { // градиент шума в пространстве объекта → возмущение нормали (без экранных производных)
-    vec3 q = vObjP * 8.0; float e = 0.03; float h0 = fbm3(q);
+    // два слоя: крупные бугры и мелкая «щебёнка» — камень не похож на гладкий пластилин
+    vec3 q = vObjP * 7.0; float e = 0.03; float h0 = fbm3(q);
     vec3 g = vec3(fbm3(q + vec3(e, 0.0, 0.0)) - h0, fbm3(q + vec3(0.0, e, 0.0)) - h0, fbm3(q + vec3(0.0, 0.0, e)) - h0) / e;
-    normal = normalize(normal - mat3(vNM0, vNM1, vNM2) * g * 0.09); }`);
+    vec3 q2 = vObjP * 34.0; float h1 = fbm3(q2);
+    vec3 g2 = vec3(fbm3(q2 + vec3(e, 0.0, 0.0)) - h1, fbm3(q2 + vec3(0.0, e, 0.0)) - h1, fbm3(q2 + vec3(0.0, 0.0, e)) - h1) / e;
+    normal = normalize(normal - mat3(vNM0, vNM1, vNM2) * (g * 0.1 + g2 * 0.03)); }`);
   };
 }
 
 const ORE_LOOK = {
-  ore_ferit: { rock: [0.42, 0.4, 0.38], vein: [0.75, 0.75, 0.78] },
-  ore_korundit: { rock: [0.45, 0.32, 0.22], vein: [0.95, 0.5, 0.2] },
-  ore_arkselit: { rock: [0.3, 0.34, 0.4], vein: [0.3, 0.75, 1.0] },
-  ore_nullium: { rock: [0.25, 0.2, 0.3], vein: [0.8, 0.3, 1.0] },
+  // альбедо настоящего камня в космосе низкое (0,1–0,25): светлые астероиды на солнце выгорали в белые пятна
+  ore_ferit: { rock: [0.11, 0.11, 0.115], vein: [0.3, 0.31, 0.34] },
+  ore_korundit: { rock: [0.14, 0.1, 0.075], vein: [0.85, 0.42, 0.15] },
+  ore_arkselit: { rock: [0.09, 0.1, 0.125], vein: [0.25, 0.65, 0.95] },
+  ore_nullium: { rock: [0.085, 0.07, 0.1], vein: [0.7, 0.25, 0.95] },
   pbase_rock: { rock: [0.2, 0.17, 0.16], vein: [0.5, 0.2, 0.12] } // скала пиратской базы
 };
 const astMatCache = new Map();
@@ -1456,8 +1458,9 @@ const astMatCache = new Map();
 // где разница меньше пикселя. Окраска вершин одна и та же функция от точки — смена уровня незаметна.
 function asteroidModel(radius, seed, ore) {
   const variant = seed % 8;
-  const near = texLevel === 'ultra' ? 8 : texLevel === 'low' ? 3 : 5;
-  const levels = [[near, 0], [3, 22], [1, 70]];
+  // detail у IcosahedronGeometry — число делений ребра: 24 → 12 500 треугольников вблизи (было 5 → 720, «комки»)
+  const near = { low: 10, med: 16, high: 24, ultra: 36 }[texLevel] || 24;
+  const levels = [[near, 0], [Math.max(6, near >> 2), 22], [3, 70]];
   const look = ORE_LOOK[ore] || ORE_LOOK.ore_ferit;
   const lod = new THREE.LOD();
   for (const [detail, d] of levels) {
@@ -1734,12 +1737,40 @@ uniform int ptype; uniform float seed; uniform vec3 sunDir; uniform vec3 tint; u
 varying vec3 vP; varying vec3 vWN;
 float ridge(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * (1.0 - abs(vnoise(p) * 2.0 - 1.0)); p *= 2.1; a *= 0.5; } return s; }
 float fbm8(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 9; i++) { s += a * vnoise(p); p = p * 2.02 + 0.37; a *= 0.5; } return s; }
+float fbm6(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 6; i++) { s += a * vnoise(p); p = p * 2.02 + 0.37; a *= 0.5; } return s; }
+varying mat3 vRot;
+vec3 chash(vec3 p){ p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+// Кратер: в ячейке сетки не больше одного и целиком внутри неё — проверяем только свою ячейку.
+// Возвращает градиент высоты (xyz) и высоту (w); производная профиля аналитическая — без лишних выборок.
+vec4 crater(vec3 p, float f, float amp){
+  vec3 c = floor(p * f); vec3 r = chash(c + seed * 0.37);
+  if (r.x > 0.6) return vec4(0.0);
+  vec3 ctr = (c + 0.3 + r * 0.4) / f; float R = (0.06 + r.y * 0.11) / f;
+  vec3 d = p - ctr; float dist = max(length(d), 1e-5); float k = dist / R;
+  if (k > 1.7) return vec4(0.0);
+  float bowl = k < 1.0 ? k * k - 1.0 : 0.0, dbowl = k < 1.0 ? 2.0 * k : 0.0;
+  float t = (k - 1.0) / 0.24, rim = 0.32 * exp(-t * t), drim = rim * (-2.0 * t / 0.24);
+  return vec4(amp * (dbowl + drim) * d / dist, amp * R * (bowl + rim));
+}
 void main(){
   /*LOGDEPTH*/
   vec3 p = normalize(vP);
   vec3 q = p * 2.2 + seed;
   vec3 col; vec3 em = vec3(0.0);
-  float h = fbm8(q + fbm3(q * 0.8) * 0.6);
+  vec3 warp = fbm3(q * 0.8) * 0.6 * vec3(1.0);
+  float h = fbm8(q + warp);
+  // рельеф для освещения: градиент высоты по трём соседним выборкам (горы, хребты) + кратеры
+  float bumpK = ptype == 0 ? 1.0 : ptype == 5 ? 0.6 : ptype == 3 ? 0.8 : ptype == 2 ? 0.45 : ptype == 4 ? 0.7 : 0.0;
+  vec3 grad = vec3(0.0); float crH = 0.0;
+  if (bumpK > 0.0) {
+    float e = 0.004, h0 = fbm6(q + warp);
+    grad = vec3(fbm6(q + warp + vec3(e, 0.0, 0.0)) - h0, fbm6(q + warp + vec3(0.0, e, 0.0)) - h0, fbm6(q + warp + vec3(0.0, 0.0, e)) - h0) / e * 2.2 * 0.05;
+    if (ptype == 0 || ptype == 2 || ptype == 5) {
+      vec4 c1 = crater(p, 7.0, 1.0), c2 = crater(p, 19.0, 1.0), c3 = crater(p, 53.0, 1.0);
+      float ck = ptype == 0 ? 1.0 : 0.45;
+      grad += (c1.xyz * 0.22 + c2.xyz * 0.18 + c3.xyz * 0.14) * ck; crH = (c1.w * 7.0 + c2.w * 19.0 + c3.w * 53.0) * ck;
+    }
+  }
   if (ptype == 1) {
     float t = fbm3(q * 1.3);
     float band = p.y * 7.0 + (t - 0.5) * 2.2 + (fbm8(vec3(q.x * 3.0, p.y * 40.0, q.z * 3.0)) - 0.5) * 0.4;
@@ -1772,17 +1803,23 @@ void main(){
     col = mix(col, vec3(0.5, 0.33, 0.24), smoothstep(0.6, 0.75, ridge(q * 2.5)) * 0.6);
   } else {
     float r = ridge(q * 2.0);
-    col = mix(vec3(0.22, 0.21, 0.2), vec3(0.6, 0.56, 0.5), smoothstep(0.3, 0.7, h));
-    col = mix(col, vec3(0.75, 0.72, 0.68), smoothstep(0.7, 0.85, r) * 0.5);
+    col = mix(vec3(0.12, 0.115, 0.11), vec3(0.32, 0.305, 0.285), smoothstep(0.3, 0.7, h));
+    col = mix(col, vec3(0.42, 0.4, 0.38), smoothstep(0.7, 0.85, r) * 0.45);
+    col *= 1.0 + clamp(crH * 0.6, -0.25, 0.2);
   }
   col *= tint;
   vec3 n = normalize(vWN);
   float d = dot(n, sunDir);
-  float light = clamp(d * 1.1 + 0.05, 0.0, 1.0);
-  float light2 = clamp(dot(n, sunDir2) * 1.1 + 0.05, 0.0, 1.0); // вторая звезда двойной системы
+  // нормаль с рельефом: градиент высоты проецируем на касательную плоскость и поворачиваем в мир
+  vec3 gt = grad - p * dot(grad, p);
+  if (ptype == 4) gt *= smoothstep(0.52, 0.56, h); // море гладкое
+  vec3 nb = normalize(vRot * normalize(p - gt * bumpK));
+  // свет по рельефу, но ночная сторона остаётся тёмной (терминатор — по геометрической нормали)
+  float light = clamp(dot(nb, sunDir) * 1.05, 0.0, 1.0) * smoothstep(-0.08, 0.12, d);
+  float light2 = clamp(dot(nb, sunDir2) * 1.05, 0.0, 1.0) * smoothstep(-0.08, 0.12, dot(n, sunDir2)); // вторая звезда двойной системы
   float spec = (ptype == 4) ? pow(max(0.0, d), 30.0) * (1.0 - smoothstep(0.52, 0.535, h)) * 0.4 : 0.0;
   float dn = max(d, length(sunCol2) > 0.05 ? dot(n, sunDir2) : -1.0); // ночь — где не светит ни одна звезда
-  vec3 c = col * (light * 1.35 + sunCol2 * light2 * 1.35) + vec3(1.0, 0.95, 0.85) * spec + col * 0.012 + em * (1.0 - smoothstep(-0.15, 0.15, dn));
+  vec3 c = col * (light * 1.15 + sunCol2 * light2 * 1.15) + vec3(1.0, 0.95, 0.85) * spec + col * 0.012 + em * (1.0 - smoothstep(-0.15, 0.15, dn));
   gl_FragColor = vec4(c, 1.0);
 }`;
 
@@ -1801,8 +1838,9 @@ void main(){
   gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * light * 1.2 + sunCol2 * light2 * 1.2, c * 0.85 * amount);
 }`;
 
-const PLANET_VERT = `varying vec3 vP; varying vec3 vWN;
-  void main(){ vP = position; vWN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`;
+const PLANET_VERT = `varying vec3 vP; varying vec3 vWN; varying mat3 vRot;
+  void main(){ vP = position; vWN = normalize(mat3(modelMatrix) * normal);
+    vRot = mat3(normalize(modelMatrix[0].xyz), normalize(modelMatrix[1].xyz), normalize(modelMatrix[2].xyz)); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`;
 
 function planetModel(c) {
   const g = new THREE.Group();
@@ -1960,8 +1998,10 @@ export function init(canvas) {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   renderer.info.autoReset = false;
   renderer.setPixelRatio(Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1)));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.28;
+  // нейтральная тональная кривая (Khronos PBR Neutral): цвета красок остаются своими, а яркие места
+  // мягко сжимаются, а не выгорают в белое, как у ACES (синий корпус не уходит в фиолетовый)
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = SPACE_EXPOSURE;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
@@ -2036,12 +2076,11 @@ export function init(canvas) {
         if (v > 0.002) {
           vec2 a = vec2(aspect, 1.0), d = (vUv - L.xy) * a, ax = vec2(0.5) - L.xy;
           float r = length(d);
-          o += col * v * (0.22 * exp(-r * 10.0) + 0.16 * exp(-abs(d.y) * 300.0) * exp(-abs(d.x) * 3.5));
-          o += v * (vec3(0.2, 0.35, 0.8) * 0.09 * disc((vUv - L.xy - ax * 0.55) * a, 0.028)
-            + vec3(0.8, 0.45, 0.2) * 0.06 * disc((vUv - L.xy - ax * 0.85) * a, 0.05)
-            + vec3(0.3, 0.8, 0.5) * 0.05 * ring((vUv - L.xy - ax * 1.3) * a, 0.07)
-            + vec3(0.6, 0.35, 0.9) * 0.07 * disc((vUv - L.xy - ax * 1.6) * a, 0.018)
-            + vec3(0.25, 0.4, 0.9) * 0.04 * ring((vUv - L.xy - ax * 2.1) * a, 0.12));
+          o += col * v * (0.22 * exp(-r * 10.0) + 0.05 * exp(-abs(d.y) * 300.0) * exp(-abs(d.x) * 5.0));
+          // блики объектива — едва заметные: яркие кольца поверх кораблей выглядели как мусор на экране
+          o += v * (vec3(0.2, 0.35, 0.8) * 0.035 * disc((vUv - L.xy - ax * 0.55) * a, 0.028)
+            + vec3(0.8, 0.45, 0.2) * 0.022 * disc((vUv - L.xy - ax * 0.85) * a, 0.05)
+            + vec3(0.6, 0.35, 0.9) * 0.025 * disc((vUv - L.xy - ax * 1.6) * a, 0.018));
         }
         return o;
       }
@@ -2792,6 +2831,8 @@ export function renderOther(sc, cam) {
   rp.scene = s0; rp.camera = c0;
 }
 export function getRenderer() { return renderer; }
+export const SPACE_EXPOSURE = 1.2;
+export function setExposure(k) { if (renderer) renderer.toneMappingExposure = k; }
 export function getQuality() { return quality; }
 export function envMap() { return scene.environment; }
 // Корабль, стоящий на поверхности: модель в «посадочном» масштабе (капитальные корабли не закрывают полнеба)
@@ -2802,4 +2843,4 @@ export function landedShip(type, color) {
 export function starLook(k) { return STAR_LOOK[k] || STAR_LOOK.yellow; }
 
 // Для отладки рендера из консоли браузера
-export function debugScene() { return { scene, camera, celGroup }; }
+export function debugScene() { return { scene, camera, celGroup, renderer, THREE }; }
