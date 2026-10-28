@@ -569,6 +569,32 @@ class Game {
     this.applyDamage(t, dmg, e);
   }
 
+  // Цепная молния: от поражённой цели разряд перескакивает на ближайшего врага в радиусе, каждый раз слабее.
+  // Врагом считаются пираты, преступники и те, кто напал на стрелка; свои и мирные — никогда
+  arcChain(e, first, dmg, def) {
+    const hitIds = new Set([first.id]);
+    const hostile = (o) => (o.npc && !o.guardian) || o.outlaw || (e.aggressors.get(o.id) || 0) > this.now
+      || (o.type === 'drone' && o.ownerEnt && (e.aggressors.get(o.ownerEnt) || 0) > this.now);
+    let cur = first, k = dmg;
+    for (let j = 0; j < def.arc.jumps; j++) {
+      let best = null, bd = def.arc.range;
+      for (const o of this.ents.values()) {
+        if (o.sys !== e.sys || o === e || o.warp || hitIds.has(o.id) || (o.type !== 'ship' && o.type !== 'drone')) continue;
+        if (o.owner && o.owner === e.owner) continue;
+        if (o.ownerEnt === e.id || !hostile(o)) continue;
+        const d = dist(o.pos, cur.pos);
+        if (d < bd) { bd = d; best = o; }
+      }
+      if (!best) break;
+      k *= def.arc.decay;
+      hitIds.add(best.id);
+      this.fxSys(e.sys, null, { k: 'beam', arc: 1, from: cur.id, to: best.id, color: def.color, hit: true, dur: 0.6, dmg: Math.round(k) });
+      this.applyDamage(best, k, e);
+      if (!this.ents.has(cur.id) && !this.ents.has(best.id)) break;
+      cur = this.ents.get(best.id) || best;
+    }
+  }
+
   applyDamage(t, dmg, src) {
     if (t.invulnUntil && t.invulnUntil > this.now) return;
     if (t.warp) return;
@@ -1299,10 +1325,14 @@ class Game {
       const toBay = DRONES[m.item] ? this.moveToBay(p, h.items, m.item, qty) : 0;
       this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${qty}` + (toBay ? (toBay === qty ? ' — загружено в отсек дронов' : ` — ${toBay} в отсек, остальные в ангар`) : ''), 'good');
     } else if (SHIPS[m.item] && SHIPS[m.item].price > 0) {
-      const cost = Math.round(SHIPS[m.item].price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
+      const T = SHIPS[m.item];
+      if (T.unique && this.ownsShip(p, m.item)) return this.notify(s, `«${T.name}» — уникальный корабль: у пилота может быть только один`, 'warn');
+      const cost = Math.round(T.price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
       if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
       p.credits -= cost;
-      const ship = this.newShip(m.item, false);
+      // уникальный корабль приходит полностью оснащённым: модули, дроны в ангаре, боезапас
+      const ship = this.newShip(m.item, !!T.kit);
+      if (T.kit) { Object.assign(ship.drones, T.kit.drones || {}); Object.assign(ship.cargo, T.kit.cargo || {}); }
       this.hangar(p, st).ships.push(ship);
       this.notify(s, `Куплен корабль «${SHIPS[m.item].name}». Он в ангаре.`, 'good');
       if (m.board) { this.sendProfile(s); return this.c_board(s, { uid: ship.uid }, p); }
@@ -1325,11 +1355,17 @@ class Game {
     this.sendProfile(s);
   }
 
+  ownsShip(p, type) {
+    if (p.ship && p.ship.type === type) return true;
+    return Object.values(p.hangars || {}).some(h => (h.ships || []).some(x => x.type === type));
+  }
+
   c_fit(s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
     const h = this.hangar(p, st);
     const idx = m.slot | 0, item = m.item;
     if (idx < 0 || idx >= p.ship.fit.length || !MODULES[item] || !(h.items[item] > 0)) return;
+    if (MODULES[item].only && MODULES[item].only !== p.ship.type) return this.notify(s, `«${MODULES[item].name}» ставится только на «${SHIPS[MODULES[item].only].name}»`, 'warn');
     if (MODULES[item].slot !== this.slotType(p.ship.type, idx)) return this.notify(s, 'Модуль не подходит к этому слоту', 'warn');
     const old = p.ship.fit[idx];
     if (old) h.items[old] = (h.items[old] || 0) + 1;

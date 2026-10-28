@@ -345,9 +345,9 @@ function hullSet(paint, accent, faction, seed) {
   eg.fillStyle = '#000'; eg.fillRect(0, 0, W, W);
   // Окраска крупными зонами (основной цвет, светлый второй цвет ливреи, голый металл, тёмные технические
   // панели) — корпус читается как цельный, а не «лоскутный»; внутри зоны — тонкие швы, люки, решётки, заклёпки
-  const ZW = { player: [0.64, 0.22, 0.1, 0.04], guard: [0.62, 0.24, 0.1, 0.04], station: [0.55, 0.27, 0.13, 0.05], pirate: [0.5, 0.08, 0.27, 0.15], dark: [0, 0, 0.55, 0.45], cons: [0.6, 0.3, 0.06, 0.04], liga: [0.45, 0.15, 0.22, 0.18], orden: [0.62, 0.1, 0.08, 0.2] }[faction] || [0.64, 0.22, 0.1, 0.04];
+  const ZW = { player: [0.64, 0.22, 0.1, 0.04], guard: [0.62, 0.24, 0.1, 0.04], station: [0.55, 0.27, 0.13, 0.05], pirate: [0.5, 0.08, 0.27, 0.15], dark: [0, 0, 0.55, 0.45], cons: [0.6, 0.3, 0.06, 0.04], liga: [0.45, 0.15, 0.22, 0.18], orden: [0.62, 0.1, 0.08, 0.2], seraph: [0.74, 0.2, 0.04, 0.02] }[faction] || [0.64, 0.22, 0.1, 0.04];
   const pickZone = () => { let t = r(), i = 0; while (i < 3 && t > ZW[i]) { t -= ZW[i]; i++; } return i; };
-  const codes = { pirate: ['СКВ', 'XX', '666', 'РЕЙД'], guard: ['СТРАЖ', 'ГП-1', 'ПОРЯДОК'], cons: ['АИ-7', 'КОНС', 'АРКТУР', 'К-12'], liga: ['ЛИГА', 'ПЛ-3', 'РУБЕЖ', '42'], orden: ['ОРДЕН', 'ОП-1', 'ПРЕДЕЛ'] }[faction] || ['VF', 'ВФ-07', 'ПФ-21', 'АРК', '12', 'Б-3'];
+  const codes = { pirate: ['СКВ', 'XX', '666', 'РЕЙД'], guard: ['СТРАЖ', 'ГП-1', 'ПОРЯДОК'], cons: ['АИ-7', 'КОНС', 'АРКТУР', 'К-12'], liga: ['ЛИГА', 'ПЛ-3', 'РУБЕЖ', '42'], orden: ['ОРДЕН', 'ОП-1', 'ПРЕДЕЛ'], seraph: ['ПР-01', 'СЕРАФИМ', 'Ω'] }[faction] || ['VF', 'ВФ-07', 'ПФ-21', 'АРК', '12', 'Б-3'];
   const panels = [];
   const split = (x, y, w, h, d, zone) => {
     if (d === 2) zone = pickZone();
@@ -682,7 +682,7 @@ function buildSky(sysId, sec, region) {
 // ======================================================================
 const shipCache = new Map();
 const matCache = new Map();
-const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, dark: 0x8a6a2a, station: 0xd08a30, cons: 0xc89a38, liga: 0xd07020, orden: 0x8a5cff };
+const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, dark: 0x8a6a2a, station: 0xd08a30, cons: 0xc89a38, liga: 0xd07020, orden: 0x8a5cff, seraph: 0xd8a842 };
 function pbrMat(paint, faction, opts = {}) {
   const key = paint + ':' + faction;
   if (matCache.has(key)) return matCache.get(key);
@@ -773,12 +773,12 @@ const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 
   strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
   gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16,
   merkuriy: 44, prorab: 85, argus: 110, senator: 300, brodyaga: 42, pastuh: 75, kovcheg: 200, taran: 140,
-  iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290 };
+  iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290, serafim: 600 };
 // Фракционные линейки: свой стиль корпуса, окраски и цвет дюз у каждой фракции
 const DESIGN_FAC = { merkuriy: 'cons', prorab: 'cons', argus: 'cons', senator: 'cons', brodyaga: 'liga', pastuh: 'liga', kovcheg: 'liga', taran: 'liga',
-  iskatel: 'orden', prizma: 'orden', orakul: 'orden', relikvariy: 'orden' };
-const FAC_ENGINE = { cons: 0xa8dcff, liga: 0xff9a3a, orden: 0xb47cff };
-const goldMat = () => matCache.get('gold') || (matCache.set('gold', new THREE.MeshStandardMaterial({ color: 0xd8a842, metalness: 1, roughness: 0.28, envMapIntensity: 1.3 })), matCache.get('gold'));
+  iskatel: 'orden', prizma: 'orden', orakul: 'orden', relikvariy: 'orden', serafim: 'seraph' };
+const FAC_ENGINE = { cons: 0xa8dcff, liga: 0xff9a3a, orden: 0xb47cff, seraph: 0xffdca8 };
+const goldMat = () => matCache.get('gold') || (matCache.set('gold', new THREE.MeshStandardMaterial({ color: 0xe0b050, metalness: 0.85, roughness: 0.32, envMapIntensity: 1.4, emissive: 0x3a2606, emissiveIntensity: 0.7 })), matCache.get('gold'));
 // кристаллы Ордена: светятся изнутри, гладкие
 const crystalMat = () => matCache.get('crystal') || (matCache.set('crystal', new THREE.MeshStandardMaterial({ color: 0x5a38a0, emissive: 0x9a60ff, emissiveIntensity: 1.25, metalness: 0.1, roughness: 0.12 })), matCache.get('crystal'));
 
@@ -1490,6 +1490,50 @@ function buildShip(type, color, faction) {
       for (const x of [-0.14, 0, 0.14]) addEngine(g, R * x, 0, -R * 1.06, R * 0.1, eng);
       greebles(g, R, 30, D, [R * 0.6, R * 0.12, R * 1.2]);
       addLights(g, [[R * 0.6, -R * 0.04, R * 0.2, R * 0.012], [-R * 0.6, -R * 0.04, R * 0.2, R * 0.012]], 0xc090ff);
+      break;
+    }
+    // ===== «Серафим» — уникальный флагман-носитель: белый клинок, золотые крылья, сердце-реактор, нимб =====
+    case 'serafim': {
+      const G = goldMat(), dawn = 0xffe2a0;
+      add(lathe(R * 2.2, R * 0.22, [[0, 0.55], [0.06, 0.8], [0.25, 1], [0.55, 0.9], [0.78, 0.6], [0.93, 0.25], [1, 0.02]], 48), M, 0, 0, 0, 1.6, 0.5, 1);
+      add(lathe(R * 1.6, R * 0.14, [[0, 0.5], [0.15, 1], [0.6, 0.85], [0.9, 0.35], [1, 0.05]], 36), M, 0, R * 0.09, -R * 0.12, 0.55, 0.6, 1);
+      // сердце-реактор в золотом гироскопе
+      add(new THREE.SphereGeometry(R * 0.075, 32, 20), glowMat(0xfff0c8, 4), 0, R * 0.17, -R * 0.08);
+      for (const [ax, sp] of [['y', 0.45], ['x', -0.3]]) { const gy = add(new THREE.TorusGeometry(R * 0.11, R * 0.008, 8, 64), G, 0, R * 0.17, -R * 0.08); gy.userData.spin = [ax, sp]; }
+      add(new THREE.TorusGeometry(R * 0.135, R * 0.012, 10, 72), G, 0, R * 0.17, -R * 0.08).rotation.x = Math.PI / 2;
+      // золотые крылья-радиаторы: верхняя и нижняя пара, светящиеся полосы по размаху
+      const glowStrip = glowMat(dawn, 2.2);
+      for (const [y, z, span, chord, tilt] of [[0.03, -0.2, 1.0, 0.62, 0.32], [-0.06, -0.42, 0.62, 0.42, -0.42]]) for (const sd of [1, -1]) {
+        const wg = new THREE.Group(); wg.position.set(sd * R * 0.16, R * y, R * z); wg.rotation.z = sd * tilt; wg.scale.x = sd;
+        wg.add(new THREE.Mesh(wingGeo(R * span, R * chord, R * chord * 0.85, R * 0.018), G));
+        // светящаяся кромка вдоль передней грани крыла (крыло: корень (0, +chord/2) → законцовка (span, chord/2 − sweep))
+        const x1 = R * span, z0 = R * chord * 0.5, z1 = R * chord * 0.5 - R * chord * 0.85, L = Math.hypot(x1, z1 - z0);
+        const edge = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.006, R * 0.006, L, 6), glowStrip);
+        edge.position.set(x1 / 2, 0, (z0 + z1) / 2); edge.rotation.z = Math.PI / 2; edge.rotation.y = Math.atan2(z0 - z1, x1); wg.add(edge);
+        const tipL = new THREE.Mesh(new THREE.SphereGeometry(R * 0.014, 10, 8), glowMat(0xfff0c8, 4)); tipL.position.set(x1, 0, z1 - R * chord * 0.1); wg.add(tipL);
+        g.add(wg);
+      }
+      // излучатели «Копья Зари» вдоль носа
+      for (const sd of [1, -1]) {
+        add(new THREE.CylinderGeometry(R * 0.012, R * 0.02, R * 0.95, 12), D, sd * R * 0.13, -R * 0.02, R * 0.72).rotation.x = Math.PI / 2;
+        for (let k = 0; k < 3; k++) add(new THREE.TorusGeometry(R * 0.028, R * 0.005, 6, 24), glowMat(dawn, 2.6), sd * R * 0.13, -R * 0.02, R * (0.45 + k * 0.17));
+        add(new THREE.SphereGeometry(R * 0.022, 16, 10), glowMat(0xfff4d8, 4.5), sd * R * 0.13, -R * 0.02, R * 1.2);
+      }
+      // подбрюшный ангар дронов с горящими створками
+      add(rbox(R * 0.46, R * 0.1, R * 0.95), M, 0, -R * 0.11, -R * 0.12);
+      const bay = glowMat(0xffc880, 1.5);
+      for (const sd of [1, -1]) for (let k = 0; k < 5; k++) add(new THREE.PlaneGeometry(R * 0.13, R * 0.05), bay, sd * R * 0.232, -R * 0.11, R * (0.26 - k * 0.18)).rotation.y = sd * Math.PI / 2;
+      add(new THREE.PlaneGeometry(R * 0.3, R * 0.6), glowMat(0xffd8a0, 0.9), 0, -R * 0.162, -R * 0.1).rotation.x = Math.PI / 2;
+      // нимб на корме и спицы к корпусу
+      const halo = new THREE.Group(); halo.position.z = -R * 0.78; halo.userData.spin = ['z', 0.18];
+      halo.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.46, R * 0.016, 12, 160), G));
+      halo.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.46, R * 0.006, 8, 160), glowMat(dawn, 3)));
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; halo.add(rod([Math.cos(a) * R * 0.12, Math.sin(a) * R * 0.08, 0], [Math.cos(a) * R * 0.45, Math.sin(a) * R * 0.45, 0], R * 0.006, G)); }
+      g.add(halo);
+      for (const [x, y, r] of [[0, 0, 0.08], [0.17, 0.04, 0.05], [-0.17, 0.04, 0.05], [0.12, -0.06, 0.045], [-0.12, -0.06, 0.045]]) addEngine(g, R * x, R * y, -R * 1.12, R * r, eng);
+      for (const [x, z] of [[0.2, 0.42], [-0.2, 0.42], [0.24, -0.5], [-0.24, -0.5]]) addTurret(g, R * x, R * 0.07, R * z, R * 0.045, D);
+      for (const sd of [1, -1]) add(rbox(R * 0.008, R * 0.012, R * 1.5), G, sd * R * 0.3, R * 0.012, R * 0.05);
+      addLights(g, [[R * 1.12, R * 0.35, -R * 0.55, R * 0.012], [-R * 1.12, R * 0.35, -R * 0.55, R * 0.012], [0, R * 0.25, -R * 0.4, R * 0.01]], 0xffd070);
       break;
     }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
@@ -2722,6 +2766,18 @@ const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
 
 export function addFx(fx, view) {
   const origin = view.origin;
+  if (fx.k === 'beam' && fx.arc) {
+    // «Копьё Зари»: ломаная молния из сегментов, каждый кадр меняет форму; общие материалы на весь разряд
+    const col = new THREE.Color(fx.color || 0xffe0a0);
+    const gm = new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const cm = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).lerp(col, 0.3).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const segs = [];
+    for (let i = 0; i < 12; i++) { const g = new THREE.Mesh(beamGeo, gm), c = new THREE.Mesh(beamGeo, cm); fxGroup.add(g, c); segs.push([g, c]); }
+    const muzzle = sprite(col, 4); fxGroup.add(muzzle);
+    fxList.push({ kind: 'arc', segs, gm, cm, muzzle, from: fx.from, to: fx.to, t: 0, dur: fx.dur || 0.7, w: fx.main ? 1.6 : 1, nextJag: 0, jag: null });
+    if (fx.hit) spark(fx.color, fx.to, entRadius(view, fx.to));
+    return;
+  }
   if (fx.k === 'beam' || fx.k === 'mine') {
     const col = new THREE.Color(fx.color || 0xff4040);
     const glow = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -2792,6 +2848,7 @@ function explosion(pos, size) {
 }
 
 function disposeFx(f) {
+  if (f.segs) { for (const [g, c] of f.segs) fxGroup.remove(g, c); f.gm.dispose(); f.cm.dispose(); }
   for (const k of ['glow', 'core', 'muzzle', 'sprite', 'ring', 'shield', 'flash', 'sparks', 'wave']) if (f[k]) { fxGroup.remove(f[k]); if (f[k].material) f[k].material.dispose(); if (f[k].geometry && f[k].geometry !== beamGeo) f[k].geometry.dispose(); }
   if (f.parts) for (const p of f.parts) { fxGroup.remove(p.s); p.s.material.dispose(); }
   if (f.debris) for (const d of f.debris) { fxGroup.remove(d.d); d.d.geometry.dispose(); }
@@ -2803,6 +2860,29 @@ function updateFx(view, dt, origin) {
     f.t += dt;
     const k = f.t / f.dur;
     if (k >= 1) { disposeFx(f); fxList.splice(i, 1); continue; }
+    if (f.kind === 'arc') {
+      const a = entRel(view, f.from, origin), b = entRel(view, f.to, origin);
+      if (!a || !b) { f.t = f.dur; continue; }
+      const d = a.distanceTo(b), n = f.segs.length, dir = b.clone().sub(a).normalize();
+      // излом обновляется 25 раз в секунду — молния «дрожит», но не мельтешит каждый кадр
+      if (!f.jag || f.t >= f.nextJag) {
+        f.nextJag = f.t + 0.04;
+        const u = new THREE.Vector3(0, 1, 0).cross(dir); if (u.lengthSq() < 1e-4) u.set(1, 0, 0); u.normalize();
+        const v = dir.clone().cross(u);
+        f.jag = Array.from({ length: n + 1 }, (_, i) => { const e = i === 0 || i === n ? 0 : (Math.random() - 0.5) * d * 0.09 * Math.sin(Math.PI * i / n);
+          const e2 = i === 0 || i === n ? 0 : (Math.random() - 0.5) * d * 0.09 * Math.sin(Math.PI * i / n); return [i / n, e, e2]; });
+        f.u = u; f.v = v;
+      }
+      const pts = f.jag.map(([t, e, e2]) => a.clone().lerp(b, t).addScaledVector(f.u, e).addScaledVector(f.v, e2));
+      const w = Math.max(0.5, cam.dist * 0.0014) * f.w, fade = Math.pow(1 - k, 1.2) * (0.75 + 0.25 * Math.random());
+      for (let j = 0; j < n; j++) {
+        const p0 = pts[j], p1 = pts[j + 1], mid = p0.clone().add(p1).multiplyScalar(0.5), L = p0.distanceTo(p1);
+        for (const [m, ww] of [[f.segs[j][0], w * 3], [f.segs[j][1], w * 0.6]]) { m.position.copy(mid); m.lookAt(p1); m.rotateX(Math.PI / 2); m.scale.set(ww, L, ww); }
+      }
+      f.gm.opacity = fade * 0.45; f.cm.opacity = fade;
+      f.muzzle.position.copy(b); f.muzzle.scale.setScalar(w * 18); f.muzzle.material.opacity = fade * 0.8;
+      continue;
+    }
     if (f.glow) {
       // выстрел со станции (оборонная платформа, крепость) задаётся абсолютной точкой
       const a = entRel(view, f.from, origin) || (f.fromPos ? new THREE.Vector3(f.fromPos[0] - origin[0], f.fromPos[1] - origin[1], f.fromPos[2] - origin[2]) : null), b = entRel(view, f.to, origin);
@@ -2998,7 +3078,8 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
   const ps = new THREE.Scene();
   const bgTex = new THREE.CanvasTexture(photoBackdrop(w, h)); bgTex.colorSpace = THREE.SRGBColorSpace;
   ps.background = bgTex; ps.environment = scene.environment; ps.environmentIntensity = 0.75;
-  const m = shipModel(type, 0x4a5058, SHIP_BASE_R[type] || 50, 'player');
+  // единая серия — одна серая окраска; уникальный корабль снимается в собственной белой ливрее
+  const m = shipModel(type, info.unique ? info.color : 0x4a5058, SHIP_BASE_R[type] || 50, 'player');
   ps.add(m);
   setEngines(m, 1.0, 1);
   m.updateMatrixWorld(true);
@@ -3010,7 +3091,7 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
   const warm = new THREE.DirectionalLight(0xffc890, 0.7); warm.position.set(rad * 2, rad * 1.5, rad * 2); ps.add(warm);
   ps.add(new THREE.AmbientLight(0x8090b0, 0.4));
   // ракурс и кадр по классу мощи: лёгкие — сверху и с запасом места, тяжёлые — снизу и во весь кадр
-  const elev = 0.42 - (tier - 1) * 0.12, fill = [0.5, 0.6, 0.68, 0.76, 0.84][tier - 1];
+  const elev = info.unique ? 0.34 : 0.42 - (tier - 1) * 0.12, fill = [0.5, 0.6, 0.68, 0.76, 0.84][tier - 1];
   const cam = new THREE.PerspectiveCamera(30, w / h, rad * 0.01, rad * 100);
   const halfW = Math.tan(THREE.MathUtils.degToRad(15)) * (w / h);
   const dist = rad / (fill * halfW);

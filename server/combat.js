@@ -140,17 +140,21 @@ module.exports = function install(Game) {
     let q = d <= def.optimal ? 1 : Math.pow(0.5, Math.pow((d - def.optimal) / def.falloff, 2));
     const rel = sub(t.vel || [0, 0, 0], e.vel || [0, 0, 0]), los = norm(sub(t.pos, e.pos));
     const trans = len(sub(rel, mul(los, dot(rel, los))));
-    const track = def.dmg > 100 ? 0.55 : def.dmg > 60 ? 0.35 : 0.2; // крупные орудия хуже ведут быстрые цели
+    // крупные орудия хуже ведут быстрые цели; молния «Копья Зари» сама находит цель — от скорости не зависит
+    const track = def.arc ? 0 : def.dmg > 100 ? 0.55 : def.dmg > 60 ? 0.35 : 0.2;
     q *= clamp(1 - track * trans / (250 + d / 40), 0.35, 1);
     const hit = Math.random() < q;
     const fx = { k: 'beam', from: e.id, to: t.id, color: def.color, hit, dur: Math.min(1.2, def.cycle * 0.5) };
+    if (def.arc) { fx.arc = 1; fx.main = 1; fx.dur = 0.8; }
     this.fxSys(e.sys, null, fx);
     if (!hit) return;
     let dmg = def.dmg * (e.stats.dmgMul || 1) * (e.npcDmgMul || 1) * rnd(0.7, 1.3) * (0.5 + 0.5 * Math.min(1, q + 0.3));
+    // по маленьким целям крупные орудия теряют урон — кроме цепной молнии: она создана против роёв
     const sigRes = def.dmg > 100 ? 160 : def.dmg > 60 ? 80 : 40;
-    dmg *= clamp(((t.stats && t.stats.sig) || 100) / sigRes, 0.25, 1);
+    if (!def.arc) dmg *= clamp(((t.stats && t.stats.sig) || 100) / sigRes, 0.25, 1);
     fx.dmg = Math.round(dmg);
     this.applyDamage(t, dmg, e);
+    if (def.arc) this.arcChain(e, t, dmg, def);
   };
 
   // ---------- развёртываемые турели ----------

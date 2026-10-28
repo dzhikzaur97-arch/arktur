@@ -1830,8 +1830,13 @@ function artImg(type, cls = 'ship-art') {
 // Фракционные корабли: метка фракции, описание и почему нельзя купить здесь (зеркало проверки сервера)
 const REP_NAME = (v) => v >= 40 ? 'Союзник' : v >= 15 ? 'Уважение' : 'Нейтралитет';
 function shipFaction(type) { const t = S.data.ships[type]; return t && t.fac ? (S.data.factions || {})[t.fac] : null; }
+function ownsShip(type) {
+  const p = S.prof; if (!p) return false;
+  return p.ship.type === type || ((p.hangar || {}).ships || []).some(x => x.type === type) || (p.assets || []).some(a => a.ships.includes(type));
+}
 function shipLockReason(type) {
   const t = S.data.ships[type], f = shipFaction(type);
+  if (t && t.unique && ownsShip(type)) return 'уникальный корабль: у вас он уже есть';
   if (!f) return null;
   const st = S.docked && S.stationById ? S.stationById[S.docked.id] : null, sys = st && S.sysById ? S.sysById[st.sys] : null;
   const region = (sys && sys.region) || (S.sys && S.sys.region);
@@ -1842,6 +1847,7 @@ function shipLockReason(type) {
 }
 function shipFacHTML(type) {
   const t = S.data.ships[type], f = shipFaction(type);
+  if (t && t.unique) return `<div class="fac-tag" style="--fc:#ffd27a"><b>Уникальный</b> · один на пилота · ${esc(t.maker || '')}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
   if (!f) return '';
   return `<div class="fac-tag" style="--fc:${f.color}"><b>${esc(f.short)}</b> · ${esc(f.shipyard)} · репутация: ${esc(REP_NAME(t.rep || 0))}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
 }

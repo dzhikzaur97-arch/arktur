@@ -276,6 +276,20 @@ const SHIPS = {
     bonus: { missile: 0.4, missileSpeed: 0.3, damage: 0.15, pd: 0.5 }, desc: 'Линкор на технологиях Предтеч: ракеты +40% урона и +30% скорости, +15% урона орудий, ускоренная ПРО. Только для союзников Ордена.',
     lore: 'Корпус выращен вокруг найденного в Глубине реликтового ядра — кристаллический гребень на спине светится, даже когда реактор заглушен.',
     req: { gunnery: 4, shields: 3 }
+  },
+  // ===== Уникальный флагман: один на пилота =====
+  serafim: {
+    name: 'Серафим', cls: 'Флагман-носитель «Предвестник»', price: 25000000, color: 0xeef0f4, unique: true, code: 'ПР-01',
+    maker: 'Небесная верфь Предела (последний заказ Предтеч)', length: 2600, crew: '900 + 120 операторов дронов',
+    maxSpeed: 125, align: 13, warpSpeed: 2.5, sig: 520, radius: 600,
+    shield: 28000, armor: 22000, hull: 24000, cap: 9000, capRegen: 95,
+    cargo: 3000, slots: { high: 6, mid: 6, low: 5 }, maxLocks: 10, lockRange: 100000, lockTime: 3.5,
+    bonus: { drones: 0.75, damage: 0.2, pd: 0.6, turrets: 1 },
+    defaultFit: ['arc_lance', 'arc_lance', 'rail_l', 'rail_l', 'ml_heavy', null, 'shield_booster_l', 'shield_booster_l', 'pd_1', 'pd_1', 'afterburner', null, 'armor_rep', 'dmg_amp', 'dmg_amp', null, null],
+    kit: { drones: { drone_heavy: 6, drone_goliath: 4 }, cargo: { msl_torp: 40 } },
+    desc: 'Уникальный флагман-носитель — один на пилота. Два «Копья Зари» (цепная молния бьёт цель и перескакивает ещё на 4 врагов, не теряя урона по мелким целям), ангар дронов 1 200 м³ и до 12 дронов в бою с +75% к урону, +20% урона орудий, ускоренная ПРО. Поставляется полностью оснащённым, с 10 дронами в ангаре.',
+    lore: 'Чертежи нашли в ковчеге Предтеч: корабль должен был «вести рои меж звёзд». Белоснежный корпус-клинок, золотые крылья-радиаторы, сердце-реактор, светящееся сквозь броню, и вращающийся нимб излучателя на корме. Небесная верфь собирает по одному «Серафиму» на пилота и никогда не повторяет серийный номер.',
+    req: { drones: 4, gunnery: 4, shields: 3 }
   }
 };
 
@@ -327,7 +341,11 @@ Object.assign(MODULES, {
   miner_x:  { name: 'Квантовый бур «Жила»', slot: 'high', kind: 'miner', price: 380000, yield: 260, cycle: 7, cap: 10, range: 18000, color: 0xffe060, vol: 10, elite: true },
   shield_x: { name: 'Щит Предтеч', slot: 'mid', kind: 'shieldRep', price: 520000, amount: 480, cycle: 4, cap: 45, vol: 15, elite: true },
   dmg_x:    { name: 'Нейроусилитель «Ярость»', slot: 'low', kind: 'passive', price: 480000, passive: { damage: 0.3 }, vol: 5, elite: true },
-  speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true }
+  speed_x:  { name: 'Варп-ускоритель «Призрак»', slot: 'low', kind: 'passive', price: 300000, passive: { speed: 0.3 }, vol: 5, elite: true },
+  // уникальное оружие «Серафима»: цепная молния — бьёт цель и перескакивает на ближайших врагов, каждый прыжок слабее.
+  // Не теряет урон по маленьким целям (дронам, перехватчикам) — создано против роёв
+  arc_lance: { name: 'Копьё Зари', slot: 'high', kind: 'weapon', price: 1500000, dmg: 300, cycle: 4, cap: 16, optimal: 32000, falloff: 12000, color: 0xffe2a0, vol: 25, elite: true, only: 'serafim',
+    arc: { jumps: 4, range: 14000, decay: 0.75 } }
 });
 // Ракеты, ПРО: ракеты — отдельные снаряды (летят, их можно сбить), урон зависит от сигнатуры цели
 Object.assign(MODULES, {
@@ -382,7 +400,7 @@ for (const [id, m] of Object.entries({ ...MODULES })) {
 }
 
 // нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
-for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : 0.12) * 10) / 10;
+for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : m.arc ? 0.07 : 0.12) * 10) / 10;
 for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
@@ -452,7 +470,7 @@ const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: 
   strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5],
   gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0],
   merkuriy: [0, 0], prorab: [40, 4], argus: [60, 5], senator: [150, 5], brodyaga: [15, 2], pastuh: [100, 5], kovcheg: [25, 3], taran: [50, 4],
-  iskatel: [10, 2], prizma: [15, 2], orakul: [200, 5], relikvariy: [150, 5] };
+  iskatel: [10, 2], prizma: [15, 2], orakul: [200, 5], relikvariy: [150, 5], serafim: [1200, 12] };
 for (const [id, [bay, max]] of Object.entries(DRONE_CAPS)) { SHIPS[id].droneBay = bay; SHIPS[id].maxDrones = max; }
 // Назначение и класс мощи (I–V) — для каталога флота и единой серии фото
 const SHIP_ROLES = {
@@ -469,7 +487,8 @@ const SHIP_ROLE = { iskra: ['explore', 1], sokol: ['explore', 1], staratel: ['mi
   bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5],
   merkuriy: ['transport', 1], prorab: ['mining', 2], argus: ['combat', 3], senator: ['combat', 5],
   brodyaga: ['explore', 1], pastuh: ['carrier', 2], kovcheg: ['transport', 3], taran: ['combat', 4],
-  iskatel: ['explore', 2], prizma: ['combat', 2], orakul: ['carrier', 3], relikvariy: ['combat', 5] };
+  iskatel: ['explore', 2], prizma: ['combat', 2], orakul: ['carrier', 3], relikvariy: ['combat', 5],
+  serafim: ['carrier', 5] };
 // Фракции и их стиль кораблей (общие для сервера и клиента). Репутация: 0 — нейтралитет, 15 — уважение, 40 — союзник
 const FACTION_INFO = {
   cons:  { name: 'Консорциум Арктура', short: 'Консорциум', color: '#e0a64a', regions: ['core'], shipyard: 'Верфи «Арктур-Индастриз»',
