@@ -201,7 +201,7 @@ class Game {
   calcStats(p, ship) {
     const t = SHIPS[ship.type];
     const sk = (p && p.skills) || {};
-    const b = { damage: 0, mining: 0, cargo: 0, speed: 0, scan: 0, drones: 0 };
+    const b = { damage: 0, mining: 0, cargo: 0, speed: 0, scan: 0, drones: 0, rof: 0, hp: 0, capRegen: 0, warp: 0, droneCount: 0 };
     for (const k in (t.bonus || {})) b[k] += t.bonus[k];
     for (const m of ship.fit) if (m && MODULES[m].passive) for (const k in MODULES[m].passive) b[k] += MODULES[m].passive[k];
     b.damage += 0.05 * (sk.gunnery || 0);
@@ -209,11 +209,11 @@ class Game {
     b.speed += 0.05 * (sk.navigation || 0);
     const eng = 1 + 0.05 * (sk.engineering || 0);
     return {
-      maxSpeed: t.maxSpeed * (1 + b.speed), align: t.align, warpSpeed: t.warpSpeed * (1 + 0.1 * (sk.warpnav || 0)), sig: t.sig, radius: t.radius,
-      shield: t.shield * (1 + 0.05 * (sk.shields || 0)), armor: t.armor * (1 + 0.05 * (sk.armor || 0)), hull: t.hull,
-      cap: t.cap * eng, capRegen: t.capRegen * eng, cargo: t.cargo * (1 + b.cargo),
+      maxSpeed: t.maxSpeed * (1 + b.speed), align: t.align, warpSpeed: t.warpSpeed * (1 + 0.1 * (sk.warpnav || 0)) * (1 + b.warp), sig: t.sig, radius: t.radius,
+      shield: t.shield * (1 + 0.05 * (sk.shields || 0)) * (1 + b.hp), armor: t.armor * (1 + 0.05 * (sk.armor || 0)) * (1 + b.hp), hull: t.hull * (1 + b.hp),
+      cap: t.cap * eng, capRegen: t.capRegen * eng * (1 + b.capRegen), cargo: t.cargo * (1 + b.cargo), rof: b.rof,
       maxLocks: t.maxLocks + ((sk.targeting || 0) >= 5 ? 2 : (sk.targeting || 0) >= 3 ? 1 : 0), lockRange: t.lockRange * (1 + 0.1 * (sk.targeting || 0)), lockTime: t.lockTime,
-      dmgMul: 1 + b.damage, mineMul: 1 + b.mining, scanBonus: b.scan, droneMul: b.drones, droneBay: t.droneBay || 0, maxDrones: t.maxDrones || 0
+      dmgMul: 1 + b.damage, mineMul: 1 + b.mining, scanBonus: b.scan, droneMul: b.drones, droneBay: t.droneBay || 0, maxDrones: (t.maxDrones || 0) + Math.floor(b.droneCount)
     };
   }
 
@@ -518,7 +518,7 @@ class Game {
     if (e.cap < def.cap) { mod.active = false; if (e.session) this.notify(e.session, 'Недостаточно энергии в накопителе', 'warn'); return; }
     e.cap -= def.cap;
     mod.cycleStart = this.now;
-    mod.cycleEnd = this.now + def.cycle * 1000;
+    mod.cycleEnd = this.now + def.cycle * 1000 / (def.kind === 'weapon' ? 1 + ((e.stats && e.stats.rof) || 0) : 1); // «Хроноускоритель» — чаще стреляет
     if (def.kind === 'weapon') {
       this.fireWeapon(e, mod, def);
       if (e.owner) {
@@ -1684,6 +1684,7 @@ class Game {
       if (o.npc) v.npc = 1;
       if (o.outlaw) v.ol = 1;
       if (o.guardian) v.gd = 1;
+      if (o.relicGuard) v.rl = 1; // хранители аномалий Предтеч — свой облик
       if (o.civ) { v.civ = 1; v.o = o.name; }
       if (o.aiPilot) v.ai = 1;
       if (o.dealer) { v.dl = 1; v.o = o.name; v.exp = o.expires; }
@@ -1703,6 +1704,7 @@ class Game {
     } else if (o.type === 'wreck') {
       v.r = o.radius;
       v.items = o.items;
+      if (o.relic) { v.rv = o.relic; if (o.sealed) v.sl = 1; }
     }
     return v;
   }
@@ -1771,5 +1773,6 @@ require('./pbases')(Game);
 require('./surface')(Game);
 require('./bot')(Game);
 require('./autoplay')(Game);
+require('./relics')(Game);
 
 module.exports = { Game };

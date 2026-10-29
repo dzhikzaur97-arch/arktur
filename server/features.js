@@ -162,7 +162,7 @@ module.exports = function install(Game) {
   P.c_droneLaunch = function (s, m, p, e) {
     if (!e || e.warp) return;
     const bay = this.droneBay(p.ship);
-    let free = SHIPS[p.ship.type].maxDrones - this.myDrones(e).length;
+    let free = ((e.stats && e.stats.maxDrones) || SHIPS[p.ship.type].maxDrones) - this.myDrones(e).length; // «Рой-матрица» добавляет дронов
     if (free <= 0) return this.notify(s, 'Выпущено максимальное число дронов', 'warn');
     let n = 0;
     for (const id of Object.keys(bay)) {
@@ -186,7 +186,7 @@ module.exports = function install(Game) {
       pos: add(owner.pos, [rnd(-150, 150), rnd(-80, 80), rnd(-150, 150)]), vel: owner.vel.slice(), heading: [0, 0, 1],
       stats: { maxSpeed: def.speed, align: 0.6, sig: 20, shield: 1, armor: 1, hull: hp, radius: 6 }, shield: 0, armor: 0, hull: hp,
       cmd: { type: 'orbit', target: owner.id, range: 500 }, speedFrac: 1, modules: [], radius: 6,
-      aggressors: new Map(), task: 'idle', target: null, nextCycle: 0, mul: 1 + 0.1 * ((p && p.skills.drones) || 0) + ((SHIPS[owner.shipType].bonus || {}).drones || 0)
+      aggressors: new Map(), task: 'idle', target: null, nextCycle: 0, mul: 1 + 0.1 * ((p && p.skills.drones) || 0) + ((owner.stats && owner.stats.droneMul) || ((SHIPS[owner.shipType].bonus || {}).drones || 0))
     };
     this.ents.set(d.id, d);
     return d;
@@ -275,7 +275,7 @@ module.exports = function install(Game) {
     const count = {};
     for (const a of [...this.anoms.values()]) {
       if (a.expires < this.now) { this.removeAnomaly(a); continue; }
-      if (!a.owner && !a.fortress && a.kind !== 'pbase') count[a.sys] = (count[a.sys] || 0) + 1;
+      if (!a.owner && !a.fortress && a.kind !== 'pbase' && !a.relic) count[a.sys] = (count[a.sys] || 0) + 1;
     }
     for (const sys of Object.values(this.U.systems)) {
       const sec = sys.def.sec;

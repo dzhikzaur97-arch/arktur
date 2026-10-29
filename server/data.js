@@ -329,6 +329,7 @@ const ITEMS = {
   salv_scrap:    { name: 'Металлолом', cat: 'Трофеи', vol: 1, base: 600 },
   salv_core:     { name: 'Пиратское ядро', cat: 'Трофеи', vol: 2, base: 6000 },
   salv_relic:    { name: 'Древняя реликвия', cat: 'Трофеи', vol: 5, base: 40000 },
+  rel_ioncrystal: { name: 'Ионный кристалл', cat: 'Трофеи', vol: 0.5, base: 3500 },
   courier_pack:  { name: 'Опечатанный контейнер', cat: 'Миссия', vol: 5, base: 0, noSell: true },
   energy_cell:   { name: 'Энергоячейка', cat: 'Энергия', vol: 0.5, base: 250, consumable: true },
   msl_std:       { name: 'Ракета «Игла»', cat: 'Боеприпасы', vol: 0.5, base: 150, consumable: true },
@@ -347,6 +348,19 @@ Object.assign(MODULES, {
   // Не теряет урон по маленьким целям (дронам, перехватчикам) — создано против роёв
   arc_lance: { name: 'Копьё Зари', slot: 'high', kind: 'weapon', price: 1500000, dmg: 300, cycle: 4, cap: 16, optimal: 32000, falloff: 12000, color: 0xffe2a0, vol: 25, elite: true, only: 'serafim',
     arc: { jumps: 4, range: 14000, decay: 0.75 } }
+});
+// Артефакты Предтеч — уникальное оборудование из особых аномалий (хранилища, спящие стражи, ионные штормы,
+// кладбища флота). Не продаются нигде, но улучшаются до 5 уровня. Новые эффекты: rof — скорострельность орудий,
+// hp — щит, броня и корпус, capRegen — перезарядка накопителя, warp — скорость варпа, droneCount — дронов в бою
+Object.assign(MODULES, {
+  art_resonator: { name: 'Резонатор щита Предтеч', slot: 'mid', kind: 'shieldRep', price: 900000, amount: 620, cycle: 4, cap: 30, vol: 10, elite: true, artifact: true },
+  art_chrono:    { name: 'Хроноускоритель «Миг»', slot: 'low', kind: 'passive', price: 950000, passive: { rof: 0.2 }, vol: 5, elite: true, artifact: true },
+  art_compass:   { name: 'Компас Предтеч', slot: 'mid', kind: 'passive', price: 600000, passive: { scan: 1, warp: 0.35 }, vol: 5, elite: true, artifact: true },
+  art_heart:     { name: 'Сердце Стража', slot: 'low', kind: 'passive', price: 1200000, passive: { hp: 0.18 }, vol: 5, elite: true, artifact: true },
+  art_prism:     { name: 'Призматическая линза', slot: 'high', kind: 'weapon', price: 1100000, dmg: 150, cycle: 2.6, cap: 8, optimal: 26000, falloff: 9000, color: 0x80ffe0, vol: 10, elite: true, artifact: true },
+  art_ioncap:    { name: 'Ионный конденсатор', slot: 'low', kind: 'passive', price: 700000, passive: { capRegen: 0.6 }, vol: 5, elite: true, artifact: true },
+  art_anchor:    { name: 'Гравитационный якорь', slot: 'mid', kind: 'scram', price: 800000, range: 24000, cycle: 5, cap: 8, vol: 10, elite: true, artifact: true },
+  art_swarm:     { name: 'Рой-матрица', slot: 'low', kind: 'passive', price: 1000000, passive: { drones: 0.35, droneCount: 2 }, vol: 5, elite: true, artifact: true }
 });
 // Ракеты, ПРО: ракеты — отдельные снаряды (летят, их можно сбить), урон зависит от сигнатуры цели
 Object.assign(MODULES, {
@@ -402,7 +416,7 @@ for (const [id, m] of Object.entries({ ...MODULES })) {
 
 // нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
 for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : m.arc ? 0.07 : 0.12) * 10) / 10;
-for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
+for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.artifact ? 'Артефакты Предтеч' : m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
 // Классы: лёгкие перехватчики → средние → тяжёлые → стационарные «часовые» → огромные бастионы и штурмовики.
@@ -529,6 +543,10 @@ const NPCS = {
             loot: [['salv_core', 1, 3, 6], ['drone_heavy', 0.5, 1, 3], ['salv_relic', 0.4, 1, 2], ['pd_2', 0.2, 1, 1]] },
   swarm:  { name: 'Рой Скверны', ship: 'strizh', bounty: 3000, dmgMul: 0.6, hpMul: 0.4, weapon: 'laser_s', guns: 1, speedMul: 1.3, loot: [['salv_scrap', 0.3, 1, 1]] },
   pdrone: { name: 'Дрон Скверны', ship: 'pdrone', bounty: 2500, dmgMul: 0.5, hpMul: 1, weapon: 'laser_s', guns: 1, speedMul: 1.2, loot: [['salv_scrap', 0.2, 1, 1]] },
+  // хранитель аномалии «Спящий страж» — корабль Предтеч, пробуждённый пилотом
+  sentinel: { name: 'Страж Предтеч', ship: 'relikvariy', bounty: 350000, dmgMul: 0.85, hpMul: 1.6, weapon: 'laser_x', guns: 4, speedMul: 0.5, loot: [['salv_relic', 1, 2, 4], ['salv_core', 1, 3, 6]] },
+  shard: { name: 'Осколок Стража', ship: 'pdrone_h', bounty: 15000, dmgMul: 0.8, hpMul: 1.6, weapon: 'laser_m', guns: 1, speedMul: 1.1, loot: [['salv_core', 0.4, 1, 2]] },
+  vaultguard: { name: 'Страж хранилища', ship: 'pdrone', bounty: 4000, dmgMul: 0.6, hpMul: 1.2, weapon: 'laser_s', guns: 1, speedMul: 1.2, loot: [] },
   pdrone_h: { name: 'Тяжёлый дрон Скверны', ship: 'pdrone_h', bounty: 9000, dmgMul: 0.7, hpMul: 1, weapon: 'laser_m', guns: 1, speedMul: 1, loot: [['salv_scrap', 0.5, 1, 2], ['salv_core', 0.15, 1, 1]] },
   pbase:  { name: 'Пиратская база', ship: 'pbase', bounty: 0, dmgMul: 0.9, hpMul: 1, weapon: 'laser_m', guns: 4, speedMul: 0, pd: 'pd_1', loot: [] },
   fortress:{ name: 'Пиратская крепость', ship: 'fortress', bounty: 4000000, dmgMul: 1, hpMul: 1, weapon: 'rail_l', guns: 6, speedMul: 0, launchers: ['ml_heavy', 'ml_heavy', 'ml_light', 'ml_light'], pd: 'pd_2',

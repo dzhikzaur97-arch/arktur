@@ -526,13 +526,16 @@ const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия'], missile: ['➹', 'Ракета'], turret: ['⛫', 'Турель']
 };
-const ANOM_TYPE = { fortress: 'Пиратская крепость', pbase: 'Пиратская база', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок' };
+const ANOM_TYPE = { fortress: 'Пиратская крепость', pbase: 'Пиратская база', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок',
+  vault: 'Хранилище Предтеч', sentinel: 'Спящий страж', ionstorm: 'Ионный шторм', graveyard: 'Кладбище флота' };
+const RELIC_KINDS = ['vault', 'sentinel', 'ionstorm', 'graveyard']; // аномалии Предтеч — награда: артефакт
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
   if (o.kind === 'anomaly' && (o.akind === 'story' || o.akind === 'contract')) return '◈';
   if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
   if (o.kind === 'anomaly' && (o.akind === 'fortress' || o.akind === 'pbase')) return '☠';
+  if (o.kind === 'anomaly' && RELIC_KINDS.includes(o.akind)) return '✦';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
@@ -1918,7 +1921,8 @@ function moduleDesc(d) {
   if (d.kind === 'armorRep') return `+${d.amount} брони / ${d.cycle}с`;
   if (d.kind === 'prop') return `+${d.speedBonus * 100}% скорости`;
   if (d.kind === 'scram') return `блокирует варп цели, ${d.range / 1000} км`;
-  if (d.kind === 'passive') return Object.entries(d.passive).map(([k, v]) => `+${Math.round(v * 100)}% ${{ damage: 'урона', cargo: 'трюма', mining: 'добычи', speed: 'скорости' }[k]}`).join(', ');
+  if (d.kind === 'passive') return Object.entries(d.passive).map(([k, v]) => k === 'droneCount' ? `+${Math.floor(v)} дрона в бою`
+    : `+${Math.round(v * 100)}% ${{ damage: 'урона', cargo: 'трюма', mining: 'добычи', speed: 'скорости', rof: 'скорострельности орудий', hp: 'щита, брони и корпуса', capRegen: 'перезарядки накопителя', warp: 'скорости варпа', scan: 'силы сканера', drones: 'урона дронов' }[k] || k}`).join(', ');
   return '';
 }
 

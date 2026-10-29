@@ -11,7 +11,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 // --- серверные модули в мини-загрузчике CommonJS ---
 // генератор планет общий для сервера и клиента — лежит в public/js
 const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
-const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `

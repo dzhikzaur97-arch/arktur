@@ -1834,7 +1834,8 @@ const ORE_LOOK = {
   ore_korundit: { rock: [0.14, 0.1, 0.075], vein: [0.85, 0.42, 0.15] },
   ore_arkselit: { rock: [0.09, 0.1, 0.125], vein: [0.25, 0.65, 0.95] },
   ore_nullium: { rock: [0.085, 0.07, 0.1], vein: [0.7, 0.25, 0.95] },
-  pbase_rock: { rock: [0.2, 0.17, 0.16], vein: [0.5, 0.2, 0.12] } // скала пиратской базы
+  pbase_rock: { rock: [0.2, 0.17, 0.16], vein: [0.5, 0.2, 0.12] },
+  rel_ioncrystal: { rock: [0.05, 0.065, 0.1], vein: [0.35, 0.95, 1.2] } // ионный шторм: тёмный камень с голубыми прожилками // скала пиратской базы
 };
 const astMatCache = new Map();
 // Астероид с уровнями детализации (LOD): вблизи — плотная сетка, вдали — грубее; переходы на расстояниях,
@@ -2103,6 +2104,36 @@ function wreckModel(radius) {
 // ======================================================================
 // Небесные тела
 // ======================================================================
+// Объекты аномалий Предтеч: хранилище (монолит в кристаллической оправе, вращающиеся кольца; запечатано — фиолетовое
+// свечение, вскрыто — золотое) и тайник с артефактом (золотой ларец с кристаллом)
+function relicModel(kind, r) {
+  const key = 'relic:' + kind;
+  if (!shipCache.has(key)) {
+    const g = new THREE.Group(), R = kind === 'cache' ? 60 : 160, open = kind !== 'vault';
+    const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+    if (kind === 'cache') {
+      add(rbox(R * 0.9, R * 0.55, R * 0.6), goldMat());
+      add(rbox(R * 0.95, R * 0.12, R * 0.65), chromeMat(), 0, R * 0.3, 0);
+      add(new THREE.OctahedronGeometry(R * 0.22), crystalMat(), 0, R * 0.62, 0).userData.spin = ['y', 1.2];
+    } else {
+      add(new THREE.OctahedronGeometry(R * 0.6), chromeMat(), 0, 0, 0).scale.set(0.8, 1.7, 0.8);
+      for (const k of [-1, 1]) add(new THREE.OctahedronGeometry(R * 0.2), crystalMat(), 0, k * R * 1.25, 0).scale.set(0.5, 1.4, 0.5);
+      for (const [rr, ax, sp] of [[0.95, 'y', 0.3], [1.15, 'x', -0.2], [1.3, 'z', 0.15]]) {
+        const ring = add(new THREE.TorusGeometry(R * rr, R * 0.03, 10, 96), open ? goldMat() : chromeMat());
+        ring.rotation.x = Math.PI / 2; ring.userData.spin = [ax, sp];
+      }
+      add(new THREE.TorusGeometry(R * 0.62, R * 0.012, 8, 96), glowMat(open ? 0xffd890 : 0xb47cff, 2.5)).rotation.x = Math.PI / 2;
+    }
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedTextures().glow, color: new THREE.Color(open ? 0xffd080 : 0xa070ff).multiplyScalar(1.6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+    glow.scale.setScalar(R * (kind === 'cache' ? 3 : 4)); glow.userData.relicGlow = true; g.add(glow);
+    shipCache.set(key, g);
+  }
+  const o = shipCache.get(key).clone();
+  o.scale.setScalar(r / (kind === 'cache' ? 60 : 160) * (kind === 'cache' ? 1 : 0.8));
+  o.traverse(c => { if (c.userData.relicGlow) o.userData.flicker = c; });
+  return o;
+}
+
 const PLANET_LOOK = {
   'Каменистая': { atmo: 0x9ab0c8, atmoK: 0.6 },
   'Газовый гигант': { atmo: 0xffc890, atmoK: 1.2 },
@@ -2556,17 +2587,17 @@ function makeEnt(e, data) {
   let obj;
   if (e.k === 's') {
     const t = data.ships[e.st];
-    const faction = e.gd ? 'guard' : e.npc ? 'pirate' : 'player';
-    const col = e.gd ? 0xd8e4f0 : e.npc ? 0x4a3a38 : t.color;
+    const faction = e.gd ? 'guard' : e.rl ? 'relic' : e.npc ? 'pirate' : 'player'; // rl — хранители аномалий Предтеч
+    const col = e.gd ? 0xd8e4f0 : e.rl ? 0x2a2438 : e.npc ? 0x4a3a38 : t.color;
     obj = shipModel(e.st, col, e.r || t.radius, faction);
   } else if (e.k === 'd') obj = droneModel(e.item, data.drones[e.item]);
   else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
-  else if (e.k === 'w') obj = wreckModel(e.r || 60);
+  else if (e.k === 'w') obj = e.rv ? relicModel(e.rv, e.r || 120) : wreckModel(e.r || 60);
   else if (e.k === 'm') obj = missileModel(e.c || 0xffa040, e.tp);
   else if (e.k === 't') obj = turretModel();
   else return null;
   entGroup.add(obj);
-  const rec = { obj, kind: e.k, seen: 0 };
+  const rec = { obj, kind: e.k, seen: 0, rv: e.rv };
   entMeshes.set(e.id, rec);
   return rec;
 }
@@ -2710,7 +2741,9 @@ export function frame(view, dt, time) {
 
   for (const rec of entMeshes.values()) rec.seen = 0;
   for (const e of view.ents.values()) {
-    const rec = entMeshes.get(e.id) || makeEnt(e, view.data);
+    let rec = entMeshes.get(e.id);
+    if (rec && e.k === 'w' && rec.rv !== e.rv) { removeEnt(e.id); rec = null; } // хранилище вскрыто — меняем облик
+    rec = rec || makeEnt(e, view.data);
     if (!rec) continue;
     rec.seen = 1;
     const rel = [e.dp[0] - origin[0], e.dp[1] - origin[1], e.dp[2] - origin[2]];
@@ -2733,7 +2766,7 @@ export function frame(view, dt, time) {
       if (quality !== 'low' && Math.hypot(...rel) < 80000 * distK()) updateTrail(e.id, e.dp, e.dh || e.h || [0, 0, 1], e.tp ? 14 : 8, 1, e.c || 0xffa040, origin, time, false);
     } else if (e.k === 't') { const head = rec.obj.userData.head; if (head) head.rotation.y = time * 0.6; setEngines(rec.obj, 0.2, time); }
     else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
-    else if (e.k === 'w') rec.obj.userData.flicker.material.opacity = 0.5 + 0.5 * Math.random();
+    else if (e.k === 'w') { const fl = rec.obj.userData.flicker; if (fl && fl.material) fl.material.opacity = e.rv ? 0.75 + 0.25 * Math.sin(time * 3) : 0.5 + 0.5 * Math.random(); if (e.rv) setEngines(rec.obj, 0.2, time); }
   }
   for (const [id, rec] of [...entMeshes]) if (!rec.seen) removeEnt(id);
 
