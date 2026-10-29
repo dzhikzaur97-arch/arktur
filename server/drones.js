@@ -5,7 +5,7 @@
 // - «Монолит» отвлекает пиратов на себя, «Медик» чинит корабль и других дронов хозяина;
 // - шахтёрские дроны сами берут астероид, ближайший к кораблю.
 'use strict';
-const { DRONES, ITEMS } = require('./data');
+const { DRONES, ITEMS, SHIPS } = require('./data');
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -29,10 +29,30 @@ module.exports = function install(Game) {
     return d;
   };
 
-  // броня тяжёлых и огромных дронов поглощает часть урона
+  // броня тяжёлых и огромных дронов поглощает часть урона.
+  // «Покров» флагмана (droneShield): урон по дронам рядом с ним принимает щит флагмана — рой не гибнет, пока жив корабль.
+  // Остальные дроны при сильных повреждениях сами уходят в отсек (там чинятся), а не дерутся до гибели
   P.applyDamage = function (t, dmg, src) {
-    if (t.type === 'drone' && t.resist) dmg *= 1 - t.resist;
-    return baseApplyDamage.call(this, t, dmg, src);
+    if (t.type !== 'drone') return baseApplyDamage.call(this, t, dmg, src);
+    if (!this.ents.has(t.id)) return; // дрон уже в отсеке или уничтожен — запоздалые попадания не считаются
+    if (t.resist) dmg *= 1 - t.resist;
+    const owner = this.ents.get(t.ownerEnt), cover = owner && (SHIPS[owner.shipType] || {}).droneShield;
+    if (cover && owner.sys === t.sys && !owner.warp && dist(owner.pos, t.pos) < 40000) {
+      t.lastHitAt = this.now;
+      if (src) { t.aggressors.set(src.id, this.now + 60000); t.lastAttacker = src.id; }
+      if (!t.coverFx || this.now - t.coverFx > 900) { t.coverFx = this.now; this.fxSys(t.sys, null, { k: 'beam', arc: 1, from: owner.id, to: t.id, color: 0xffe2a0, hit: true, dur: 0.35, cover: 1 }); }
+      return this.applyDamage(owner, dmg * cover, src); // полная цепочка урона по кораблю (сложность, повреждения модулей…)
+    }
+    // «последний шанс»: дрон, который ещё не отступал, не гибнет от одного удара — остаётся на волоске и уходит
+    if (owner && t.task !== 'return' && t.hull > t.stats.hull * 0.3 && t.hull - dmg <= 0) dmg = Math.max(0, t.hull - 1);
+    const r = baseApplyDamage.call(this, t, dmg, src);
+    if (owner && this.ents.has(t.id) && t.hull < t.stats.hull * 0.3 && t.task !== 'return') {
+      t.task = 'return'; t.target = null; t.manual = false;
+      const near = owner.sys === t.sys && !owner.warp && dist(owner.pos, t.pos) < 5000;
+      if (t.session && (!owner.retreatNote || this.now - owner.retreatNote > 4000)) { owner.retreatNote = this.now; this.notify(t.session, `Дрон «${t.name}» тяжело повреждён — ${near ? 'принят в отсек' : 'возвращается в отсек'} на ремонт`, 'warn'); }
+      if (near) this.scoopDrone(t); // рядом с кораблём — сразу в отсек (там он восстанавливается)
+    }
+    return r;
   };
 
   // ручной приказ закрепляет цель, пока она жива

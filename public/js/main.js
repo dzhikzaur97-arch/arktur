@@ -273,6 +273,7 @@ function fxVolume(fx) {
   return Math.max(0, 1 - d / 80000) ** 1.5;
 }
 function playFx(fx) {
+  if (fx.cover) return; // золотая нить «Покрова» — без звука, иначе в бою сплошной треск
   const v = fxVolume(fx);
   if (fx.k === 'beam') { const c = fx.color || 0; ((c >> 16) & 255) > ((c & 255)) ? Sound.laser(v) : Sound.rail(v); }
   else if (fx.k === 'mine') Sound.mine(v * 0.8, Math.min(6, fx.dur || 5));
