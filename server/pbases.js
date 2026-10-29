@@ -210,6 +210,8 @@ module.exports = function install(Game) {
       const id = item === 'elite' ? pick(ELITE) : item;
       items[id] = (items[id] || 0) + Math.floor(rnd(a, b + 1));
     }
+    // редкий чертёж: чем опаснее база, тем вероятнее
+    if (Math.random() < [0.05, 0.1, 0.2, 0.35, 0.6][pb.tier]) { const bp = this.rareBlueprint(); if (bp) items[bp] = 1; }
     const w = { id: 'wr_' + uid(), type: 'wreck', sys: t.sys, pos: t.pos.slice(), vel: [0, 0, 0], radius: 120, name: `Тайник: ${t.name}`, items, expires: this.now + 30 * 60000 };
     this.ents.set(w.id, w);
     // награда делится между всеми, кто участвовал в штурме

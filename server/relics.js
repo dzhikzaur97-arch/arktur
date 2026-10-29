@@ -61,6 +61,7 @@ module.exports = function install(Game) {
     const items = { salv_relic: 1 + Math.floor(Math.random() * 3), salv_core: 2 + Math.floor(Math.random() * 3), ...extra };
     const art = pick(pool); items[art] = 1;
     if (sec < 0.3 && Math.random() < (sec <= 0 ? 0.35 : 0.2)) { const art2 = pick(pool); items[art2] = (items[art2] || 0) + 1; }
+    if (Math.random() < (sec < 0.45 ? 0.35 : 0.2)) { const bp = this.rareBlueprint(); if (bp) items[bp] = 1; } // редкий чертёж
     const w = { id: 'wr_' + uid(), type: 'wreck', sys: a.sys, pos: add(a.pos, [rnd(-800, 800), rnd(-200, 200), rnd(-800, 800)]), vel: [0, 0, 0],
       radius: 120, name: 'Тайник Предтеч', items, relic: 'cache', expires: this.now + 30 * 60000, anom: a.id };
     this.ents.set(w.id, w);

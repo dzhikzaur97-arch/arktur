@@ -413,6 +413,10 @@ function onMsg(m) {
     case 'local': S.members = m.members; renderMembers(); break;
     case 'market': S.market = m; if (S.docked && (S.stTab === 'market' || S.stTab === 'exchange')) renderStation(); break;
     case 'agents': S.agents = m.offers; if (S.docked && S.stTab === 'agents') renderStation(); break;
+    case 'wevent': S.wev = m.sys ? m : null; if (!$('#map').classList.contains('hidden')) drawMap(); break;
+    case 'wing': S.wing = m; if (S.docked && S.stTab === 'wing') renderStation(); break;
+    case 'war': S.war = Object.assign(S.war || {}, m); if (S.docked && S.stTab === 'war') renderStation(); if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); } break;
+    case 'prod': S.prod = m; S.prodAt = performance.now(); if (S.docked && S.stTab === 'prod') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
     case 'infra': S.infra = m; S.infraAt = performance.now(); if (S.win === 'build') renderWin(); break;
     case 'struct':
@@ -550,19 +554,23 @@ const KIND = {
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия'], missile: ['➹', 'Ракета'], turret: ['⛫', 'Турель']
 };
 const ANOM_TYPE = { fortress: 'Пиратская крепость', pbase: 'Пиратская база', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок',
-  vault: 'Хранилище Предтеч', sentinel: 'Спящий страж', ionstorm: 'Ионный шторм', graveyard: 'Кладбище флота' };
+  vault: 'Хранилище Предтеч', sentinel: 'Спящий страж', ionstorm: 'Ионный шторм', graveyard: 'Кладбище флота', front: 'Линия фронта', wevent: 'Мировое событие' };
 const RELIC_KINDS = ['vault', 'sentinel', 'ionstorm', 'graveyard']; // аномалии Предтеч — награда: артефакт
 function iconOf(o) {
-  if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.npc ? '▼' : '▲';
+  if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.wg ? '◆' : o.wf ? '⚔' : o.npc ? '▼' : '▲';
   if (o.kind === 'anomaly' && o.akind === 'black') return '¤';
   if (o.kind === 'anomaly' && (o.akind === 'story' || o.akind === 'contract')) return '◈';
   if (o.kind === 'anomaly' && o.akind === 'event') return '⚠';
+  if (o.kind === 'anomaly' && o.akind === 'front') return '⚔';
+  if (o.kind === 'anomaly' && o.akind === 'wevent') return '☄';
   if (o.kind === 'anomaly' && (o.akind === 'fortress' || o.akind === 'pbase')) return '☠';
   if (o.kind === 'anomaly' && RELIC_KINDS.includes(o.akind)) return '✦';
   return (KIND[o.kind] || ['•'])[0];
 }
 function typeOf(o) {
   if (o.kind === 'ship' && o.dl) return 'Контрабандист';
+  if (o.kind === 'ship' && o.wg) return (o.wg === S.name ? 'Ваш напарник · ' : 'Напарник ' + o.wg + ' · ') + (S.data.ships[o.st] || {}).name;
+  if (o.kind === 'ship' && o.wf) return 'Патруль: ' + facName(o.wf, true) + ' · ' + (S.data.ships[o.st] || {}).name;
   if (o.kind === 'ship') return o.gd ? 'Страж порядка' : (o.lb ? 'ИИ-ученик · ' : '') + (o.ai ? 'ИИ-пилот · ' : '') + (o.ol ? 'Преступник · ' : '') + (S.data.ships[o.st] ? S.data.ships[o.st].name : 'Корабль');
   if (o.kind === 'asteroid') return S.data.items[o.ore].name;
   if (o.kind === 'anomaly') return ANOM_TYPE[o.akind] + (o.done ? ' (зачищено)' : '');
@@ -571,7 +579,7 @@ function typeOf(o) {
 }
 function isHostile(o) {
   if (o.kind !== 'ship') return false;
-  return !!(o.npc || o.cr || o.su || o.ag);
+  return !!(o.npc || o.cr || o.su || o.ag || (o.wf && S.war && S.war.me && o.wf !== S.war.me.fac));
 }
 function allObjects() {
   const list = [];
@@ -1175,13 +1183,13 @@ function updateBrackets() {
     }
     const cls = ['br'];
     if (o.kind === 'ship') {
-      if (o.dl) cls.push('dealer', 'lbl'); else if (o.gd) cls.push('guard'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
+      if (o.dl) cls.push('dealer', 'lbl'); else if (o.gd) cls.push('guard'); else if (o.wg === S.name) cls.push('mydrone'); else if (isHostile(o) && o.wf) cls.push('hostile'); else if (o.npc) cls.push('hostile'); else if (o.civ) cls.push('civ'); else cls.push('player');
       if (o.cr) cls.push('crim'); else if (o.su) cls.push('susp');
       if (o.ol) cls.push('outlaw');
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' || o.akind === 'fortress' || o.akind === 'pbase' ? 'event' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' ? 'story' : o.akind === 'event' || o.akind === 'fortress' || o.akind === 'pbase' || o.akind === 'front' || o.akind === 'wevent' ? 'event' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -2162,6 +2170,148 @@ function factoryHTML() {
   html += '<p class="muted">Готовые материалы появятся в ангаре этой станции. Продать их можно на рынке любой станции.</p>';
   return html;
 }
+// Напарники: найм на станции, приказы в полёте
+const WING_ICON = { combat: '⚔', miner: '⛏', medic: '✚' };
+function wingHTML() {
+  const wg = S.wing;
+  if (!wg) return '<div class="muted">Загрузка…</div>';
+  let html = `<p class="muted">Нанятые пилоты летают рядом с вашим кораблём: следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм или чинят корабль. За победы растут в уровне и пересаживаются на корабли мощнее. Погибший напарник возвращается из ремонта через 5 минут. Приказы — на панели «Напарники» в полёте.</p>`;
+  html += `<h3>Ваша команда <span class="muted">(${wg.list.length} из ${wg.max})</span></h3>`;
+  html += wg.list.length ? wg.list.map(w => `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[w.role]} ${esc(w.name)}</b> · ${esc(w.roleName)} · ур. ${w.lv}
+      <span class="muted">· ${esc(S.data.ships[w.ship].name)}${w.next ? ` · побед ${w.xp}/${w.next}` : ' · максимальный уровень'}${w.dead ? ` · <span class="bad">в ремонте ${fmtTime(w.dead / 1000)}</span>` : ''}${Object.keys(w.hold || {}).length ? ' · в трюме: ' + Object.entries(w.hold).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ') : ''}</span></span>
+      <button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div>`).join('') : '<div class="muted">Пока никого. Наймите пилотов ниже.</div>';
+  html += '<h3>Пилоты ищут работу на этой станции</h3><div class="muted small">Список обновляется каждый час. Плата — разовая.</div>';
+  html += wg.candidates.length ? `<div class="grid-cards">${wg.candidates.map(c => `<div class="shipcard">${artImg(c.ship)}<div class="sname">${WING_ICON[c.role]} ${esc(c.name)}</div>
+      <div class="muted">${esc(wg.roles[c.role].name)} · уровень ${c.lv} · «${esc(S.data.ships[c.ship].name)}»</div><div>${esc(wg.roles[c.role].desc)}</div>
+      <div class="isk">${isk(c.fee)}</div><button class="primary" data-a="wingHire" data-id="${c.id}" ${wg.list.length >= wg.max ? 'disabled' : ''}>Нанять</button></div>`).join('')}</div>` : '<div class="muted">Свободных пилотов нет — загляните через час.</div>';
+  return html;
+}
+function renderWing() {
+  const el = $('#wingp');
+  if (!el) return;
+  if (!S.wingReq) { S.wingReq = true; send({ t: 'wingInfo' }); }
+  const wg = S.wing, fab = $('#wing-fab');
+  if (!wg || !wg.list.length || S.docked) { el.classList.add('hidden'); fab.classList.add('hidden'); return; }
+  el.classList.remove('hidden'); fab.classList.remove('hidden');
+  $('#wing-fab-b').innerHTML = `◆<small>${{ follow: 'за мной', attack: 'атака', mine: 'копать', hold: 'стоять' }[wg.order] || ''}</small>`;
+  const ents = [...S.ents.values()].filter(e => e.wg === S.name);
+  const rows = wg.list.map(w => {
+    const e = ents.find(x => x.n && x.n.startsWith(w.name));
+    const hp = e ? (e.sh + e.ar + e.hu) / 3 : 0;
+    return `<div class="dr-row"><span>${WING_ICON[w.role]} ${esc(w.name.split(' ')[0])} <span class="muted">${w.lv}</span></span><span class="bar hu" style="flex:1"><i style="width:${(hp * 100).toFixed(0)}%"></i></span><span class="muted">${w.dead ? 'ремонт' : e ? '' : '…'}</span></div>`;
+  }).join('');
+  setHTML($('#wing-body'), rows + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять' }[k] || l}</button>`).join('')}</div>`);
+}
+onTap($('#wingp'), (e) => { const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click(); send({ t: 'wingOrder', order: b.dataset.wo }); });
+// телефон: круглая кнопка приказов напарникам рядом с модулями — без открытия боковой панели
+onTap($('#wing-fab'), (e) => {
+  const menu = $('#wing-fab-menu'), b = e.target.closest('[data-wo]');
+  if (b) { Sound.click(); send({ t: 'wingOrder', order: b.dataset.wo }); menu.classList.add('hidden'); return; }
+  if (!e.target.closest('#wing-fab-b') || !S.wing) return;
+  menu.innerHTML = Object.keys(S.wing.orders).map(k => `<button data-wo="${k}" class="${S.wing.order === k ? 'on' : ''}">${{ follow: '◎ За мной', attack: '⚔ Атаковать цель', mine: '⛏ Копать', hold: '■ Стоять' }[k]}</button>`).join('');
+  menu.classList.toggle('hidden');
+});
+// Вкладка «Фронт»: война фракций
+const facCol = (f) => (S.data.factions[f] || {}).color || '#888';
+const facName = (f, short) => (S.data.factions[f] || {})[short ? 'short' : 'name'] || f;
+const sysName = (id) => (S.sysById[id] || {}).name || id;
+function infBars(inf) {
+  const tot = Object.values(inf).reduce((a, b) => a + b, 0) || 1;
+  return `<div class="inf-bar">${Object.entries(inf).map(([f, v]) => `<i style="width:${(v / tot * 100).toFixed(1)}%;background:${facCol(f)}" title="${esc(facName(f, true))}: ${Math.round(v)}"></i>`).join('')}</div>
+    <div class="small muted">${Object.entries(inf).map(([f, v]) => `<span style="color:${facCol(f)}">${esc(facName(f, true))} ${Math.round(v)}</span>`).join(' · ')}</div>`;
+}
+function warHTML() {
+  const w = S.war;
+  if (!w || !w.owner) return '<div class="muted">Загрузка…</div>';
+  const here = w.here, me = w.me;
+  let html = '';
+  if (here) {
+    const cap = here.fac !== here.home;
+    html += `<div class="bm-head" style="border-color:${facCol(here.fac)}"><div class="bm-logo" style="border-color:${facCol(here.fac)};color:${facCol(here.fac)}">⚔</div><div>
+      <div class="bm-name">Станция фракции «${esc(facName(here.fac))}»</div><div class="muted">${cap ? `Система захвачена у фракции «${esc(facName(here.home, true))}» — здесь выдают самые редкие чертежи` : 'Исконная территория фракции'}</div></div></div>`;
+  }
+  if (!me) {
+    html += `<p>Три фракции воюют за пограничные системы. Вступив в войну, вы получаете задания за сторону, знаки отличия за победы и доступ к лавке трофеев: чертежи фракционных кораблей и редкого оружия. Патрули противника на границе будут атаковать вас, а захваченные системы меняют хозяина — со всеми станциями, скидками и кораблями в продаже.</p>`;
+    html += here ? `<button class="primary" data-a="warJoin" data-fac="${here.fac}">Вступить в войну за «${esc(facName(here.fac))}»</button>` : '';
+  } else {
+    html += `<h3>Вы воюете за <span style="color:${facCol(me.fac)}">${esc(facName(me.fac))}</span></h3>
+      <div>Знаков отличия: <b class="isk">${me.medals}</b> · уничтожено кораблей противника: ${me.kills} <button data-a="warLeave" class="danger small-btn">Выйти из войны</button></div>
+      <h3>Задания за сторону</h3>${(me.contracts || []).filter(c => !c.done).map(c => {
+        const prog = c.type === 'strike' ? `${c.prog} / ${c.need} уничтожено` : c.type === 'patrol' ? `${Math.floor(c.prog / 60)}:${String(c.prog % 60).padStart(2, '0')} из ${c.need / 60}:00` : '';
+        const btn = c.type === 'supply' ? (here && here.station === c.station ? `<button class="primary" data-a="warDeliver" data-id="${c.id}">Сдать груз</button>` : `<span class="muted small">сдать на станции «${esc(c.stationName)}» (${esc(c.sysName)})</span>`) : '';
+        return `<div class="mission"><div><b>${{ strike: '⚔ Удар', supply: '⛟ Снабжение', patrol: '◎ Патруль' }[c.type]}</b> — ${esc(c.text)}</div>
+          <div class="small muted">Награда: ${isk(c.isk)} · ${c.medals} знака · +${c.inf} влияния фракции${prog ? ' · ' + prog : ''}</div>${btn}</div>`;
+      }).join('') || '<div class="muted">Новые задания появятся, когда на границе будет за что воевать.</div>'}`;
+    if ((w.shop || []).length) {
+      const groups = { ship: 'Чертежи фракционных кораблей', module: 'Редкие чертежи оружия и модулей', drone: 'Редкие чертежи дронов' };
+      html += '<h3>Лавка трофеев — за знаки отличия</h3>';
+      for (const [k, title] of Object.entries(groups)) {
+        const list = w.shop.filter(x => x.kind === k);
+        if (!list.length) continue;
+        html += `<details class="bp-shop" ${k === 'ship' ? 'open' : ''}><summary>${title} <span class="muted">(${list.length})</span></summary><table class="tbl">${list.map(x => {
+          const bp = S.data.blueprints[x.id];
+          return `<tr><td>${esc(bpOutName(bp))}${x.captured ? ' <span class="muted small">· только на захваченных станциях</span>' : ''}</td><td class="r">${x.cost} ⚔</td>
+            <td class="r">${x.ok ? `<button data-a="warBuy" data-id="${x.id}" ${me.medals < x.cost ? 'disabled' : ''}>Получить</button>` : '<span class="muted small">нужна захваченная станция</span>'}</td></tr>`;
+        }).join('')}</table></details>`;
+      }
+    } else if (here) html += `<div class="muted small">Лавка трофеев работает на станциях вашей фракции.</div>`;
+  }
+  html += '<h3>Линия фронта</h3><div class="muted small">Влияние фракций в пограничных системах. Когда нападающие перевешивают хозяина на 25 и набирают 60 — система переходит к ним. Столицы не сдаются.</div>';
+  html += `<div class="front-list">${w.front.map(id => `<div class="front-row"><div><b>${esc(sysName(id))}</b> <span style="color:${facCol(w.owner[id])}">${esc(facName(w.owner[id], true))}</span>${w.owner[id] !== w.home[id] ? ' <span class="muted small">(захвачена)</span>' : ''}</div>${infBars(w.inf[id] || {})}</div>`).join('')}</div>`;
+  return html;
+}
+// Вкладка «Производство»: заказы, свои чертежи, магазин чертежей
+const BP_KIND = { module: 'Модули', drone: 'Дроны', item: 'Расходники', ship: 'Корабли' };
+const bpOutName = (bp) => bp.kind === 'ship' ? S.data.ships[bp.out].name : S.data.items[bp.out].name;
+function prodCostC(bpId, runs) {
+  const bp = S.data.blueprints[bpId], pr = S.prod, cut = 1 - pr.cut * pr.level, mats = {};
+  for (const [it, q] of Object.entries(bp.mats)) mats[it] = Math.max(1, Math.ceil(q * cut)) * runs;
+  return { mats, fee: bp.fee * runs, time: Math.max(10, Math.round(bp.time * cut)) * runs };
+}
+function prodHTML() {
+  const pr = S.prod;
+  if (!pr) return '<div class="muted">Загрузка…</div>';
+  const p = S.prof, h = (p.hangar || { items: {} }).items, cargo = p.ship.cargo || {};
+  const have = (it) => (h[it] || 0) + (cargo[it] || 0);
+  const mine = Object.keys(S.data.blueprints).filter(id => have(id) > 0);
+  let html = `<div class="bm-head" style="border-color:#3a8ac0"><div class="bm-logo" style="border-color:#60b0ff;color:#60b0ff">⚙</div><div><div class="bm-name">Производство</div>
+    <div class="muted">Линий занято ${pr.jobs.length} из ${pr.maxJobs} · навык «Производство» ${pr.level} (−${Math.round(pr.cut * pr.level * 100)}% материалов и времени)</div></div></div>`;
+  html += '<h3>Заказы</h3>' + (pr.jobs.length ? pr.jobs.map((j, i) => `<div class="mission"><div><b>${esc(j.kind === 'ship' ? S.data.ships[j.out].name : S.data.items[j.out].name)} ×${num(j.qty)}</b> <span class="muted">· ${esc(j.stationName)}</span>
+    <button data-a="prodCancel" data-id="${j.id}" class="danger small-btn" style="float:right">Отменить</button></div>
+    <div class="cap-bar"><i id="pj-${i}" style="width:0%"></i></div><div class="muted" id="pjt-${i}"></div></div>`).join('') : '<div class="muted">Линии свободны.</div>');
+  html += '<h3>Мои чертежи на этой станции</h3>';
+  html += mine.length ? mine.map(id => {
+    const bp = S.data.blueprints[id], c = prodCostC(id, 1);
+    let miss = 0;
+    const mats = Object.entries(c.mats).map(([it, q]) => { const ok = have(it) >= q; if (!ok) miss += (q - have(it)) * S.data.items[it].base * pr.markup; return `<span class="${ok ? 'req-ok' : 'req-no'}">${esc(S.data.items[it].name)} ${num(have(it))}/${num(q)}</span>`; }).join(', ');
+    return `<div class="mission bp-row"><div><b>${esc(bpOutName(bp))}</b>${bp.qty > 1 ? ' ×' + bp.qty : ''} ${bp.rare ? '<span class="fac-tag" style="--fc:#ffb040">редкий</span>' : ''} <span class="muted">· ${BP_KIND[bp.kind]}</span></div>
+      <div class="small">За запуск: ${mats} · сбор ${isk(c.fee)} · ${fmtTime(c.time)}${miss ? ` <span class="muted">· докупить недостающее ≈ ${isk(Math.ceil(miss))}</span>` : ''}</div>
+      <div class="bp-go">Запусков <input class="qty" type="number" min="1" max="50" value="1" id="pr-${id}"> <label class="small"><input type="checkbox" id="pb-${id}" ${miss ? 'checked' : ''}> докупить недостающее</label>
+      <button class="primary" data-a="prodStart" data-bp="${id}">Запустить</button></div></div>`;
+  }).join('') : '<div class="muted">Здесь нет ваших чертежей. Купите чертёж ниже или привезите его в трюме. Редкие чертежи (элитное оружие, фракционные корабли) выпадают в аномалиях Предтеч, на пиратских базах, в мировых событиях и за войну фракций.</div>';
+  html += '<h3>Магазин чертежей</h3><div class="muted small">Чертёж вечный: не тратится, лежит в ангаре. Материалы — с вашего завода переработки, из трофеев или докупаются с наценкой ×' + pr.markup + '. Готовое появляется в ангаре станции заказа, производство идёт и без вас в игре.</div>';
+  for (const [kind, title] of Object.entries(BP_KIND)) {
+    const ids = pr.shop.filter(id => S.data.blueprints[id].kind === kind);
+    if (!ids.length) continue;
+    html += `<details class="bp-shop"><summary>${title} <span class="muted">(${ids.length})</span></summary><table class="tbl">${ids.map(id => {
+      const bp = S.data.blueprints[id], own = have(id) > 0;
+      return `<tr><td>${esc(bpOutName(bp))}${bp.qty > 1 ? ' ×' + bp.qty : ''}<div class="muted small">${Object.entries(bp.mats).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ')} · ${fmtTime(bp.time)}</div></td>
+        <td class="r isk">${num(bp.price)}</td><td class="r">${own ? '<span class="muted">есть</span>' : `<button data-a="bpBuy" data-bp="${id}">Купить</button>`}</td></tr>`;
+    }).join('')}</table></details>`;
+  }
+  return html;
+}
+function updateProd() {
+  const pr = S.prod; if (!pr) return;
+  const now = pr.now + (performance.now() - S.prodAt);
+  pr.jobs.forEach((j, i) => {
+    const bar = document.getElementById('pj-' + i), t = document.getElementById('pjt-' + i);
+    if (!bar) return;
+    const f = Math.max(0, Math.min(1, (now - j.start) / (j.end - j.start)));
+    bar.style.width = (f * 100).toFixed(1) + '%';
+    t.textContent = now >= j.end ? 'Готово — выдаётся…' : `Осталось: ${fmtTime((j.end - now) / 1000)}`;
+  });
+}
 function updateJobs() {
   const st = S.struct; if (!st || !st.mine) return;
   const now = st.now + (performance.now() - S.structAt);
@@ -2288,7 +2438,7 @@ function savesHTML() {
   return `<h3>Сохранения</h3>${st && st.msg ? `<div class="${st.ok ? 'muted' : 'bad'}">${esc(st.msg)}</div>` : ''}
     <div class="muted small">Игра сохраняется автоматически каждые несколько секунд (с резервной копией) и раз в 5 минут — в один из трёх автослотов по кругу.</div>
     <table class="tbl">${rows}</table>
-    <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>`;
+    <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>${cloudHTML()}`;
 }
 // Экспорт сохранения: на claude.ai — через разрешение на скачивание, в обычном браузере — ссылкой
 async function exportSave() {
@@ -2302,6 +2452,90 @@ async function exportSave() {
   const u = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const l = document.createElement('a'); l.href = u; l.download = filename; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
 }
+// ======================================================================
+// Облачная копия (только на claude.ai): сохранение дублируется в личное хранилище страницы.
+// Память браузера на телефоне может быть очищена — облачная копия переживает это и переносится между устройствами.
+// Большое сохранение режется на части (документ хранилища — до 256 КиБ); части пишутся в один из двух наборов
+// по очереди, а описание (какой набор, сколько частей) — последним, так что обрыв записи не портит прежнюю копию.
+const CLOUD = { db: null, uid: null, meta: null, busy: false, last: '', err: '', at: 0 };
+const CLOUD_CHUNK = 80000;
+const cloudDoc = (name) => CLOUD.db.doc('data/users/' + CLOUD.uid + '/' + name);
+const stripWhen = (t) => t.replace(/,"savedAt":\d+\}$/, '}');
+async function cloudInit() {
+  if (!window.claude || !window.claude.use) return;
+  const [db, user] = await Promise.all([window.claude.use('db').catch(() => null), window.claude.use('user').catch(() => null)]);
+  if (!db || !user) return;
+  const uid = await user.id().catch(() => null);
+  if (!uid) return;
+  CLOUD.db = db; CLOUD.uid = uid;
+  try { const m = await cloudDoc('cloud').get(); if (m.exists) CLOUD.meta = m.data(); } catch (e) { CLOUD.err = e.code || 'ошибка чтения'; }
+  const local = window.VF_SAVES.current(), cm = CLOUD.meta;
+  // в облаке есть пилоты, а здесь пусто (память очищена, новое устройство) или облачная копия заметно новее — предлагаем восстановить
+  if (cm && cm.pilots && cm.pilots.length && (!local.pilots.length || cm.when > local.when + 60000)) cloudOffer(cm, local);
+  else cloudStart();
+}
+// предложение восстановить: на экране входа — прямо в форме (окна игры там ещё скрыты), в игре — модальным окном
+function cloudOffer(cm, local) {
+  const info = `Найдена копия игры от <b>${new Date(cm.when).toLocaleString('ru-RU')}</b>: ${esc(cm.pilots.join(', '))}${cm.credits != null ? ' · ' + num(cm.credits) + ' ISK' : ''}.`;
+  const why = local.pilots.length ? 'Она новее, чем сохранение на этом устройстве. Если откажетесь, облачная копия будет заменена текущей игрой.' : 'На этом устройстве сохранения нет — похоже, память браузера была очищена.';
+  const box = document.querySelector('#login .login-box');
+  if (box && getComputedStyle($('#login')).display !== 'none') {
+    const d = document.createElement('div');
+    d.id = 'lg-cloud';
+    d.innerHTML = `<b>☁ Облачное сохранение</b><p>${info}</p><p class="muted small">${why}</p><button class="primary" data-c="1">Восстановить</button> <button data-c="0">Не нужно</button>`;
+    d.onclick = (e) => { const c = e.target.dataset.c; if (c == null) return; d.remove(); if (c === '1') cloudLoad(); else cloudStart(); };
+    box.insertBefore(d, $('#lg-name'));
+  } else modal(`<h3>☁ Облачное сохранение</h3><p>${info}</p><p class="muted">${why}</p>`, [['Не восстанавливать', () => cloudStart()], ['Восстановить', () => cloudLoad(), 'primary']]);
+}
+function cloudStart() {
+  setInterval(() => cloudSave(false), 90000);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cloudSave(false); });
+  setTimeout(() => cloudSave(false), 15000);
+}
+async function cloudSave(manual) {
+  if (!CLOUD.db || CLOUD.busy) return false;
+  window.VF_SAVES.flush();
+  const text = window.VF_SAVES.exportText(), cur = window.VF_SAVES.current();
+  if (!cur.pilots.length) return false;
+  const body = stripWhen(text);
+  if (!manual && body === CLOUD.last) return true;
+  CLOUD.busy = true;
+  try {
+    const set = CLOUD.meta && CLOUD.meta.set === 'a' ? 'b' : 'a', n = Math.ceil(text.length / CLOUD_CHUNK);
+    for (let i = 0; i < n; i++) await cloudDoc('cloud-' + set + i).set({ s: text.slice(i * CLOUD_CHUNK, (i + 1) * CLOUD_CHUNK) });
+    const pl = Object.values(JSON.parse(text).players || {});
+    const meta = { set, n, len: text.length, when: Date.now(), pilots: cur.pilots, credits: pl.reduce((a, p) => a + (p.credits || 0), 0) };
+    await cloudDoc('cloud').set(meta);
+    CLOUD.meta = meta; CLOUD.last = body; CLOUD.err = ''; CLOUD.at = Date.now();
+    if (manual) note('Игра сохранена в облако', 'good');
+    return true;
+  } catch (e) {
+    CLOUD.err = e && e.code === 'quota_exceeded' ? 'хранилище заполнено' : (e && (e.code || e.message)) || 'ошибка записи';
+    if (manual) note('Облако: не удалось сохранить — ' + CLOUD.err, 'bad');
+    return false;
+  } finally { CLOUD.busy = false; }
+}
+async function cloudLoad() {
+  if (!CLOUD.db) return;
+  try {
+    const m = await cloudDoc('cloud').get();
+    if (!m.exists) return note('В облаке нет сохранения', 'warn');
+    const meta = m.data(), parts = [];
+    for (let i = 0; i < meta.n; i++) { const c = await cloudDoc('cloud-' + meta.set + i).get(); if (!c.exists) throw new Error('не хватает части ' + (i + 1)); parts.push(c.data().s); }
+    const text = parts.join('');
+    if (text.length !== meta.len) throw new Error('копия неполная');
+    const r = window.VF_SAVES.importText(text);
+    if (!r.ok) note('Облако: ' + r.msg, 'bad');
+  } catch (e) { note('Облако: не удалось загрузить — ' + ((e && (e.code || e.message)) || 'ошибка'), 'bad'); }
+}
+function cloudHTML() {
+  if (!CLOUD.db) return `<h3>☁ Облачная копия</h3><div class="muted small">Доступна, когда игра открыта на claude.ai под вашим аккаунтом: сохранение дублируется в личное хранилище страницы и переживает очистку памяти браузера.</div>`;
+  const m = CLOUD.meta;
+  return `<h3>☁ Облачная копия</h3><div class="small">${m ? 'Последняя копия: <b>' + new Date(m.when).toLocaleString('ru-RU') + '</b> · ' + esc((m.pilots || []).join(', ')) : 'Копии ещё нет'}${CLOUD.err ? ` <span class="bad">· ${esc(CLOUD.err)}</span>` : ''}</div>
+    <div class="muted small">Игра сама копирует сохранение в облако раз в полторы минуты и при сворачивании. Копия личная — её видите только вы.</div>
+    <p><button data-a="cloudSave">Сохранить в облако сейчас</button> ${m ? '<button data-a="cloudLoad">Загрузить из облака</button>' : ''}</p>`;
+}
+if (OFFLINE) cloudInit();
 function applyCfg() {
   R.setGraphics(effectiveGfx());
   perfShow(CFG.perf);
@@ -2461,6 +2695,9 @@ $('#st-tabs').onclick = (e) => {
   for (const s of $('#st-tabs').children) s.classList.toggle('on', s.dataset.tab === t);
   if (t === 'market' || t === 'exchange') send({ t: 'market' });
   if (t === 'agents') send({ t: 'agents' });
+  if (t === 'prod') send({ t: 'prodInfo' });
+  if (t === 'war') send({ t: 'warInfo' });
+  if (t === 'wing') send({ t: 'wingInfo' });
   renderStation();
 };
 onTap($('#st-body'), onActionClick);
@@ -2532,6 +2769,9 @@ function renderStation() {
     case 'skills': html = skillsHTML(); break;
     case 'ships': html = shipsTabHTML(); break;
     case 'factory': html = factoryHTML(); break;
+    case 'prod': html = prodHTML(); break;
+    case 'war': html = warHTML(); break;
+    case 'wing': html = wingHTML(); break;
   }
   setHTML(el, html);
   if (S.stTab === 'skills') updateSkillProgress();
@@ -2619,6 +2859,17 @@ function onActionClick(e) {
     case 'slotLoad': modal('<p>Загрузить это сохранение? Текущий прогресс будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => { const r = window.VF_SAVES.load(d.id); if (!r.ok) note(r.msg, 'bad'); }, 'primary']]); break;
     case 'slotDel': window.VF_SAVES.del(d.id); renderWin(); break;
     case 'saveExport': exportSave(); break;
+    case 'bpBuy': send({ t: 'bpBuy', bp: d.bp }); break;
+    case 'warJoin': modal(`<p>Вступить в войну за «${esc(facName(d.fac))}»? Патрули противника на границе начнут атаковать вас. Выход из войны сжигает половину знаков отличия.</p>`, [['Отмена', null], ['Вступить', () => send({ t: 'warJoin', fac: d.fac }), 'primary']]); break;
+    case 'warLeave': modal('<p>Выйти из войны? Половина знаков отличия сгорит.</p>', [['Остаться', null], ['Выйти', () => send({ t: 'warLeave' }), 'danger']]); break;
+    case 'warDeliver': send({ t: 'warDeliver', id: d.id }); break;
+    case 'warBuy': send({ t: 'warBuy', id: d.id }); break;
+    case 'wingHire': send({ t: 'wingHire', id: d.id }); break;
+    case 'wingFire': modal('<p>Отпустить напарника? Плата за найм не возвращается.</p>', [['Нет', null], ['Отпустить', () => send({ t: 'wingFire', id: d.id }), 'danger']]); break;
+    case 'prodStart': send({ t: 'prodStart', bp: d.bp, runs: +($('#pr-' + d.bp) || {}).value || 1, buyMissing: !!($('#pb-' + d.bp) || {}).checked }); break;
+    case 'prodCancel': modal('<p>Отменить заказ? Материалы вернутся в ангар станции, сбор не возвращается.</p>', [['Нет', null], ['Отменить заказ', () => send({ t: 'prodCancel', id: d.id }), 'danger']]); break;
+    case 'cloudSave': cloudSave(true).then(() => renderWin()); break;
+    case 'cloudLoad': modal('<p>Загрузить игру из облачной копии? Текущий прогресс на этом устройстве будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => cloudLoad(), 'primary']]); break;
     case 'storyBrief2': send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
@@ -2646,6 +2897,8 @@ function toggleMap() {
       const xs = S.data.systems.map(s => s.x), ys = S.data.systems.map(s => s.y);
       map.x = (Math.min(...xs) + Math.max(...xs)) / 2; map.y = (Math.min(...ys) + Math.max(...ys)) / 2;
       map.z = Math.min((MOBILE ? innerWidth - 30 : innerWidth - 420) / (Math.max(...xs) - Math.min(...xs) + 120), (MOBILE ? innerHeight * 0.62 : innerHeight - 120) / (Math.max(...ys) - Math.min(...ys) + 120));
+      // на телефоне вся галактика не помещается читаемо: чуть крупнее и по центру — текущая система (карту можно двигать пальцем)
+      if (MOBILE && S.sys) { const cur = S.sysById[S.sys.id]; map.z = Math.max(map.z, 0.4); map.x = cur.x * 0.6 + map.x * 0.4; map.y = cur.y * 0.6 + map.y * 0.4; }
       map.init = true;
     }
     map.sel = map.sel || (S.sys && S.sys.id); drawMap(); renderMapInfo();
@@ -2814,8 +3067,8 @@ function drawMapNow() {
       grd.addColorStop(0, reg.color + '26'); grd.addColorStop(1, reg.color + '00');
       g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }
-    g.font = `600 ${Math.max(11, 14 * Math.min(1.4, map.z))}px Segoe UI, sans-serif`; g.textAlign = 'center';
-    g.fillStyle = reg.color + 'bb';
+    g.font = `600 ${MOBILE && map.z < 0.7 ? 9 : Math.max(11, 14 * Math.min(1.4, map.z))}px Segoe UI, sans-serif`; g.textAlign = 'center';
+    g.fillStyle = reg.color + (MOBILE ? '88' : 'bb');
     for (const [x, y] of reg.labels || []) { const [lx, ly] = mapPt({ x, y }); g.fillText(reg.name.toUpperCase() + `  ×${reg.income.toFixed(1)}`, lx, ly); }
   }
   const routeSet = new Set();
@@ -2836,11 +3089,24 @@ function drawMapNow() {
     // двойная звезда: маленький спутник цвета звезды-компаньона
     const st2 = S.data.stars2 && S.data.starTypes[S.data.stars2[s.id]];
     if (st2) { g.fillStyle = '#' + st2.light.toString(16).padStart(6, '0'); g.beginPath(); g.arc(x + 8, y - 6, 2.6, 0, 7); g.fill(); }
+    // война фракций: кольцо цвета владельца, ⚔ — граница
+    if (S.war && S.war.owner) {
+      g.strokeStyle = facCol(S.war.owner[s.id]); g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke();
+      if (S.war.front.includes(s.id)) { g.fillStyle = '#ffdf80'; g.font = '12px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText('⚔', x + 13, y + 9); }
+    }
+    // мировое событие: пульсирующая метка ☄
+    if (S.wev && S.wev.sys === s.id) {
+      const k = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+      g.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * k})`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 15 + 4 * k, 0, 7); g.stroke();
+      g.fillStyle = '#ff7050'; g.font = '600 13px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText('☄ ' + S.wev.name, x, y - 30);
+    }
     if (S.sys && s.id === S.sys.id) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 12, 0, 7); g.stroke(); }
     if (s.id === map.sel) { g.strokeStyle = '#5fc8e8'; g.setLineDash([4, 3]); g.beginPath(); g.arc(x, y, 17, 0, 7); g.stroke(); g.setLineDash([]); }
-    g.fillStyle = '#dde'; g.font = '13px Segoe UI, sans-serif'; g.textAlign = 'center';
-    g.fillText(s.name, x, y - 16);
-    g.fillStyle = col; g.font = '11px Segoe UI, sans-serif'; g.fillText(s.sec.toFixed(1), x, y + 22);
+    // мелкий масштаб на телефоне: подписи мельче, без цифр безопасности (её показывает цвет)
+    const tiny = MOBILE && map.z < 0.7;
+    g.fillStyle = '#dde'; g.font = (tiny ? '10px' : '13px') + ' Segoe UI, sans-serif'; g.textAlign = 'center';
+    g.fillText(s.name, x, y - (tiny ? 13 : 16));
+    if (!tiny) { g.fillStyle = col; g.font = '11px Segoe UI, sans-serif'; g.fillText(s.sec.toFixed(1), x, y + 22); }
   }
 }
 
@@ -2856,8 +3122,11 @@ function renderMapInfo() {
     <span>Доход</span><span class="isk">×${(reg.income || 1).toFixed(1)} к добыче, наградам и заданиям</span>
     <span>Звезда</span><span>${esc(star.name || '')}</span>
     <span>Безопасность</span><span>${s.sec >= 0.5 ? 'высокая — стражи порядка' : s.sec > 0 ? 'низкая — PvP без защиты' : 'нулевая — закона нет'}</span>
+    ${S.war && S.war.owner ? `<span>Владелец</span><span style="color:${facCol(S.war.owner[s.id])}">${esc(facName(S.war.owner[s.id]))}${S.war.owner[s.id] !== S.war.home[s.id] ? ' (захвачена)' : ''}${S.war.front.includes(s.id) ? ' ⚔ граница' : ''}</span>` : ''}
     <span>Станции</span><span>${stations.length || 'нет'}</span><span>Пираты</span><span>${s.sec >= 0.8 ? 'нет' : s.sec >= 0.5 ? 'слабые' : s.sec > 0 ? 'средние' : 'сильные'}</span>
     <span>Руда</span><span>${s.sec >= 0.7 ? 'Ферит, Корундит' : s.sec >= 0.45 ? '+ Аркселит' : s.sec > 0 ? 'Корундит, Аркселит, Нуллий' : s.sec <= -0.8 ? 'Нуллий, Ксенон-кристалл' : 'Аркселит, Нуллий'}</span></div>
+    ${S.wev && S.wev.sys === s.id ? `<div class="bad" style="margin:6px 0">☄ Идёт мировое событие: ${esc(S.wev.name)} — ещё ${fmtTime(Math.max(0, (S.wev.until - S.serverNow()) / 1000))}</div>` : ''}
+    ${S.war && S.war.inf && S.war.inf[s.id] ? '<div class="small" style="margin:6px 0 2px">Влияние фракций</div>' + infBars(S.war.inf[s.id]) : ''}
     ${stations.map(st => `<div class="muted" style="font-size:11px">⌂ ${esc(st.name)}</div>`).join('')}
     ${s.id !== cur ? `<div style="display:flex;gap:6px;margin-top:10px"><button id="mi-route">Проложить маршрут</button><button id="mi-ap" class="primary">Автопилот</button></div>` : '<p class="muted">Вы здесь.</p>'}
     ${S.route.length ? '<button id="mi-clear" style="margin-top:6px">Сбросить маршрут</button>' : ''}`;
@@ -3064,9 +3333,10 @@ function frameBody(now, dt) {
     if (fight) S.fightUntil = now + 8000;
     Music.setCombat(now < (S.fightUntil || 0));
     if (!MOBILE) { const tu = $('#tut'); if (tu && !tu.classList.contains('hidden')) tu.style.top = ($('#sysinfo').getBoundingClientRect().bottom + 8) + 'px'; }
-    if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); }
+    if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); renderWing(); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (S.docked && S.stTab === 'factory') updateJobs();
+    if (S.docked && S.stTab === 'prod') updateProd();
     if (S.win === 'bots' && now - (S.botReq || 0) > 3000) { S.botReq = now; send({ t: 'botInfo' }); }
     if (S.win === 'build' && (S.buildTab || 0) > 0 && now - (S.infraReq || 0) > 3000) { S.infraReq = now; send({ t: 'infraInfo' }); }
     if (S.win === 'black' && S.black) { const t = document.querySelector('.bm-timer'); if (t) t.textContent = fmtTime(Math.max(0, (S.black.expires - S.serverNow()) / 1000)); }

@@ -362,6 +362,14 @@ Object.assign(MODULES, {
   art_anchor:    { name: 'Гравитационный якорь', slot: 'mid', kind: 'scram', price: 800000, range: 24000, cycle: 5, cap: 8, vol: 10, elite: true, artifact: true },
   art_swarm:     { name: 'Рой-матрица', slot: 'low', kind: 'passive', price: 1000000, passive: { drones: 0.35, droneCount: 2 }, vol: 5, elite: true, artifact: true }
 });
+// Трофеи мировых событий — только из тайников побеждённых боссов (вторжение Предтеч, пиратский дредноут).
+// Не продаются и не производятся, но улучшаются до 5 уровня.
+Object.assign(MODULES, {
+  ev_core:   { name: 'Ядро Колосса', slot: 'low', kind: 'passive', price: 1600000, passive: { hp: 0.22, damage: 0.08 }, vol: 5, elite: true, trophy: true },
+  ev_cannon: { name: 'Главный калибр «Левиафан»', slot: 'high', kind: 'weapon', price: 1800000, dmg: 330, cycle: 4.2, cap: 12, optimal: 60000, falloff: 20000, color: 0xff3060, vol: 25, elite: true, trophy: true },
+  ev_aegis:  { name: 'Эгида Предтеч', slot: 'mid', kind: 'shieldRep', price: 1500000, amount: 900, cycle: 4, cap: 40, vol: 15, elite: true, trophy: true },
+  ev_warden: { name: 'Командный модуль «Вожак»', slot: 'mid', kind: 'passive', price: 1200000, passive: { drones: 0.25, damage: 0.06, droneCount: 1 }, vol: 5, elite: true, trophy: true }
+});
 // Ракеты, ПРО: ракеты — отдельные снаряды (летят, их можно сбить), урон зависит от сигнатуры цели
 Object.assign(MODULES, {
   ml_light: { name: 'Ракетная установка «Игла»', slot: 'high', kind: 'launcher', price: 14000, dmg: 70, cycle: 5, cap: 3, range: 32000, speed: 3200, explR: 60, ammo: 'msl_std', color: 0xffa040, vol: 5 },
@@ -416,7 +424,7 @@ for (const [id, m] of Object.entries({ ...MODULES })) {
 
 // нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
 for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : m.arc ? 0.07 : 0.12) * 10) / 10;
-for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.artifact ? 'Артефакты Предтеч' : m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
+for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.artifact ? 'Артефакты Предтеч' : m.trophy ? 'Трофеи мировых событий' : m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
 // Классы: лёгкие перехватчики → средние → тяжёлые → стационарные «часовые» → огромные бастионы и штурмовики.
@@ -508,7 +516,7 @@ const SHIP_ROLE = { iskra: ['explore', 1], sokol: ['explore', 1], staratel: ['mi
 const FACTION_INFO = {
   cons:  { name: 'Консорциум Арктура', short: 'Консорциум', color: '#e0a64a', regions: ['core'], shipyard: 'Верфи «Арктур-Индастриз»',
            style: 'обтекаемые корпуса цвета слоновой кости с золотой отделкой' },
-  liga:  { name: 'Пограничная Лига', short: 'Лига', color: '#d8c27a', regions: ['border', 'low'], shipyard: 'Мастерские Пограничья',
+  liga:  { name: 'Пограничная Лига', short: 'Лига', color: '#6fd88a', regions: ['border', 'low'], shipyard: 'Мастерские Пограничья',
            style: 'грубые модульные корпуса из ферм и контейнеров, оранжевые дюзы' },
   orden: { name: 'Орден Предела', short: 'Орден', color: '#a07cff', regions: ['null', 'deep'], shipyard: 'Лаборатории Предела',
            style: 'плавные «живые» корпуса с кристаллами и кольцами фиолетового света' }
@@ -547,6 +555,8 @@ const NPCS = {
   sentinel: { name: 'Страж Предтеч', ship: 'relikvariy', bounty: 350000, dmgMul: 0.85, hpMul: 1.6, weapon: 'laser_x', guns: 4, speedMul: 0.5, loot: [['salv_relic', 1, 2, 4], ['salv_core', 1, 3, 6]] },
   shard: { name: 'Осколок Стража', ship: 'pdrone_h', bounty: 15000, dmgMul: 0.8, hpMul: 1.6, weapon: 'laser_m', guns: 1, speedMul: 1.1, loot: [['salv_core', 0.4, 1, 2]] },
   vaultguard: { name: 'Страж хранилища', ship: 'pdrone', bounty: 4000, dmgMul: 0.6, hpMul: 1.2, weapon: 'laser_s', guns: 1, speedMul: 1.2, loot: [] },
+  wb_colossus: { name: 'Колосс Предтеч', ship: 'relikvariy', bounty: 0, dmgMul: 1.1, hpMul: 1, weapon: 'laser_x', guns: 6, speedMul: 0.35, loot: [] },
+  wb_dread: { name: 'Дредноут «Левиафан Скверны»', ship: 'citadel', bounty: 0, dmgMul: 1.1, hpMul: 1, weapon: 'rail_x', guns: 6, speedMul: 0.4, loot: [] },
   pdrone_h: { name: 'Тяжёлый дрон Скверны', ship: 'pdrone_h', bounty: 9000, dmgMul: 0.7, hpMul: 1, weapon: 'laser_m', guns: 1, speedMul: 1, loot: [['salv_scrap', 0.5, 1, 2], ['salv_core', 0.15, 1, 1]] },
   pbase:  { name: 'Пиратская база', ship: 'pbase', bounty: 0, dmgMul: 0.9, hpMul: 1, weapon: 'laser_m', guns: 4, speedMul: 0, pd: 'pd_1', loot: [] },
   fortress:{ name: 'Пиратская крепость', ship: 'fortress', bounty: 4000000, dmgMul: 1, hpMul: 1, weapon: 'rail_l', guns: 6, speedMul: 0, launchers: ['ml_heavy', 'ml_heavy', 'ml_light', 'ml_light'], pd: 'pd_2',
@@ -570,7 +580,9 @@ const SKILLS = {
   mining:     { name: 'Добыча', group: 'Промысел', desc: 'Буровые лазеры работают точнее.', step: 5, unit: '%', what: 'добычи руды' },
   scanning:   { name: 'Астрометрия', group: 'Промысел', desc: 'Поиск скрытых аномалий.',
                 levels: ['−1 с скан, +10% шанс', '−2 с скан, +20% шанс', '−3 с скан, +30% шанс', '−4 с скан, +40% шанс', '−5 с скан, +50% шанс'] },
-  trade:      { name: 'Торговля', group: 'Промысел', desc: 'Меньше налог с продаж (базовый 6%).', step: 1, unit: '%', what: 'налога', sign: '−' }
+  trade:      { name: 'Торговля', group: 'Промысел', desc: 'Меньше налог с продаж (базовый 6%).', step: 1, unit: '%', what: 'налога', sign: '−' },
+  industry:   { name: 'Производство', group: 'Промысел', desc: 'Экономнее расход материалов, быстрее и больше заказов на заводах станций.',
+                levels: ['−4% материалов и времени, 3 заказа', '−8%, 4 заказа', '−12%, 5 заказов', '−16%, 6 заказов', '−20%, 7 заказов'] }
 };
 const SKILL_TIME = [0, 60, 240, 900, 3000, 9000]; // секунд на уровень 1..5
 
@@ -646,8 +658,41 @@ const REFINERY = {
   levels: [null, { yield: 1.0, speed: 1, cost: 0 }, { yield: 1.15, speed: 1.6, cost: 2000000 }, { yield: 1.3, speed: 2.5, cost: 5000000 }],
   maxJobs: 3
 };
+// ---------- Производство: чертежи ----------
+// Чертёж — вечный оригинал: не расходуется, каждый запуск тратит материалы, немного ISK и время.
+// Состав материалов считается из цены изделия: дешёвое — сталь и керамит, дорогое — кристаллит, нуль-сплав
+// и ксенон-ядра; элитное требует пиратских ядер и реликвий. Материалы по базовой цене стоят ~половину изделия.
+// Обычные чертежи продаются на любой станции; редкие (элитные модули и дроны, фракционные корабли)
+// добываются в аномалиях Предтеч, на пиратских базах, в мировых событиях и за войну фракций.
+const BP_TIERS = [
+  [10000, { mat_steel: 0.7, mat_ceramite: 0.3 }],
+  [60000, { mat_steel: 0.4, mat_ceramite: 0.4, mat_crystal: 0.2 }],
+  [250000, { mat_ceramite: 0.3, mat_crystal: 0.45, mat_nullalloy: 0.25 }],
+  [Infinity, { mat_crystal: 0.3, mat_nullalloy: 0.45, mat_xcore: 0.25 }]
+];
+const BP_BATCH = { msl_std: 20, energy_cell: 20, msl_torp: 10, turret_kit: 1 };
+const BLUEPRINTS = {};
+function addBlueprint(out, kind, price, rare) {
+  const qty = BP_BATCH[out] || 1, value = price * qty;
+  const share = BP_TIERS.find(([lim]) => value < lim)[1], mats = {};
+  const matValue = value * (rare ? 0.35 : 0.5);
+  for (const [it, f] of Object.entries(share)) mats[it] = Math.max(1, Math.ceil(matValue * f / ITEMS[it].base));
+  if (rare) { mats.salv_core = Math.max(1, Math.ceil(value / 150000)); if (value >= 400000) mats.salv_relic = Math.ceil(value / 600000); }
+  const id = 'bp_' + out;
+  BLUEPRINTS[id] = { out, kind, qty, mats, fee: Math.round(value * 0.05), time: Math.round(Math.min(900, Math.max(20, 15 + Math.sqrt(value) * 0.6))),
+    price: rare ? 0 : Math.round(Math.max(15000, kind === 'ship' ? price * 1.2 : value * 3)), rare: !!rare };
+  const name = (kind === 'ship' ? SHIPS[out].name : ITEMS[out].name);
+  ITEMS[id] = { name: 'Чертёж: ' + name, cat: rare ? 'Редкие чертежи' : 'Чертежи', vol: 0.1, base: Math.round(rare ? value * 0.6 : BLUEPRINTS[id].price * 0.3), blueprint: true, rare: !!rare };
+}
+for (const [id, m] of Object.entries(MODULES)) if (m.lv === 1 && !m.artifact && !m.trophy && !m.only) addBlueprint(id, 'module', m.price, m.elite);
+for (const [id, d] of Object.entries(DRONES)) addBlueprint(id, 'drone', d.price, d.elite);
+for (const id of Object.keys(BP_BATCH)) addBlueprint(id, 'item', ITEMS[id].base, false);
+for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0 && !t.unique) addBlueprint(id, 'ship', t.price, !!t.fac);
+const RARE_BLUEPRINTS = Object.keys(BLUEPRINTS).filter(id => BLUEPRINTS[id].rare);
+const INDUSTRY = { baseJobs: 2, maxRuns: 50, buyMarkup: 1.5, skillCut: 0.04 };
+
 const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); return s ? REGIONS[s.region].income : 1; };
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel };
+module.exports = { AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel, BLUEPRINTS, RARE_BLUEPRINTS, INDUSTRY };

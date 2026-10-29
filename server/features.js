@@ -275,7 +275,7 @@ module.exports = function install(Game) {
     const count = {};
     for (const a of [...this.anoms.values()]) {
       if (a.expires < this.now) { this.removeAnomaly(a); continue; }
-      if (!a.owner && !a.fortress && a.kind !== 'pbase' && !a.relic) count[a.sys] = (count[a.sys] || 0) + 1;
+      if (!a.owner && !a.fortress && a.kind !== 'pbase' && a.kind !== 'front' && !a.relic) count[a.sys] = (count[a.sys] || 0) + 1;
     }
     for (const sys of Object.values(this.U.systems)) {
       const sec = sys.def.sec;

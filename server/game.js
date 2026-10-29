@@ -106,7 +106,7 @@ class Game {
     sess.send({
       t: 'welcome', name: p.name, ship: p.ship && p.ship.type,
       data: {
-        ships: SHIPS, shipRoles: D.SHIP_ROLES, factions: D.FACTION_INFO, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
+        ships: SHIPS, shipRoles: D.SHIP_ROLES, factions: D.FACTION_INFO, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, blueprints: D.BLUEPRINTS, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,
         stars: Object.fromEntries(Object.values(this.U.systems).map(x => [x.id, x.celestials[0].star])),
         stars2: Object.fromEntries(Object.values(this.U.systems).map(x => { const c = x.celestials.find(o => o.companion); return [x.id, c ? c.star : null]; })),
@@ -786,7 +786,7 @@ class Game {
       const capFrac = e.cap / e.stats.cap;
       e.cap = Math.min(e.stats.cap, e.cap + e.stats.capRegen * dt * (0.4 + 1.2 * Math.sqrt(Math.max(0.01, 1 - capFrac))));
       const sf = e.shield / e.stats.shield;
-      e.shield = Math.min(e.stats.shield, e.shield + e.stats.shield / 120 * dt * (0.3 + 2 * (Math.sqrt(Math.max(sf, 0.01)) - sf)));
+      e.shield = Math.min(e.stats.shield, e.shield + e.stats.shield / 120 * dt * (0.3 + 2 * (Math.sqrt(Math.max(sf, 0.01)) - sf)) * (e.regenMul == null ? 1 : e.regenMul)); // regenMul — у боссов щит почти не восстанавливается
       // захват целей
       for (const [id, doneAt] of e.locking) {
         const t = this.ents.get(id);
@@ -1683,6 +1683,8 @@ class Game {
       if (o.warp) v.w = 1;
       if (o.npc) v.npc = 1;
       if (o.outlaw) v.ol = 1;
+      if (o.wingOf) v.wg = o.wingOf;   // напарник игрока
+      if (o.war) v.wf = o.war;          // патруль фракции в войне
       if (o.guardian) v.gd = 1;
       if (o.relicGuard) v.rl = 1; // хранители аномалий Предтеч — свой облик
       if (o.civ) { v.civ = 1; v.o = o.name; }
@@ -1774,5 +1776,9 @@ require('./surface')(Game);
 require('./bot')(Game);
 require('./autoplay')(Game);
 require('./relics')(Game);
+require('./industry')(Game);
+require('./war')(Game);
+require('./wingmen')(Game);
+require('./worldevents')(Game);
 
 module.exports = { Game };

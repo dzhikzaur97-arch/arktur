@@ -250,7 +250,7 @@ h3:first-child { margin-top: 0; }
 ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: rgba(120,170,200,0.3); }
 
 /* Дроны и аномалии */
-#drones { flex: none; }
+#drones, #wingp { flex: none; }
 #autoplay { flex: none; border-color: rgba(120,220,160,.45); }
 #autoplay .ph { color: #8fe8b0; }
 #ap-body { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
@@ -374,7 +374,9 @@ body.mobile #gauge { width: 104px; height: 104px; }
 body.mobile .g-text { font-size: 30px; }
 body.mobile #hp-text { display: none; }
 body.mobile #speedbar { width: 104px; height: 12px; }
-body.mobile #hud-btns button { font-size: 11px; padding: 2px 6px; min-height: 28px; }
+body.mobile #hud-btns { flex-wrap: wrap; justify-content: center; width: 100%; }
+body.mobile #hud-btns { gap: 3px; }
+body.mobile #hud-btns button { font-size: 9.5px; padding: 2px 1px; min-height: 28px; flex: 1 1 40%; white-space: nowrap; min-width: 0; letter-spacing: 0; }
 body.mobile #b-scan { display: none; }
 body.mobile #modules { gap: 8px; padding-bottom: 14px; flex: 1; align-items: flex-end; overflow-x: auto; }
 body.mobile .mrow { gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
@@ -395,7 +397,7 @@ body.mobile #tut { left: 6px; right: auto; top: auto; bottom: calc(238px + env(s
 body.mobile.docked #tut { display: none; }
 body.mobile .tut-step:not(.cur) { display: none; }
 body.mobile .tut-list { padding: 4px 8px; }
-body.mobile #drones { flex: none; }
+body.mobile #drones, body.mobile #wingp { flex: none; }
 
 /* метки объектов — крупнее для пальца */
 body.mobile .br .bi { width: 26px; height: 26px; font-size: 14px; }
@@ -665,3 +667,29 @@ body.mobile #map-tabs { top: 6px; }
 .fac-legend { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; }
 .lore { font-size: 12px; font-style: italic; color: var(--muted, #9aa8b8); opacity: .9; }
 .lock-why { font-size: 12px; color: #e8b060; border: 1px dashed rgba(232, 176, 96, .5); padding: 4px 6px; }
+/* предложение восстановить облачную копию на экране входа */
+#lg-cloud { border: 1px solid rgba(110, 190, 255, .45); background: rgba(40, 90, 150, .22); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; text-align: left; font-size: 14px; }
+#lg-cloud p { margin: 6px 0; }
+#lg-cloud button { margin-top: 4px; }
+/* производство */
+.bp-row .bp-go { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.bp-row .small { line-height: 1.5; }
+details.bp-shop { margin: 6px 0; border: 1px solid rgba(120, 160, 200, .25); border-radius: 6px; padding: 4px 8px; }
+details.bp-shop > summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
+.small-btn { padding: 2px 8px; font-size: 12px; }
+/* война фракций */
+.inf-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,.08); margin: 4px 0 2px; }
+.inf-bar i { display: block; height: 100%; }
+.front-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-top: 6px; }
+.front-row { border: 1px solid rgba(120,160,200,.2); border-radius: 6px; padding: 6px 8px; }
+
+/* кнопка приказов напарникам — только на телефоне */
+#wing-fab { display: none; }
+body.mobile #wing-fab:not(.hidden) { display: block; position: fixed; right: 8px; bottom: calc(200px + env(safe-area-inset-bottom, 0px)); z-index: 9; }
+body.mobile.ov-open #wing-fab, body.mobile.chat-open #wing-fab, body.mobile.docked #wing-fab { display: none !important; }
+#wing-fab-b { width: 52px; height: 52px; border-radius: 50%; font-size: 18px; line-height: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; color: #60e0ff; border-color: #2f7f9f; background: rgba(8, 20, 34, .85); }
+#wing-fab-b small { font-size: 8px; color: var(--muted, #9ab); margin-top: 2px; }
+#wing-fab-menu { position: absolute; right: 60px; bottom: 0; display: flex; flex-direction: column; gap: 4px; background: var(--bg); border: 1px solid var(--line); padding: 4px; }
+#wing-fab-menu.hidden { display: none; }
+#wing-fab-menu button { white-space: nowrap; font-size: 13px; padding: 8px 12px; text-align: left; }
+#wing-fab-menu button.on { border-color: #60e0ff; color: #60e0ff; }

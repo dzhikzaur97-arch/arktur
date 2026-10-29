@@ -20,7 +20,16 @@ const FACTIONS = {
 };
 const REP_TIERS = [[-50, 'Враждебность'], [-15, 'Недоверие'], [15, 'Нейтралитет'], [40, 'Уважение'], [75, 'Союзник'], [101, 'Герой']];
 const repTier = (v) => REP_TIERS.find(([lim]) => v < lim)[1];
+// владелец системы меняется в войне фракций (server/war.js); без войны — по региону
+let WAR_OWNER = null;
+function homeFactionOfSys(sysId) {
+  const def = SYSTEMS.find(s => s.id === sysId);
+  if (!def) return 'cons';
+  for (const [id, f] of Object.entries(FACTIONS)) if (f.regions.includes(def.region)) return id;
+  return 'cons';
+}
 function factionOfSys(sysId) {
+  if (WAR_OWNER && WAR_OWNER[sysId]) return WAR_OWNER[sysId];
   const def = SYSTEMS.find(s => s.id === sysId);
   if (!def) return 'cons';
   for (const [id, f] of Object.entries(FACTIONS)) if (f.regions.includes(def.region)) return id;
@@ -479,3 +488,5 @@ module.exports = function install(Game) {
 module.exports.FACTIONS = FACTIONS;
 module.exports.MISSIONS = MISSIONS;
 module.exports.factionOfSys = factionOfSys;
+module.exports.homeFactionOfSys = homeFactionOfSys;
+module.exports.setWarOwner = (o) => { WAR_OWNER = o; };

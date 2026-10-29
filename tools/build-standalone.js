@@ -11,7 +11,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 // --- серверные модули в мини-загрузчике CommonJS ---
 // генератор планет общий для сервера и клиента — лежит в public/js
 const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
-const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `
@@ -119,6 +119,8 @@ window.VF_SAVES = {
     location.reload();
     return { ok: true };
   },
+  // текущее состояние для сверки с облачной копией: время сохранения и пилоты
+  current() { return { when: __lastSave || __db.savedAt || 0, pilots: Object.values(__db.players || {}).map(p => p.name) }; },
   status() { return window.VF_SAVE_STATUS; },
   flush() { return __save(true); }
 };
