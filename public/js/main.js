@@ -278,6 +278,7 @@ function playFx(fx) {
   else if (fx.k === 'mine') Sound.mine(v * 0.8, Math.min(6, fx.dur || 5));
   else if (fx.k === 'boom') Sound.boom(v, (fx.size || 0) > 500);
   else if (fx.k === 'jump') Sound.whoosh(v * 0.7, false, 1.5);
+  if (fx.k === 'beam' && fx.arc && fx.main) Sound.boom(v * 0.6, false); // раскат грома при залпе «Копья Зари»
   // тряска камеры: близкие взрывы и попадания по нам (сила — в настройках, 0 выключает)
   if (fx.k === 'boom' && v > 0.25) R.shake(v * ((fx.size || 0) > 500 ? 0.9 : 0.45));
   else if (fx.k === 'beam' && S.me && fx.to === S.me.id) R.shake(0.12);

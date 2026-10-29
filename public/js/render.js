@@ -11,6 +11,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const FAR_START = 1.5e6; // дальше этого расстояния объекты «сжимаются» с сохранением углового размера
@@ -861,6 +862,148 @@ function fighterBase(g, R, M, D, eng, o = {}) {
 }
 
 
+// ======================================================================
+// «Серафим» — уникальный флагман по концепт-арту пилота: фарфорово-белый корпус, открытое сердце-реактор
+// (бело-голубое солнце в золотой клетке), золотой осевой стержень, крылья-листья в золотых рамах
+// с тёмными вставками и светящейся филигранью, кормовая «астролябия» из вращающихся колец.
+// В userData — точки, по которым при залпе «Копья Зари» бегут молнии (arcPts), и центр реактора (core)
+// ======================================================================
+const cachedMat = (k, f) => matCache.get(k) || (matCache.set(k, f()), matCache.get(k));
+const porcelainMat = () => cachedMat('porcelain', () => new THREE.MeshPhysicalMaterial({ color: 0xf3f4f7, roughness: 0.2, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.5 }));
+const chromeMat = () => cachedMat('chrome', () => new THREE.MeshStandardMaterial({ color: 0xdad4c4, metalness: 1, roughness: 0.22, envMapIntensity: 1.7, emissive: 0x2a2416, emissiveIntensity: 0.6 }));
+export const SERAPH = { panel: null, core: null, burst: null, charge: 0 }; // материалы, которые разгораются при залпе
+// филигрань крыла: тёмная вставка, золотые линии в стиле модерн (ось листа — по v, корень внизу)
+function filigreeTexture() {
+  const t = canvasTex(256, 1024, (g, W, H) => {
+    g.fillStyle = '#06080e'; g.fillRect(0, 0, W, H);
+    const P = (u, v) => [u * W, (1 - v) * H], hw = (v) => 0.5 * (0.5 + 0.5 * v);
+    g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#ffd27a'; g.fillStyle = '#ffd27a'; g.shadowColor = '#ffb030'; g.shadowBlur = 12;
+    const edge = (k, lw) => { g.lineWidth = lw; g.beginPath();
+      for (let i = 0; i <= 40; i++) { const v = 0.03 + 0.94 * i / 40; g.lineTo(...P(0.5 - hw(v) * k, v)); }
+      for (let i = 40; i >= 0; i--) { const v = 0.03 + 0.94 * i / 40; g.lineTo(...P(0.5 + hw(v) * k, v)); }
+      g.closePath(); g.stroke(); };
+    edge(0.9, 6); edge(0.74, 2.5);
+    g.lineWidth = 4; g.beginPath(); g.moveTo(...P(0.5, 0.05)); g.lineTo(...P(0.5, 0.95)); g.stroke();
+    for (const v0 of [0.12, 0.28, 0.44, 0.6, 0.76]) for (const sd of [-1, 1]) {
+      const w = hw(v0 + 0.06);
+      g.lineWidth = 3; g.beginPath(); g.moveTo(...P(0.5, v0));
+      g.bezierCurveTo(...P(0.5 + sd * w * 0.45, v0 - 0.05), ...P(0.5 + sd * w * 0.85, v0 + 0.02), ...P(0.5 + sd * w * 0.6, v0 + 0.1));
+      g.stroke();
+      const [cx, cy] = P(0.5 + sd * w * 0.52, v0 + 0.085); g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke(); // завиток
+      g.beginPath(); g.ellipse(...P(0.5 + sd * w * 0.25, v0 + 0.1), 5, 22, sd * 0.35, 0, Math.PI * 2); g.stroke();
+    }
+    for (const v0 of [0.2, 0.36, 0.52, 0.68]) { g.beginPath(); g.ellipse(...P(0.5, v0), 9, 26, 0, 0, Math.PI * 2); g.stroke(); }
+    // заострённый овал у законцовки
+    g.lineWidth = 3.5; g.beginPath(); g.moveTo(...P(0.5, 0.8)); g.quadraticCurveTo(...P(0.5 + hw(0.88) * 0.55, 0.88), ...P(0.5, 0.96)); g.quadraticCurveTo(...P(0.5 - hw(0.88) * 0.55, 0.88), ...P(0.5, 0.8)); g.stroke();
+    for (let v = 0.08; v < 0.95; v += 0.055) for (const sd of [-1, 1]) { const [x, y] = P(0.5 + sd * hw(v) * 0.82, v); g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2); g.fill(); }
+  });
+  t.anisotropy = maxAniso();
+  return t;
+}
+// многоугольник, сдвинутый внутрь на d (выпуклый, обход по часовой/против — по знаку площади)
+function insetPoly(pts, d) {
+  const n = pts.length, area = pts.reduce((a, p, i) => { const q = pts[(i + 1) % n]; return a + p[0] * q[1] - q[0] * p[1]; }, 0), sg = area > 0 ? 1 : -1;
+  const lines = pts.map((p, i) => { const q = pts[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy), nx = -dy / L * sg, ny = dx / L * sg;
+    return [[p[0] + nx * d, p[1] + ny * d], [dx, dy]]; });
+  return lines.map((l, i) => { const m = lines[(i + n - 1) % n], [p1, d1] = m, [p2, d2] = l, den = d1[0] * d2[1] - d1[1] * d2[0];
+    const t = ((p2[0] - p1[0]) * d2[1] - (p2[1] - p1[1]) * d2[0]) / den; return [p1[0] + d1[0] * t, p1[1] + d1[1] * t]; });
+}
+function buildSerafim(g, R) {
+  const W = porcelainMat(), G = goldMat(), C = chromeMat(), arcPts = [];
+  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  const pt = (x, y, z) => arcPts.push([x * R, y * R, z * R]);
+  // корпус: носовая «капля» и узкая кормовая часть, между ними — открытый реактор
+  add(lathe(R * 1.15, R * 0.3, [[0, 0.62], [0.08, 0.85], [0.3, 1], [0.55, 0.95], [0.78, 0.72], [0.92, 0.4], [1, 0.04]], 64), W, 0, 0, R * 0.48).scale.y = 0.9;
+  add(lathe(R * 0.72, R * 0.16, [[0, 0.8], [0.08, 0.95], [0.5, 1], [0.92, 0.95], [1, 0.85]], 48), W, 0, 0, -R * 0.66);
+  for (const z of [-0.45, -0.62, -0.82]) add(new THREE.TorusGeometry(R * 0.162, R * 0.007, 8, 72), G, 0, 0, R * z);
+  for (const z of [0.25, 0.62]) add(new THREE.TorusGeometry(R * (z > 0.5 ? 0.21 : 0.268), R * 0.006, 8, 96), G, 0, 0, R * z).scale.y = 0.9;
+  // сердце-реактор: бело-голубое солнце с лучами в золотой клетке
+  const zc = -0.2;
+  // торцы корпуса по обе стороны реактора — «солнечные» диски с лучами
+  const sunTex = cachedMat('sunDiskTex', () => canvasTex(256, 256, (c, w, h) => {
+    const gr = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.25, '#cfe6ff'); gr.addColorStop(0.7, '#2a4a80'); gr.addColorStop(1, '#0a1020');
+    c.fillStyle = gr; c.fillRect(0, 0, w, h); c.translate(w / 2, h / 2);
+    for (let i = 0; i < 48; i++) { c.rotate(Math.PI * 2 / 48); c.fillStyle = i % 2 ? 'rgba(210,235,255,0.9)' : 'rgba(255,220,150,0.7)'; c.fillRect(-1.5, w * 0.08, 3, w * (0.3 + (i % 3) * 0.05)); }
+  }));
+  const sunMat = cachedMat('sunDisk', () => new THREE.MeshBasicMaterial({ map: sunTex, color: new THREE.Color(1, 1, 1).multiplyScalar(2.2), toneMapped: false }));
+  add(new THREE.CircleGeometry(R * 0.186, 64), sunMat, 0, 0, -R * 0.096).rotation.y = Math.PI;
+  add(new THREE.CircleGeometry(R * 0.128, 48), sunMat, 0, 0, -R * 0.299);
+  SERAPH.core = SERAPH.core || new THREE.MeshBasicMaterial({ color: new THREE.Color(0.95, 0.98, 1).multiplyScalar(5), toneMapped: false });
+  SERAPH.burst = SERAPH.burst || new THREE.MeshBasicMaterial({ color: new THREE.Color(0.7, 0.85, 1).multiplyScalar(3), toneMapped: false });
+  add(new THREE.SphereGeometry(R * 0.085, 32, 20), SERAPH.core, 0, 0, R * zc);
+  const rays = [];
+  for (let i = 0; i < 44; i++) { // лучи по сфере Фибоначчи, кроме направлений вдоль оси (там корпус)
+    const y = 1 - (i + 0.5) / 44 * 2, r = Math.sqrt(1 - y * y), a = i * 2.39996;
+    const d = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
+    if (Math.abs(d.z) > 0.55) continue;
+    const L = R * (0.08 + (i % 3) * 0.03), b = new THREE.BoxGeometry(R * 0.007, L, R * 0.018);
+    b.translate(0, R * 0.085 + L / 2, 0); b.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d)); rays.push(b);
+  }
+  add(mergeGeometries(rays), SERAPH.burst, 0, 0, R * zc);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedTextures().glow, color: new THREE.Color(0.75, 0.88, 1).multiplyScalar(1.6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  halo.position.set(0, 0, R * zc); halo.scale.setScalar(R * 0.75); g.add(halo);
+  add(new THREE.TorusGeometry(R * 0.195, R * 0.02, 10, 96), G, 0, 0, -R * 0.095);
+  add(new THREE.TorusGeometry(R * 0.17, R * 0.018, 10, 96), G, 0, 0, -R * 0.3);
+  add(new THREE.TorusGeometry(R * 0.215, R * 0.005, 6, 96), glowMat(0x9fd0ff, 3), 0, 0, R * zc);
+  for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5; g.add(rod([Math.cos(a) * R * 0.195, Math.sin(a) * R * 0.195, -R * 0.095], [Math.cos(a + 0.3) * R * 0.17, Math.sin(a + 0.3) * R * 0.17, -R * 0.3], R * 0.007, G)); }
+  // золотой осевой стержень с навершиями
+  add(new THREE.CylinderGeometry(R * 0.013, R * 0.013, R * 2.68, 12), G, 0, 0, -R * 0.02).rotation.x = Math.PI / 2;
+  add(new THREE.OctahedronGeometry(R * 0.035), G, 0, 0, R * 1.34).scale.set(0.6, 0.6, 2);
+  add(new THREE.SphereGeometry(R * 0.016, 12, 8), glowMat(0xfff0c8, 4), 0, 0, R * 1.42);
+  for (const [z, r] of [[-1.18, 0.04], [-1.23, 0.03], [-1.28, 0.022]]) add(new THREE.CylinderGeometry(R * r, R * r, R * 0.012, 24), G, 0, 0, R * z).rotation.x = Math.PI / 2;
+  add(new THREE.OctahedronGeometry(R * 0.04), G, 0, 0, -R * 1.36).scale.set(0.6, 0.6, 1.8);
+  // крылья-листья: золотая рама, тёмная вставка со светящейся филигранью
+  SERAPH.panel = SERAPH.panel || new THREE.MeshStandardMaterial({ map: filigreeTexture(), emissiveMap: null, emissive: 0xffc860, emissiveIntensity: 1.7, metalness: 0.55, roughness: 0.35, side: THREE.DoubleSide });
+  if (!SERAPH.panel.emissiveMap) SERAPH.panel.emissiveMap = SERAPH.panel.map;
+  const outline = [[0.1, 0.16], [1.22, -0.7], [1.06, -1.0], [0.1, -0.02]].map(([x, z]) => [x * R, -z * R]); // (x, y = −z) для Shape
+  const inner = insetPoly(outline, R * 0.03);
+  const shape = (pts) => { const sh = new THREE.Shape(); pts.forEach(([x, y], i) => i ? sh.lineTo(x, y) : sh.moveTo(x, y)); sh.closePath(); return sh; };
+  const frameShape = shape(outline); frameShape.holes.push(shape(inner));
+  const frameGeo = new THREE.ExtrudeGeometry(frameShape, { depth: R * 0.022, bevelEnabled: true, bevelThickness: R * 0.005, bevelSize: R * 0.005, bevelSegments: 2 });
+  frameGeo.translate(0, 0, -R * 0.011); frameGeo.rotateX(-Math.PI / 2);
+  const panelGeo = new THREE.ShapeGeometry(shape(inner)); panelGeo.rotateX(-Math.PI / 2);
+  { // UV вдоль оси листа: v — от корня к законцовке, u — поперёк
+    const rc = [0.1 * R, 0.07 * R], tc = [1.14 * R, -0.85 * R], ax = [tc[0] - rc[0], tc[1] - rc[1]], L = Math.hypot(...ax), A = [ax[0] / L, ax[1] / L], B = [-A[1], A[0]];
+    const pos = panelGeo.attributes.position, uv = panelGeo.attributes.uv; let wmax = 0;
+    for (let i = 0; i < pos.count; i++) wmax = Math.max(wmax, Math.abs((pos.getX(i) - rc[0]) * B[0] + (pos.getZ(i) - rc[1]) * B[1]));
+    for (let i = 0; i < pos.count; i++) { const dx = pos.getX(i) - rc[0], dz = pos.getZ(i) - rc[1]; uv.setXY(i, 0.5 + (dx * B[0] + dz * B[1]) / (wmax * 2.05), (dx * A[0] + dz * A[1]) / L); }
+  }
+  for (const sd of [1, -1]) {
+    const wg = new THREE.Group(); wg.scale.x = sd; wg.position.z = R * 0.02; wg.rotation.z = sd * 0.17; // лёгкий подъём законцовок
+    wg.add(new THREE.Mesh(frameGeo, G), new THREE.Mesh(panelGeo, SERAPH.panel));
+    const pyl = new THREE.Mesh(rbox(R * 0.12, R * 0.04, R * 0.2), G); pyl.position.set(R * 0.12, 0, R * 0.05); wg.add(pyl);
+    g.add(wg);
+    for (const [x, z] of [[0.15, 0.13], [0.45, -0.1], [0.75, -0.35], [1.05, -0.6], [1.22, -0.7], [1.15, -0.85], [1.06, -1.0], [0.8, -0.72], [0.5, -0.45], [0.2, -0.15], [0.6, -0.5], [0.95, -0.75]])
+      for (const y of [0.025, -0.025]) { wg.updateMatrix(); const v = new THREE.Vector3(x * R, y * R, z * R).applyMatrix4(wg.matrix); arcPts.push([v.x, v.y, v.z]); }
+  }
+  addLights(g, [[R * 1.2, R * 0.2, -R * 0.68, R * 0.012], [-R * 1.2, R * 0.2, -R * 0.68, R * 0.012]], 0xffd070);
+  // кормовая «астролябия»: кольца разного диаметра, зубчатый обод, спицы; часть колец вращается
+  const astro = new THREE.Group(); astro.position.z = -R * 1.06; g.add(astro);
+  const ring = (r, tube, mat, z = 0, spin = 0) => { const m = new THREE.Mesh(new THREE.TorusGeometry(R * r, R * tube, 12, 160), mat); m.position.z = R * z; if (spin) m.userData.spin = ['z', spin]; astro.add(m); return m; };
+  ring(0.64, 0.028, C); ring(0.6, 0.012, G, 0.035); ring(0.67, 0.008, G, -0.03);
+  const teeth = []; for (let i = 0; i < 72; i++) { const a = i / 72 * Math.PI * 2, b = new THREE.BoxGeometry(R * 0.022, R * 0.05, R * 0.05); b.translate(0, R * 0.69, 0); b.rotateZ(a); teeth.push(b); }
+  const teethM = new THREE.Mesh(mergeGeometries(teeth), C); teethM.userData.spin = ['z', 0.06]; astro.add(teethM);
+  const mid = new THREE.Group(); mid.userData.spin = ['z', -0.22]; astro.add(mid);
+  mid.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.5, R * 0.02, 12, 140), C));
+  mid.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.42, R * 0.005, 8, 140), glowMat(0xffd890, 2)));
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; mid.add(rod([Math.cos(a) * R * 0.3, Math.sin(a) * R * 0.3, 0], [Math.cos(a) * R * 0.5, Math.sin(a) * R * 0.5, 0], R * 0.008, G)); }
+  const inn = new THREE.Group(); inn.userData.spin = ['z', 0.4]; inn.position.z = -R * 0.03; astro.add(inn);
+  inn.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.3, R * 0.024, 12, 120), C));
+  inn.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.085, R * 0.02, 10, 48), G));
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; inn.add(rod([Math.cos(a) * R * 0.09, Math.sin(a) * R * 0.09, 0], [Math.cos(a) * R * 0.3, Math.sin(a) * R * 0.3, 0], R * 0.006, C)); }
+  for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; g.add(rod([Math.cos(a) * R * 0.14, Math.sin(a) * R * 0.14, -R * 0.92], [Math.cos(a) * R * 0.62, Math.sin(a) * R * 0.62, -R * 1.06], R * 0.01, G)); }
+  for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; pt(Math.cos(a) * 0.665, Math.sin(a) * 0.665, -1.06); }
+  addEngine(g, 0, 0, -R * 1.03, R * 0.07, 0xbfe0ff);
+  // ангар дронов: створки на брюхе носовой части
+  for (const x of [-0.07, 0.07]) add(new THREE.PlaneGeometry(R * 0.035, R * 0.36), glowMat(0xffc880, 1.2), R * x, -R * 0.262, R * 0.45).rotation.x = Math.PI / 2;
+  for (const z of [0.15, 0.4, 0.65, 0.9]) { pt(0, 0.26, z); pt(0, -0.25, z); pt(0.27, 0, z); pt(-0.27, 0, z); }
+  for (const z of [-0.45, -0.65, -0.9]) { pt(0.16, 0, z); pt(-0.16, 0, z); pt(0, 0.16, z); }
+  for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; pt(Math.cos(a) * 0.2, Math.sin(a) * 0.2, -0.2); }
+  pt(0, 0, 1.4); pt(0, 0, -1.36);
+  g.traverse(o => { if (o.isMesh && (o.material === W || o.material === G || o.material === C)) o.castShadow = o.receiveShadow = true; });
+  g.userData.arcPts = arcPts; g.userData.core = [0, 0, R * zc];
+}
+
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
   const DF = DESIGN_FAC[type], own = DF && faction !== 'pirate' && faction !== 'guard'; // фракционный корабль в своей окраске
@@ -1492,50 +1635,8 @@ function buildShip(type, color, faction) {
       addLights(g, [[R * 0.6, -R * 0.04, R * 0.2, R * 0.012], [-R * 0.6, -R * 0.04, R * 0.2, R * 0.012]], 0xc090ff);
       break;
     }
-    // ===== «Серафим» — уникальный флагман-носитель: белый клинок, золотые крылья, сердце-реактор, нимб =====
-    case 'serafim': {
-      const G = goldMat(), dawn = 0xffe2a0;
-      add(lathe(R * 2.2, R * 0.22, [[0, 0.55], [0.06, 0.8], [0.25, 1], [0.55, 0.9], [0.78, 0.6], [0.93, 0.25], [1, 0.02]], 48), M, 0, 0, 0, 1.6, 0.5, 1);
-      add(lathe(R * 1.6, R * 0.14, [[0, 0.5], [0.15, 1], [0.6, 0.85], [0.9, 0.35], [1, 0.05]], 36), M, 0, R * 0.09, -R * 0.12, 0.55, 0.6, 1);
-      // сердце-реактор в золотом гироскопе
-      add(new THREE.SphereGeometry(R * 0.075, 32, 20), glowMat(0xfff0c8, 4), 0, R * 0.17, -R * 0.08);
-      for (const [ax, sp] of [['y', 0.45], ['x', -0.3]]) { const gy = add(new THREE.TorusGeometry(R * 0.11, R * 0.008, 8, 64), G, 0, R * 0.17, -R * 0.08); gy.userData.spin = [ax, sp]; }
-      add(new THREE.TorusGeometry(R * 0.135, R * 0.012, 10, 72), G, 0, R * 0.17, -R * 0.08).rotation.x = Math.PI / 2;
-      // золотые крылья-радиаторы: верхняя и нижняя пара, светящиеся полосы по размаху
-      const glowStrip = glowMat(dawn, 2.2);
-      for (const [y, z, span, chord, tilt] of [[0.03, -0.2, 1.0, 0.62, 0.32], [-0.06, -0.42, 0.62, 0.42, -0.42]]) for (const sd of [1, -1]) {
-        const wg = new THREE.Group(); wg.position.set(sd * R * 0.16, R * y, R * z); wg.rotation.z = sd * tilt; wg.scale.x = sd;
-        wg.add(new THREE.Mesh(wingGeo(R * span, R * chord, R * chord * 0.85, R * 0.018), G));
-        // светящаяся кромка вдоль передней грани крыла (крыло: корень (0, +chord/2) → законцовка (span, chord/2 − sweep))
-        const x1 = R * span, z0 = R * chord * 0.5, z1 = R * chord * 0.5 - R * chord * 0.85, L = Math.hypot(x1, z1 - z0);
-        const edge = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.006, R * 0.006, L, 6), glowStrip);
-        edge.position.set(x1 / 2, 0, (z0 + z1) / 2); edge.rotation.z = Math.PI / 2; edge.rotation.y = Math.atan2(z0 - z1, x1); wg.add(edge);
-        const tipL = new THREE.Mesh(new THREE.SphereGeometry(R * 0.014, 10, 8), glowMat(0xfff0c8, 4)); tipL.position.set(x1, 0, z1 - R * chord * 0.1); wg.add(tipL);
-        g.add(wg);
-      }
-      // излучатели «Копья Зари» вдоль носа
-      for (const sd of [1, -1]) {
-        add(new THREE.CylinderGeometry(R * 0.012, R * 0.02, R * 0.95, 12), D, sd * R * 0.13, -R * 0.02, R * 0.72).rotation.x = Math.PI / 2;
-        for (let k = 0; k < 3; k++) add(new THREE.TorusGeometry(R * 0.028, R * 0.005, 6, 24), glowMat(dawn, 2.6), sd * R * 0.13, -R * 0.02, R * (0.45 + k * 0.17));
-        add(new THREE.SphereGeometry(R * 0.022, 16, 10), glowMat(0xfff4d8, 4.5), sd * R * 0.13, -R * 0.02, R * 1.2);
-      }
-      // подбрюшный ангар дронов с горящими створками
-      add(rbox(R * 0.46, R * 0.1, R * 0.95), M, 0, -R * 0.11, -R * 0.12);
-      const bay = glowMat(0xffc880, 1.5);
-      for (const sd of [1, -1]) for (let k = 0; k < 5; k++) add(new THREE.PlaneGeometry(R * 0.13, R * 0.05), bay, sd * R * 0.232, -R * 0.11, R * (0.26 - k * 0.18)).rotation.y = sd * Math.PI / 2;
-      add(new THREE.PlaneGeometry(R * 0.3, R * 0.6), glowMat(0xffd8a0, 0.9), 0, -R * 0.162, -R * 0.1).rotation.x = Math.PI / 2;
-      // нимб на корме и спицы к корпусу
-      const halo = new THREE.Group(); halo.position.z = -R * 0.78; halo.userData.spin = ['z', 0.18];
-      halo.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.46, R * 0.016, 12, 160), G));
-      halo.add(new THREE.Mesh(new THREE.TorusGeometry(R * 0.46, R * 0.006, 8, 160), glowMat(dawn, 3)));
-      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; halo.add(rod([Math.cos(a) * R * 0.12, Math.sin(a) * R * 0.08, 0], [Math.cos(a) * R * 0.45, Math.sin(a) * R * 0.45, 0], R * 0.006, G)); }
-      g.add(halo);
-      for (const [x, y, r] of [[0, 0, 0.08], [0.17, 0.04, 0.05], [-0.17, 0.04, 0.05], [0.12, -0.06, 0.045], [-0.12, -0.06, 0.045]]) addEngine(g, R * x, R * y, -R * 1.12, R * r, eng);
-      for (const [x, z] of [[0.2, 0.42], [-0.2, 0.42], [0.24, -0.5], [-0.24, -0.5]]) addTurret(g, R * x, R * 0.07, R * z, R * 0.045, D);
-      for (const sd of [1, -1]) add(rbox(R * 0.008, R * 0.012, R * 1.5), G, sd * R * 0.3, R * 0.012, R * 0.05);
-      addLights(g, [[R * 1.12, R * 0.35, -R * 0.55, R * 0.012], [-R * 1.12, R * 0.35, -R * 0.55, R * 0.012], [0, R * 0.25, -R * 0.4, R * 0.01]], 0xffd070);
-      break;
-    }
+    // ===== «Серафим» — по концепт-арту пилота (см. buildSerafim) =====
+    case 'serafim': { buildSerafim(g, R); break; }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
   }
   if (faction === 'pirate' && type !== 'pbase' && type !== 'pdrone' && type !== 'pdrone_h') { // шипы на пиратских кораблях
@@ -2764,8 +2865,88 @@ function sprite(color, k = 2) {
 }
 const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
 
+// Молнии лентами: все разряды кадра — одна сетка из четырёхугольников, развёрнутых к камере (один вызов отрисовки)
+let BOLT_TEX = null;
+function boltTexture() {
+  if (BOLT_TEX) return BOLT_TEX;
+  BOLT_TEX = canvasTex(64, 4, (g, W, H) => {
+    const img = g.createImageData(W, H);
+    for (let x = 0; x < W; x++) { const d = (x + 0.5) / W - 0.5, a = Math.min(1, Math.exp(-((d / 0.2) ** 2)) * 0.55 + Math.exp(-((d / 0.06) ** 2)));
+      for (let y = 0; y < H; y++) { const i = (y * W + x) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = 255; img.data[i + 3] = a * 255; } }
+    g.putImageData(img, 0, 0);
+  });
+  return BOLT_TEX;
+}
+function boltMesh(maxSeg) {
+  const geo = new THREE.BufferGeometry(), idx = new Uint32Array(maxSeg * 6), uv = new Float32Array(maxSeg * 8);
+  for (let s = 0; s < maxSeg; s++) { const b = s * 4; idx.set([b, b + 2, b + 1, b + 1, b + 2, b + 3], s * 6); uv.set([0, 0, 1, 0, 0, 1, 1, 1], s * 8); }
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxSeg * 12), 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(maxSeg * 12), 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: boltTexture(), vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+  mesh.frustumCulled = false; mesh.renderOrder = 5;
+  return { mesh, max: maxSeg };
+}
+const _bv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+// list: [{ pts: [Vector3…], w, c: [r, g, b] }] — точки уже в координатах сцены
+function writeBolts(b, list) {
+  const P = b.mesh.geometry.attributes.position.array, Cc = b.mesh.geometry.attributes.color.array;
+  let n = 0;
+  for (const bolt of list) for (let i = 0; i + 1 < bolt.pts.length && n < b.max; i++) {
+    const p0 = bolt.pts[i], p1 = bolt.pts[i + 1];
+    const d = _bv[0].subVectors(p1, p0), mid = _bv[1].addVectors(p0, p1).multiplyScalar(0.5), view = _bv[2].subVectors(camera.position, mid);
+    const side = _bv[3].crossVectors(d, view); const L = side.length(); if (L < 1e-6) continue; side.multiplyScalar(bolt.w / L);
+    const o = n * 12;
+    P[o] = p0.x - side.x; P[o + 1] = p0.y - side.y; P[o + 2] = p0.z - side.z; P[o + 3] = p0.x + side.x; P[o + 4] = p0.y + side.y; P[o + 5] = p0.z + side.z;
+    P[o + 6] = p1.x - side.x; P[o + 7] = p1.y - side.y; P[o + 8] = p1.z - side.z; P[o + 9] = p1.x + side.x; P[o + 10] = p1.y + side.y; P[o + 11] = p1.z + side.z;
+    for (let k = 0; k < 4; k++) { Cc[o + k * 3] = bolt.c[0]; Cc[o + k * 3 + 1] = bolt.c[1]; Cc[o + k * 3 + 2] = bolt.c[2]; }
+    n++;
+  }
+  b.mesh.geometry.setDrawRange(0, n * 6);
+  b.mesh.geometry.attributes.position.needsUpdate = true; b.mesh.geometry.attributes.color.needsUpdate = true;
+}
+// ломаная молния между a и b с ответвлениями
+function jagged(a, b, amp, n = 9) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, k = i === 0 || i === n ? 0 : Math.sin(Math.PI * t) * amp;
+    pts.push(a.clone().lerp(b, t).add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(2 * k)));
+  }
+  return pts;
+}
+const GOLD_BOLT = [3.2, 2.5, 1.2], BLUE_BOLT = [1.9, 2.5, 3.4], WHITE_BOLT = [3.4, 3.3, 3.0];
+// молнии по кораблю в его собственных координатах: между точками крыльев, колец и корпуса, с отростками
+function seraphAura(pts, R, k) {
+  const out = [], n = Math.round(26 - 12 * k), V = (p) => new THREE.Vector3(p[0], p[1], p[2]);
+  for (let i = 0; i < n; i++) {
+    const a = V(pts[(Math.random() * pts.length) | 0]);
+    let b = null;
+    for (let tries = 0; tries < 6 && !b; tries++) { const c = V(pts[(Math.random() * pts.length) | 0]), d = a.distanceTo(c); if (d > R * 0.12 && d < R * 0.9) b = c; }
+    if (!b || Math.random() < 0.35) b = a.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(R * (0.6 + Math.random() * 0.9))); // разряд срывается в космос
+    const d = a.distanceTo(b), main = jagged(a, b, d * 0.14, 8 + ((Math.random() * 5) | 0)), col = Math.random() < 0.55 ? GOLD_BOLT : BLUE_BOLT;
+    out.push({ pts: main, w: R * (0.014 + Math.random() * 0.014), c: col });
+    if (Math.random() < 0.6) { const s = main[2 + ((Math.random() * 4) | 0)]; out.push({ pts: jagged(s, s.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(d * 0.6)), d * 0.08, 5), w: R * 0.009, c: col }); }
+  }
+  return out;
+}
+function seraphDischarge(obj, fx, view) {
+  const bolts = boltMesh(1400); fxGroup.add(bolts.mesh);
+  const mk = (c, op) => { const m = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false })); m.renderOrder = 6; fxGroup.add(m); return m; };
+  const glow = mk(new THREE.Color(1, 0.82, 0.5).multiplyScalar(2.2), 0.5), core = mk(new THREE.Color(1, 0.98, 0.92).multiplyScalar(4.5), 1);
+  const muzzle = sprite(0xcfe4ff, 6), spr = sprite(0xffd890, 4); muzzle.material.depthTest = spr.material.depthTest = false; muzzle.renderOrder = spr.renderOrder = 7; fxGroup.add(muzzle, spr);
+  fxList.push({ kind: 'seraph', obj, to: fx.to, bolts, glow, core, muzzle, sprite: spr, t: 0, dur: 1.5, nextJag: 0, aura: null, beamJag: null });
+  if (fx.hit) spark(fx.color, fx.to, entRadius(view, fx.to));
+  SERAPH.charge = 1;
+}
+
 export function addFx(fx, view) {
   const origin = view.origin;
+  if (fx.k === 'beam' && fx.arc && fx.main) {
+    // залп «Серафима»: луч из сердца-реактора и молнии по всему кораблю
+    const obj = view.me && fx.from === view.me.id ? myShip : (entMeshes.get(fx.from) || {}).obj;
+    if (obj && obj.userData.arcPts) { seraphDischarge(obj, fx, view); return; }
+  }
   if (fx.k === 'beam' && fx.arc) {
     // «Копьё Зари»: ломаная молния из сегментов, каждый кадр меняет форму; общие материалы на весь разряд
     const col = new THREE.Color(fx.color || 0xffe0a0);
@@ -2848,6 +3029,7 @@ function explosion(pos, size) {
 }
 
 function disposeFx(f) {
+  if (f.bolts) { fxGroup.remove(f.bolts.mesh); f.bolts.mesh.geometry.dispose(); f.bolts.mesh.material.dispose(); }
   if (f.segs) { for (const [g, c] of f.segs) fxGroup.remove(g, c); f.gm.dispose(); f.cm.dispose(); }
   for (const k of ['glow', 'core', 'muzzle', 'sprite', 'ring', 'shield', 'flash', 'sparks', 'wave']) if (f[k]) { fxGroup.remove(f[k]); if (f[k].material) f[k].material.dispose(); if (f[k].geometry && f[k].geometry !== beamGeo) f[k].geometry.dispose(); }
   if (f.parts) for (const p of f.parts) { fxGroup.remove(p.s); p.s.material.dispose(); }
@@ -2855,11 +3037,43 @@ function disposeFx(f) {
 }
 
 function updateFx(view, dt, origin) {
+  if (SERAPH.panel) { // после залпа филигрань крыльев и реактор «Серафима» вспыхивают и плавно гаснут
+    SERAPH.charge = Math.max(0, SERAPH.charge - dt * 0.8);
+    const c = SERAPH.charge;
+    SERAPH.panel.emissiveIntensity = 1.7 + c * 4 * (0.8 + 0.2 * Math.random());
+    SERAPH.core.color.setRGB(0.95, 0.98, 1).multiplyScalar(5 + c * 6);
+    SERAPH.burst.color.setRGB(0.7, 0.85, 1).multiplyScalar(3 + c * 5);
+  }
   for (let i = fxList.length - 1; i >= 0; i--) {
     const f = fxList[i];
     f.t += dt;
     const k = f.t / f.dur;
     if (k >= 1) { disposeFx(f); fxList.splice(i, 1); continue; }
+    if (f.kind === 'seraph') {
+      const obj = f.obj;
+      if (!obj.parent) { f.t = f.dur; continue; } // корабль исчез (варп, гибель)
+      obj.updateMatrixWorld();
+      const sc = obj.matrixWorld.getMaxScaleOnAxis(), R = 600, Rw = R * sc;
+      const core = new THREE.Vector3(...obj.userData.core).applyMatrix4(obj.matrixWorld), tgt = entRel(view, f.to, origin);
+      const kb = f.t / 0.95, fadeB = kb < 1 ? Math.pow(1 - kb, 0.8) : 0, fade = Math.pow(1 - k, 1.3);
+      // толстый луч из реактора к цели
+      if (tgt && fadeB > 0) {
+        const mid = core.clone().add(tgt).multiplyScalar(0.5), d = core.distanceTo(tgt), w = Rw * 0.022 * (0.85 + 0.3 * Math.random());
+        for (const [m, ww, op] of [[f.glow, w * 4.2, 0.45], [f.core, w, 1]]) { m.visible = true; m.position.copy(mid); m.lookAt(tgt); m.rotateX(Math.PI / 2); m.scale.set(ww, d, ww); m.material.opacity = fadeB * op; }
+      } else { f.glow.visible = f.core.visible = false; }
+      f.muzzle.position.copy(core); f.muzzle.scale.setScalar(Rw * (0.6 + 0.15 * Math.random()) * (0.4 + fade)); f.muzzle.material.opacity = fade;
+      if (tgt) { f.sprite.position.copy(tgt); f.sprite.scale.setScalar(Rw * 0.5 * (0.6 + Math.random() * 0.5)); f.sprite.material.opacity = fadeB; }
+      // излом молний обновляется 20 раз в секунду
+      if (f.t >= f.nextJag) {
+        f.nextJag = f.t + 0.05;
+        f.aura = seraphAura(obj.userData.arcPts, R, k);
+        f.beamJag = tgt && fadeB > 0.05 ? [0, 1, 2, 3].map(() => jagged(core, tgt, Math.min(core.distanceTo(tgt) * 0.04, Rw * 0.35), 14)) : [];
+      }
+      const list = f.aura.map(b => ({ pts: b.pts.map(p => p.clone().applyMatrix4(obj.matrixWorld)), w: b.w * sc * (0.7 + fade * 0.6), c: b.c.map(x => x * (0.35 + 0.65 * fade)) }));
+      for (const pts of f.beamJag) list.push({ pts, w: Rw * 0.014, c: (Math.random() < 0.5 ? GOLD_BOLT : WHITE_BOLT).map(x => x * fadeB) });
+      writeBolts(f.bolts, list);
+      continue;
+    }
     if (f.kind === 'arc') {
       const a = entRel(view, f.from, origin), b = entRel(view, f.to, origin);
       if (!a || !b) { f.t = f.dur; continue; }
@@ -3091,7 +3305,7 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
   const warm = new THREE.DirectionalLight(0xffc890, 0.7); warm.position.set(rad * 2, rad * 1.5, rad * 2); ps.add(warm);
   ps.add(new THREE.AmbientLight(0x8090b0, 0.4));
   // ракурс и кадр по классу мощи: лёгкие — сверху и с запасом места, тяжёлые — снизу и во весь кадр
-  const elev = info.unique ? 0.34 : 0.42 - (tier - 1) * 0.12, fill = [0.5, 0.6, 0.68, 0.76, 0.84][tier - 1];
+  const elev = info.unique ? 0.8 : 0.42 - (tier - 1) * 0.12, fill = [0.5, 0.6, 0.68, 0.76, 0.84][tier - 1];
   const cam = new THREE.PerspectiveCamera(30, w / h, rad * 0.01, rad * 100);
   const halfW = Math.tan(THREE.MathUtils.degToRad(15)) * (w / h);
   const dist = rad / (fill * halfW);
