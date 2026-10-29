@@ -28,13 +28,15 @@ const GU = { time: { value: 0 } }; // общие uniform-переменные ш
 let quality = 'high';
 // Прогрев: заранее строим модели и текстуры кораблей маленькими порциями, а затем в фоне компилируем
 // их шейдеры — иначе первая встреча с новым кораблём (пиратская волна, прыжок) даёт заметный фриз
-export function prewarm(ships, drones = {}) {
+// Заранее строим только то, что встретится почти наверняка: свой корабль и частые пиратские корпуса.
+// Раньше строились все ~64 модели (каждая окраска — своя текстура корпуса) — на телефоне это сотни МБ разом
+export function prewarm(ships, drones = {}, mine = null) {
+  if (LOW_MEM) return; // на телефоне модели строятся по мере появления
   const jobs = [];
-  for (const [type, t] of Object.entries(ships)) {
-    if (t.role) jobs.push([type, t.color, 'player']);
-    jobs.push([type, 0x4a3a38, 'pirate']);
-  }
+  if (mine && ships[mine]) jobs.push([mine, ships[mine].color, 'player']);
+  for (const type of ['klinok', 'vihr', 'strazh', 'pdrone', 'pdrone_h']) if (ships[type]) jobs.push([type, 0x4a3a38, 'pirate']);
   jobs.push(['molot', 0xd8e4f0, 'guard']);
+  drones = Object.fromEntries(Object.entries(drones).slice(0, 4));
   const built = [];
   const step = () => {
     const j = jobs.shift();
@@ -67,7 +69,12 @@ export const GFX_PROFILES = {
 let gfx = { ...GFX_PROFILES.high, fov: 60, shake: 0.5 };
 export function getGfx() { return gfx; }
 // текстуры и детализация моделей фиксируются при запуске (модели строятся и кэшируются один раз)
+// Телефоны и планшеты: у WebView (особенно iOS) жёсткий предел памяти — при его превышении система молча
+// перезагружает страницу. Поэтому там текстуры корпусов не больше 512, кадр не больше ~2,3 Мп, тени не больше 1024
+export const LOW_MEM = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const TEX_RES = { low: 512, med: 1024, high: 1024, ultra: 2048 };
+const texRes = () => LOW_MEM ? 512 : (TEX_RES[texLevel] || 1024);
+const PIXEL_BUDGET = LOW_MEM ? 2.3e6 : 17e6; // пикселей в буфере кадра (17 Мп — 4K с запасом под масштаб 150%)
 const DETAIL = { low: 0.7, med: 1, high: 1.3, ultra: 1.7 };
 const DIST_K = { low: 0.6, med: 1, high: 1.5, ultra: 2.2 }; // дальность прорисовки: следы, переходы LOD
 const distK = () => DIST_K[gfx.dist] || 1;
@@ -77,6 +84,7 @@ let shakeAmp = 0;
 export function shake(k) { shakeAmp = Math.min(1.5, Math.max(shakeAmp, k * (gfx.shake ?? 0.5))); }
 export function setGraphics(g) {
   gfx = { ...gfx, ...g };
+  if (LOW_MEM) { gfx.shadows = Math.min(gfx.shadows || 0, 1024); if (gfx.tex === 'ultra' || gfx.tex === 'high') gfx.tex = 'med'; }
   quality = gfx.fx === 'low' ? 'low' : gfx.shadows >= 2048 ? 'high' : 'medium';
   if (!renderer) { texLevel = gfx.tex; return; }
   const maxS = renderer.capabilities.maxSamples || 4;
@@ -332,7 +340,7 @@ const maxAniso = () => renderer ? Math.min(texLevel === 'low' ? 4 : 16, renderer
 const hullShared = new Map();
 function hullSet(paint, accent, faction, seed) {
   // рисуем в логических координатах 512×512, холсты — в разрешении уровня качества (512 / 1024 / 2048)
-  const W = 512, RES = TEX_RES[texLevel] || 1024, r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
+  const W = 512, RES = texRes(), r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
   const mk = (size = RES, read = false) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d', read ? { willReadFrequently: true } : undefined); g.setTransform(size / W, 0, 0, size / W, 0, 0); return [c, g]; };
   // если общие карты уже есть, рисуем их на холстах 1×1 — вызовы те же (та же последовательность случайных чисел), но почти бесплатно
   const [cc, cg] = mk(), [hc, hg] = mk(shared ? 1 : RES, true), [oc, og] = mk(shared ? 1 : RES), [ec, eg] = mk(shared ? 1 : RES);
@@ -612,7 +620,7 @@ function buildSky(sysId, sec, region) {
   quad.frustumCulled = false;
   quadScene.add(quad);
   if (!skyRT) {
-    const size = Math.min(2048, renderer.capabilities.maxTextureSize); // 4096 в половинной точности с мипмапами — ~90 МБ видеопамяти
+    const size = Math.min(LOW_MEM ? 1024 : 2048, renderer.capabilities.maxTextureSize); // 4096 в половинной точности с мипмапами — ~90 МБ видеопамяти
     skyRT = new THREE.WebGLRenderTarget(size, size / 2, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
   }
   const prevTarget = renderer.getRenderTarget();
@@ -2411,7 +2419,7 @@ export function init(canvas) {
   // только тратил бы видеопамять — на 4K это сотни мегабайт
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   renderer.info.autoReset = false;
-  renderer.setPixelRatio(Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1)));
+  renderer.setPixelRatio(pixelRatio());
   // нейтральная тональная кривая (Khronos PBR Neutral): цвета красок остаются своими, а яркие места
   // мягко сжимаются, а не выгорают в белое, как у ACES (синий корпус не уходит в фиолетовый)
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -2544,9 +2552,14 @@ export function init(canvas) {
   addEventListener('resize', resize);
 }
 
+function pixelRatio() {
+  const want = Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1));
+  return Math.max(0.5, Math.min(want, Math.sqrt(PIXEL_BUDGET / Math.max(1, innerWidth * innerHeight))));
+}
 function resize() {
-  // буфер WebGL = размер окна × devicePixelRatio × масштаб рендера: по умолчанию пиксель в пиксель, без растяжения
-  renderer.setPixelRatio(Math.min(4, (devicePixelRatio || 1) * (gfx.scale || 1)));
+  // буфер WebGL = размер окна × devicePixelRatio × масштаб рендера: по умолчанию пиксель в пиксель, без растяжения,
+  // но не больше бюджета пикселей (на телефоне с плотностью 3 полный кадр — это 3,5 Мп и сотни МБ буферов)
+  renderer.setPixelRatio(pixelRatio());
   renderer.setSize(innerWidth, innerHeight, false);
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(innerWidth, innerHeight);

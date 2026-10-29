@@ -104,7 +104,7 @@ class Game {
     this.checkSkills(p);
 
     sess.send({
-      t: 'welcome', name: p.name,
+      t: 'welcome', name: p.name, ship: p.ship && p.ship.type,
       data: {
         ships: SHIPS, shipRoles: D.SHIP_ROLES, factions: D.FACTION_INFO, modules: MODULES, modUpgrade: D.MOD_UPGRADE, drones: DRONES, droneClasses: D.DRONE_CLASSES, items: ITEMS, skills: SKILLS, skillTime: SKILL_TIME,
         systems: D.SYSTEMS, gates: D.GATES, regions: D.REGIONS, starTypes: D.STAR_TYPES,

@@ -76,6 +76,28 @@ const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, vSfx: 1
 let CFG = { ...CFG_DEFAULT };
 try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
 function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
+// Безопасный запуск: если прошлый запуск оборвался (страницу сбросила система из-за памяти или видеокарта),
+// стартуем с минимальной графикой — иначе на телефоне игра падала бы снова и снова
+let SAFE_BOOT = false;
+try {
+  if (localStorage.getItem('vf-boot') === 'starting') { SAFE_BOOT = true; CFG.quality = 'low'; CFG.gfx = null; CFG.autoQ = true; localStorage.setItem('vf-cfg', JSON.stringify(CFG)); }
+  localStorage.setItem('vf-boot', 'starting');
+} catch {}
+// любая ошибка — текстом на экране, а не пустая страница (пилот сможет прислать её разработчику)
+function showFatal(msg) {
+  try {
+    let el = document.getElementById('vf-fatal');
+    if (!el) { el = document.createElement('div'); el.id = 'vf-fatal'; el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:rgba(40,8,8,.92);color:#ffd0c0;font:12px/1.4 monospace;padding:8px 10px;border:1px solid #a33;border-radius:6px;white-space:pre-wrap;max-height:40vh;overflow:auto'; document.body.appendChild(el); }
+    el.textContent = 'Ошибка игры (пришлите этот текст разработчику):\n' + msg + '\n\n' + (el.dataset.more || '');
+  } catch {}
+}
+// запуск удался, когда игра отрисовала пару секунд кадров; обычное закрытие страницы — тоже не сбой
+let bootFrames = 0;
+let bootStart = 0;
+function bootTick() { if (bootFrames < 0) return; bootStart = bootStart || performance.now(); if (++bootFrames >= 120 || performance.now() - bootStart > 8000) { bootFrames = -1; try { localStorage.setItem('vf-boot', 'ok'); } catch {} } }
+addEventListener('pagehide', () => { try { localStorage.setItem('vf-boot', 'ok'); } catch {} });
+addEventListener('error', (e) => showFatal(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno}`));
+addEventListener('unhandledrejection', (e) => showFatal('Promise: ' + ((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
 // Графика: профиль (низкий/средний/высокий/ультра) или пользовательский набор; угол обзора и тряска — отдельно
 const perf = { buf: new Float64Array(600), n: 0, last: 0, cpu: 0, shown: 0, el: null };
 let bench = null; // идёт встроенный тест производительности
@@ -354,8 +376,9 @@ function onMsg(m) {
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
-      R.prewarm(m.data.ships, m.data.drones);
+      R.prewarm(m.data.ships, m.data.drones, m.ship || (S.prof && S.prof.ship && S.prof.ship.type));
       addChat('local', '*', `Добро пожаловать, пилот ${m.name}! Нажмите H или «?» слева, чтобы узнать управление.`);
+      if (SAFE_BOOT) { SAFE_BOOT = false; note('Прошлый запуск оборвался (не хватило памяти) — включена минимальная графика. Повысить можно в настройках ⚙', 'warn'); }
       break;
     case 'system':
       if (S.sys && S.sys.id !== m.id) jumpBanner(m);
@@ -3012,6 +3035,7 @@ function loop(now) {
   lastFrame = now;
   if (!S.data) return;
   const t0 = performance.now();
+  bootTick();
   frameBody(now, dt);
   perfTick(now, performance.now() - t0);
 }
