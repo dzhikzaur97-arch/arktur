@@ -2692,7 +2692,9 @@ export function frame(view, dt, time) {
     sunLight2.intensity = lookB.power * Math.min(1.1, Math.pow(sl / db, 2)) * 0.85;
   } else sunLight2.intensity = 0;
   rimLight.position.copy(sunDir).multiplyScalar(-1e5).add(tmpV.set(0, 3e4, 0));
-  if (myShip) {
+  // данных своего корабля может не быть мгновение (стыковка, прыжок, восстановление связи) — тогда его не рисуем
+  if (myShip) myShip.visible = !!view.me;
+  if (myShip && view.me) {
     const R = view.data.ships[view.me.st].radius * 3;
     const sc = sunLight.shadow.camera;
     if (sc.right !== R) { sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 1e5 - R * 2; sc.far = 1e5 + R * 2; sc.updateProjectionMatrix(); }
@@ -2735,7 +2737,7 @@ export function frame(view, dt, time) {
     const L = godRays.uniforms['l' + i].value, r = rays[i];
     if (r) { L.set(r.x, r.y, r.w); godRays.uniforms['c' + i].value.set(r.c); } else L.set(0, 0, 0);
   }
-  if (myShip) {
+  if (myShip && view.me) {
     myShip.position.set(0, 0, 0);
     const h = view.me.h;
     tmpV.set(h[0], h[1], h[2]);
@@ -2896,13 +2898,13 @@ function stationFrame(view, dt, time) {
 // Эффекты
 // ======================================================================
 function entRel(view, id, origin) {
-  if (id === view.me.id) return new THREE.Vector3(0, 0, 0);
+  if (view.me && id === view.me.id) return new THREE.Vector3(0, 0, 0);
   const e = view.ents.get(id);
   if (!e) return null;
   return new THREE.Vector3(e.dp[0] - origin[0], e.dp[1] - origin[1], e.dp[2] - origin[2]);
 }
 function entRadius(view, id) {
-  if (id === view.me.id) return view.data.ships[view.me.st].radius;
+  if (view.me && id === view.me.id) return view.data.ships[view.me.st].radius;
   const e = view.ents.get(id);
   return e ? (e.r || 50) : 50;
 }
@@ -3018,7 +3020,7 @@ export function addFx(fx, view) {
       if (p) {
         spark(fx.color, fx.to, entRadius(view, fx.to));
         const tgt = view.ents.get(fx.to);
-        const shieldUp = fx.to === view.me.id ? view.me.sh > view.me.max.sh * 0.03 : tgt && tgt.sh > 0.03;
+        const shieldUp = view.me && fx.to === view.me.id ? view.me.sh > view.me.max.sh * 0.03 : tgt && tgt.sh > 0.03;
         if (fx.k === 'beam' && shieldUp) shieldFlash(fx.to, entRadius(view, fx.to));
       }
     }
@@ -3202,6 +3204,7 @@ function updateWarp(view, dt) {
   camera.updateProjectionMatrix();
   bloom.strength = (gfx.bloom || 0) * (1 + m.opacity * 0.7);
   if (m.opacity < 0.01) { warpLines.visible = false; return; }
+  if (!view.me) { warpLines.visible = false; return; }
   warpLines.visible = true;
   const v = view.me.v;
   const dir = new THREE.Vector3(v[0], v[1], v[2]).normalize();
