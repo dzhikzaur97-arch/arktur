@@ -2628,10 +2628,19 @@ function photoMode(on) {
   if (on) { closeWin(); note && 0; const spin = () => { if (!PHOTO.on) return; if (PHOTO.orbit) R.cam.yaw += 0.0025; PHOTO.raf = requestAnimationFrame(spin); }; spin(); }
   else cancelAnimationFrame(PHOTO.raf);
 }
+// data-URL → Blob без fetch: в рамке claude.ai политика безопасности запрещает fetch даже data:-адресов
+function dataUrlToBlob(url) {
+  const [head, b64] = url.split(','), bin = atob(b64), buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: (head.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' });
+}
 async function photoShot() {
+  try { await photoShotRun(); } catch (e) { note('Снимок не получился: ' + ((e && e.message) || e), 'warn'); }
+}
+async function photoShotRun() {
   const url = R.snapshot && R.snapshot();
   if (!url) return note('Снимок не получился', 'warn');
-  const blob = await (await fetch(url)).blob(), d = new Date(), z = (n) => String(n).padStart(2, '0');
+  const blob = dataUrlToBlob(url), d = new Date(), z = (n) => String(n).padStart(2, '0');
   const filename = `void-frontier-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.jpg`;
   const flash = $('#photo-flash'); flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
   const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
