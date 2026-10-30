@@ -20,7 +20,7 @@ const WING = {
     miner:  { name: 'Шахтёр', ships: ['burlak', 'staratel', 'staratel', 'leviafan', 'leviafan'], fee: 45000, desc: 'копает руду прямо в ваш трюм' },
     medic:  { name: 'Ремонтник', ships: ['sokol', 'piligrim', 'strazh', 'strazh', 'bastion'], fee: 55000, desc: 'чинит щит и броню вашего корабля' }
   },
-  xpNeed: [0, 3, 8, 16, 30],      // побед до уровня 2..5
+  xpNeed: [0, 15, 40, 80, 150],   // побед до уровня 2..5
   first: ['Арс', 'Вега', 'Дан', 'Кира', 'Лео', 'Мира', 'Ник', 'Ольга', 'Рэй', 'Тэо', 'Юна', 'Зар', 'Сол', 'Тарас', 'Ева', 'Гор', 'Лана', 'Марк', 'Нора', 'Ян'],
   last: ['Корвин', 'Стрельцов', 'Ноэль', 'Варга', 'Айхен', 'Мерк', 'Ростов', 'Кейн', 'Орлова', 'Тайри', 'Векс', 'Лунд', 'Сато', 'Белых', 'Рейн'],
   orders: { follow: 'Следовать', attack: 'Атаковать мою цель', mine: 'Копать', hold: 'Стоять' }
@@ -160,7 +160,7 @@ module.exports = function install(Game) {
       e.nextShot = this.now + 2400;
       const hit = Math.random() < 0.82;
       this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: foe.id, color: 0x60e0ff, hit, dur: 0.8 });
-      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (35 + SHIPS[e.shipType].radius * 0.7) * (1 + 0.2 * (w.lv - 1)), e);
+      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (25 + SHIPS[e.shipType].radius * 0.5) * (1 + 0.15 * (w.lv - 1)), e); // помощник, а не замена игроку
     }
   };
   P.wingShipTick = function (e) {
@@ -245,6 +245,8 @@ module.exports = function install(Game) {
         }
       }
       if (s && s.ent) k = s.ent;
+      // половина награды за победу напарника — ему самому
+      if (p && w && (t.npc || t.war)) { const c0 = p.credits; const r = baseDestroy.call(this, t, k); const half = Math.floor((p.credits - c0) / 2); if (half > 0) { p.credits -= half; if (s) s.wingShare = (s.wingShare || 0) + half; } return r; }
     }
     if (t.civ === 'wing') {
       const p = this.db.players[t.wingOf], w = p && (p.wing || []).find(x => x.id === t.wingId);
@@ -261,6 +263,8 @@ module.exports = function install(Game) {
   P.slowTick = function () {
     baseSlow.call(this);
     this.wingTick();
+    // раз в минуту — сводка: сколько напарники взяли себе из наград
+    if (!this._wingShareAt || this.now - this._wingShareAt > 60000) { this._wingShareAt = this.now; for (const s of this.sessions) if (s.wingShare) { this.notify(s, `Напарники взяли свою долю наград за последние победы: ${fmt(s.wingShare)} ISK`, 'info'); s.wingShare = 0; } }
   };
 };
 module.exports.WING = WING;

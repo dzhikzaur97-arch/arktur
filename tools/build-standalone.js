@@ -11,7 +11,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 // --- серверные модули в мини-загрузчике CommonJS ---
 // генератор планет общий для сервера и клиента — лежит в public/js
 const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
-const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'sleep', 'cmissions', 'dailies', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `
@@ -120,7 +120,9 @@ window.VF_SAVES = {
     return { ok: true };
   },
   // текущее состояние для сверки с облачной копией: время сохранения и пилоты
-  current() { return { when: __lastSave || __db.savedAt || 0, pilots: Object.values(__db.players || {}).map(p => p.name) }; },
+  // только пилоты-люди: ИИ-ученики появляются в каждой новой игре и не считаются прогрессом
+  // (иначе новое устройство «с ботами» не предложило бы восстановить облачную копию и затёрло бы её)
+  current() { const humans = Object.values(__db.players || {}).filter(p => !p.bot); return { when: humans.length ? (__lastSave || __db.savedAt || 0) : 0, pilots: humans.map(p => p.name) }; },
   status() { return window.VF_SAVE_STATUS; },
   flush() { return __save(true); }
 };
@@ -180,12 +182,21 @@ let css = read('public/style.css');
 css = css.replace(':root {', ':root {\n  color-scheme: dark;');
 // концепт-арты кораблей встраиваем прямо в страницу
 const artDir = path.join(ROOT, 'public/img/ships');
-const art = {};
-for (const f of fs.existsSync(artDir) ? fs.readdirSync(artDir) : []) if (f.endsWith('.jpg')) art[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(artDir, f)).toString('base64');
+// картинки встраиваются в WebP (втрое легче, iOS 14+); без Python и Pillow — исходные JPEG
+const embed = (dir, w, q) => {
+  if (!fs.existsSync(dir)) return {};
+  try { return JSON.parse(require('child_process').execFileSync('python3', [path.join(ROOT, 'tools/webp.py'), dir, String(w), String(q)], { maxBuffer: 64 << 20 }).toString()); }
+  catch (e) {
+    console.warn('WebP недоступен, встраиваю JPEG:', e.message.split('\n')[0]);
+    const out = {};
+    for (const f of fs.readdirSync(dir)) if (f.endsWith('.jpg')) out[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(dir, f)).toString('base64');
+    return out;
+  }
+};
+const art = embed(artDir, 960, 70);
 // единая серия фото кораблей (tools/make-photos.js)
 const photoDir = path.join(ROOT, 'public/img/photos');
-const photos = {};
-for (const f of fs.existsSync(photoDir) ? fs.readdirSync(photoDir) : []) if (f.endsWith('.jpg')) photos[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(photoDir, f)).toString('base64');
+const photos = embed(photoDir, 800, 72);
 const page = `<title>Void Frontier</title>
 <script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)};</script>
 <style>

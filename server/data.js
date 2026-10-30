@@ -153,6 +153,21 @@ const SHIPS = {
     cargo: 0, slots: { high: 1, mid: 0, low: 0 }, maxLocks: 1, lockRange: 40000, lockTime: 1,
     desc: 'Лёгкий боевой дрон пиратов. Нападает роем.'
   },
+  // босс мирового события и его генераторы щита (только у NPC)
+  colossus: {
+    name: 'Колосс Предтеч', cls: 'Машина Предтеч', price: 0, color: 0xf0ece2,
+    maxSpeed: 60, align: 20, warpSpeed: 0, sig: 3000, radius: 1800,
+    shield: 15000, armor: 20000, hull: 15000, cap: 5000, capRegen: 100,
+    cargo: 0, slots: { high: 6, mid: 0, low: 0 }, maxLocks: 6, lockRange: 90000, lockTime: 2,
+    desc: 'Машина Предтеч размером с луну. Щит питают четыре генератора — сначала их.'
+  },
+  wb_gen: {
+    name: 'Генератор щита', cls: 'Машина Предтеч', price: 0, color: 0xc8b8ff,
+    maxSpeed: 0, align: 1, warpSpeed: 0, sig: 400, radius: 140,
+    shield: 3000, armor: 4000, hull: 3000, cap: 1000, capRegen: 20,
+    cargo: 0, slots: { high: 1, mid: 0, low: 0 }, maxLocks: 1, lockRange: 40000, lockTime: 2,
+    desc: 'Питает щит Колосса. Пока цел хоть один генератор, Колосс почти неуязвим.'
+  },
   pdrone_h: {
     name: 'Тяжёлый дрон Скверны', cls: 'Пиратский дрон', price: 0, color: 0x4a2a28,
     maxSpeed: 400, align: 1.5, warpSpeed: 0, sig: 45, radius: 16,
@@ -555,7 +570,8 @@ const NPCS = {
   sentinel: { name: 'Страж Предтеч', ship: 'relikvariy', bounty: 350000, dmgMul: 0.85, hpMul: 1.6, weapon: 'laser_x', guns: 4, speedMul: 0.5, loot: [['salv_relic', 1, 2, 4], ['salv_core', 1, 3, 6]] },
   shard: { name: 'Осколок Стража', ship: 'pdrone_h', bounty: 15000, dmgMul: 0.8, hpMul: 1.6, weapon: 'laser_m', guns: 1, speedMul: 1.1, loot: [['salv_core', 0.4, 1, 2]] },
   vaultguard: { name: 'Страж хранилища', ship: 'pdrone', bounty: 4000, dmgMul: 0.6, hpMul: 1.2, weapon: 'laser_s', guns: 1, speedMul: 1.2, loot: [] },
-  wb_colossus: { name: 'Колосс Предтеч', ship: 'relikvariy', bounty: 0, dmgMul: 1.1, hpMul: 1, weapon: 'laser_x', guns: 6, speedMul: 0.35, loot: [] },
+  wb_gen: { name: 'Генератор щита Колосса', ship: 'wb_gen', bounty: 25000, dmgMul: 0.6, hpMul: 1, weapon: 'laser_m', guns: 1, speedMul: 0, loot: [['salv_core', 0.6, 1, 2]] },
+  wb_colossus: { name: 'Колосс Предтеч', ship: 'colossus', bounty: 0, dmgMul: 1.1, hpMul: 1, weapon: 'laser_x', guns: 6, speedMul: 0.35, loot: [] },
   wb_dread: { name: 'Дредноут «Левиафан Скверны»', ship: 'citadel', bounty: 0, dmgMul: 1.1, hpMul: 1, weapon: 'rail_x', guns: 6, speedMul: 0.4, loot: [] },
   pdrone_h: { name: 'Тяжёлый дрон Скверны', ship: 'pdrone_h', bounty: 9000, dmgMul: 0.7, hpMul: 1, weapon: 'laser_m', guns: 1, speedMul: 1, loot: [['salv_scrap', 0.5, 1, 2], ['salv_core', 0.15, 1, 1]] },
   pbase:  { name: 'Пиратская база', ship: 'pbase', bounty: 0, dmgMul: 0.9, hpMul: 1, weapon: 'laser_m', guns: 4, speedMul: 0, pd: 'pd_1', loot: [] },

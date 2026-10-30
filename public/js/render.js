@@ -30,6 +30,23 @@ let quality = 'high';
 // их шейдеры — иначе первая встреча с новым кораблём (пиратская волна, прыжок) даёт заметный фриз
 // Заранее строим только то, что встретится почти наверняка: свой корабль и частые пиратские корпуса.
 // Раньше строились все ~64 модели (каждая окраска — своя текстура корпуса) — на телефоне это сотни МБ разом
+// Прогрев на экране входа: шейдеры станции, стартового корабля и пост-обработки компилируются,
+// пока пилот вводит имя, — иначе всё это компилируется в первом кадре после входа (≈1,5 с подвисания)
+let warmed = false;
+export function warmup() {
+  if (warmed || !renderer) return;
+  warmed = true;
+  const idle = window.requestIdleCallback || ((f) => setTimeout(f, 60));
+  idle(() => {
+    try {
+      const g = new THREE.Group();
+      g.add(stationModel(0));
+      g.add(shipModel('iskra', 0x9fb4c8, 900, 'player'));
+      const done = () => idle(() => { try { composer.render(); } catch {} });
+      if (renderer.compileAsync) renderer.compileAsync(g, camera, scene).then(done, done); else { renderer.compile(g, camera, scene); done(); }
+    } catch (e) { console.warn('warmup', e); }
+  }, { timeout: 2500 });
+}
 export function prewarm(ships, drones = {}, mine = null) {
   if (LOW_MEM) return; // на телефоне модели строятся по мере появления
   const jobs = [];
@@ -782,7 +799,7 @@ const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 
   strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
   gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16,
   merkuriy: 44, prorab: 85, argus: 110, senator: 300, brodyaga: 42, pastuh: 75, kovcheg: 200, taran: 140,
-  iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290, serafim: 600 };
+  iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290, serafim: 600, colossus: 1800, wb_gen: 140 };
 // Фракционные линейки: свой стиль корпуса, окраски и цвет дюз у каждой фракции
 const DESIGN_FAC = { merkuriy: 'cons', prorab: 'cons', argus: 'cons', senator: 'cons', brodyaga: 'liga', pastuh: 'liga', kovcheg: 'liga', taran: 'liga',
   iskatel: 'orden', prizma: 'orden', orakul: 'orden', relikvariy: 'orden', serafim: 'seraph' };
@@ -1645,9 +1662,39 @@ function buildShip(type, color, faction) {
     }
     // ===== «Серафим» — по концепт-арту пилота (см. buildSerafim) =====
     case 'serafim': { buildSerafim(g, R); break; }
+    // ===== Колосс Предтеч — босс мирового события: фарфоровый шпиль, золотые кольца, кристаллическое ядро =====
+    case 'colossus': {
+      const W = porcelainMat(), G = goldMat(), C = crystalMat(), K = glowMat(0xbfe0ff, 3.2);
+      add(lathe(R * 2.0, R * 0.32, [[0, 0.05], [0.12, 0.5], [0.3, 0.9], [0.5, 1], [0.7, 0.85], [0.88, 0.45], [1, 0.03]], 48), W, 0, -R * 1.0, 0).rotation.x = -Math.PI / 2;
+      const core = add(new THREE.IcosahedronGeometry(R * 0.28, 1), K, 0, 0, 0); core.userData.spin = ['y', 0.35];
+      add(new THREE.IcosahedronGeometry(R * 0.36, 0), C, 0, 0, 0).material = C;
+      [[R * 0.95, 0.012, 0.05], [R * 1.25, 0.01, -0.035], [R * 1.55, 0.008, 0.022]].forEach(([rad, th, sp], i) => {
+        const ring = add(new THREE.TorusGeometry(rad, R * th * 2.2, 10, 120), G, 0, R * (i - 1) * 0.12, 0);
+        ring.rotation.x = Math.PI / 2 + (i - 1) * 0.35; ring.userData.spin = [i === 1 ? 'y' : 'z', sp * 6];
+      });
+      for (let i = 0; i < 6; i++) { // пилоны с кристаллами — «лапы» машины
+        const a = i * Math.PI / 3, x = Math.cos(a) * R * 0.75, z = Math.sin(a) * R * 0.75;
+        const arm = add(new THREE.CylinderGeometry(R * 0.035, R * 0.06, R * 0.9, 10), W, x, -R * 0.35, z); arm.lookAt(x * 2, -R * 1.2, z * 2); arm.rotateX(Math.PI / 2);
+        const cr = add(new THREE.OctahedronGeometry(R * 0.11), C, x * 1.55, -R * 0.75, z * 1.55); cr.scale.set(0.6, 1.8, 0.6); cr.userData.spin = ['y', 0.8 + i * 0.1];
+      }
+      add(new THREE.ConeGeometry(R * 0.12, R * 0.9, 24), W, 0, R * 0.95, 0);
+      add(new THREE.OctahedronGeometry(R * 0.08), K, 0, R * 1.45, 0).userData.spin = ['y', 1.2];
+      const dome = add(new THREE.SphereGeometry(R * 1.7, 48, 32), new THREE.MeshBasicMaterial({ color: 0x9a70ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }), 0, 0, 0);
+      dome.userData.dome = true;
+      addLights(g, [[R * 1.55, 0, 0, R * 0.02], [-R * 1.55, 0, 0, R * 0.02], [0, R * 1.45, 0, R * 0.03]], 0xbfe0ff);
+      break;
+    }
+    case 'wb_gen': {
+      const W = porcelainMat(), C = crystalMat();
+      add(new THREE.CylinderGeometry(R * 0.25, R * 0.45, R * 0.5, 8), W, 0, -R * 0.55, 0);
+      const ob = add(new THREE.OctahedronGeometry(R * 0.5), C, 0, R * 0.25, 0); ob.scale.set(0.55, 1.6, 0.55); ob.userData.spin = ['y', 0.9];
+      const ring = add(new THREE.TorusGeometry(R * 0.6, R * 0.03, 8, 64), goldMat(), 0, R * 0.2, 0); ring.rotation.x = Math.PI / 2.3; ring.userData.spin = ['z', 1.4];
+      add(new THREE.SphereGeometry(R * 0.16, 16, 12), glowMat(0xc0a0ff, 3), 0, R * 0.25, 0);
+      break;
+    }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
   }
-  if (faction === 'pirate' && type !== 'pbase' && type !== 'pdrone' && type !== 'pdrone_h') { // шипы на пиратских кораблях
+  if (faction === 'pirate' && type !== 'pbase' && type !== 'pdrone' && type !== 'pdrone_h' && type !== 'colossus' && type !== 'wb_gen') { // шипы на пиратских кораблях
     const r = seeded(type.length * 31);
     for (let i = 0; i < 8; i++) {
       const sp = new THREE.Mesh(new THREE.ConeGeometry(R * 0.04, R * 0.35, 6), D);
@@ -2418,6 +2465,8 @@ export function init(canvas) {
   // сглаживание делает композитор (MSAA в его буферах, SMAA/FXAA проходами): MSAA холста при этом
   // только тратил бы видеопамять — на 4K это сотни мегабайт
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+  // без синхронной проверки журнала шейдеров: она заставляет ждать конца компиляции каждой программы (≈1,4 с подвисания при входе); для отладки — ?shaders
+  renderer.debug.checkShaderErrors = /[?&]shaders/.test(location.search);
   renderer.info.autoReset = false;
   renderer.setPixelRatio(pixelRatio());
   // нейтральная тональная кривая (Khronos PBR Neutral): цвета красок остаются своими, а яркие места
@@ -2601,7 +2650,7 @@ function makeEnt(e, data) {
   if (e.k === 's') {
     const t = data.ships[e.st];
     const faction = e.gd ? 'guard' : e.rl ? 'relic' : e.npc ? 'pirate' : 'player'; // rl — хранители аномалий Предтеч
-    const col = e.gd ? 0xd8e4f0 : e.rl ? 0x2a2438 : e.npc ? 0x4a3a38 : t.color;
+    const col = e.gd ? 0xd8e4f0 : e.rl ? 0x2a2438 : e.npc ? 0x4a3a38 : e.pc != null ? e.pc : t.color; // pc — покраска корабля друга
     obj = shipModel(e.st, col, e.r || t.radius, faction);
   } else if (e.k === 'd') obj = droneModel(e.item, data.drones[e.item]);
   else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
@@ -2627,13 +2676,14 @@ function removeEnt(id) {
 }
 
 let myShip = null, myShipType = null;
-export function setMyShip(type, data) {
-  if (myShip && myShipType === type) return;
+export function setMyShip(type, data, paint) {
+  const key = type && type + ':' + (paint == null ? '' : paint);
+  if (myShip && myShipType === key) return;
   if (myShip) entGroup.remove(myShip);
-  myShipType = type;
+  myShipType = key;
   if (!type) { myShip = null; return; }
   const t = data.ships[type];
-  myShip = shipModel(type, t.color, t.radius, 'player');
+  myShip = shipModel(type, paint == null ? t.color : paint, t.radius, 'player');
   cam.target = cam.dist = t.radius * 9;
   entGroup.add(myShip);
 }
@@ -2874,12 +2924,13 @@ function stationFrame(view, dt, time) {
     scene.add(stationView);
     celGroup.visible = entGroup.visible = false; dust.visible = false;
   }
-  if (view.dockedShip && stationView.userData.shipType !== view.dockedShip) {
+  const dkey = view.dockedShip && view.dockedShip + ':' + (view.dockedPaint == null ? '' : view.dockedPaint);
+  if (view.dockedShip && stationView.userData.shipType !== dkey) {
     if (stationView.userData.ship) stationView.remove(stationView.userData.ship);
     const t = view.data.ships[view.dockedShip];
-    const sh = shipModel(view.dockedShip, t.color, 900, 'player');
+    const sh = shipModel(view.dockedShip, view.dockedPaint == null ? t.color : view.dockedPaint, 900, 'player');
     sh.position.set(2200, -1200, 5200);
-    stationView.add(sh); stationView.userData.ship = sh; stationView.userData.shipType = view.dockedShip;
+    stationView.add(sh); stationView.userData.ship = sh; stationView.userData.shipType = dkey;
   }
   sunLight.position.set(1, 0.5, 0.7).multiplyScalar(1e5);
   stationView.userData.st.rotation.y += dt * 0.03;
@@ -3425,4 +3476,6 @@ export function landedShip(type, color) {
 export function starLook(k) { return STAR_LOOK[k] || STAR_LOOK.yellow; }
 
 // Для отладки рендера из консоли браузера
+// снимок для фоторежима: кадр рисуется и сразу читается (буфер холста не сохраняется между кадрами)
+export function snapshot() { try { composer.render(); return renderer.domElement.toDataURL('image/jpeg', 0.92); } catch (e) { return null; } }
 export function debugScene() { return { scene, camera, celGroup, renderer, THREE }; }

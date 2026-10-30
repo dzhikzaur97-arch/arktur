@@ -1782,5 +1782,8 @@ require('./wingmen')(Game);
 require('./worldevents')(Game);
 require('./career')(Game);
 require('./npctalk')(Game);
+require('./sleep')(Game);
+require('./cmissions')(Game);
+require('./dailies')(Game);
 
 module.exports = { Game };

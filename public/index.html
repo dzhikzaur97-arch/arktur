@@ -10,6 +10,8 @@
 <body>
 <canvas id="scene"></canvas>
 <div id="brackets"></div>
+<div id="photo-bar" class="hidden"><button data-ph="shot" class="primary">📸 Снимок</button><button data-ph="orbit">↻ Облёт</button><button data-ph="exit">✕ Выйти</button></div>
+<div id="photo-flash"></div>
 
 <!-- Экран входа -->
 <div id="login" class="screen">
@@ -50,6 +52,8 @@
     <button data-win="fleet" title="Флот: фото и характеристики всех кораблей">🚀<small>Флот</small></button>
     <button data-win="bots" title="Обучение ИИ-пилотов: как боты учатся играть">🎓<small>ИИ</small></button>
     <button data-win="career" title="Карьера, достижения, звания и таблица лидеров">🏆<small>Карьера</small></button>
+    <button data-win="assist" title="Бортовой помощник: вопросы об игре (отвечает Claude)">✧<small>Помощник</small></button>
+    <button id="b-photo" title="Фоторежим: без интерфейса, свободная камера, снимок">📷<small>Фото</small></button>
     <button data-win="pilots" title="Пилоты галактики (P)">♛<small>Пилоты</small></button>
     <button data-win="build" title="Постройки: завод, электростанции, транспортный хаб">⚒<small>Стройка</small></button>
     <button data-win="settings" title="Настройки (O)">⚙<small>Настр.</small></button>
@@ -135,7 +139,7 @@
   <!-- Чат -->
   <div id="chat" class="panel">
     <div class="ph">
-      <div class="tabs" id="chat-tabs"><span data-ch="local" class="on">Локальный</span><span data-ch="global">Общий</span></div>
+      <div class="tabs" id="chat-tabs"><span data-ch="local" class="on">Локальный</span><span data-ch="global">Общий</span><span data-ch="friends">Друзья</span></div>
       <span id="local-count"></span>
     </div>
     <div id="chat-body">

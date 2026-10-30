@@ -26,7 +26,7 @@ const WEV = {
 
 module.exports = function install(Game) {
   const P = Game.prototype;
-  const baseSlow = P.slowTick, baseDestroy = P.destroyShip, baseApply = P.applyDamage, baseSendAnoms = P.sendAnoms;
+  const baseSlow = P.slowTick, baseDestroy = P.destroyShip, baseApply = P.applyDamage, baseSendAnoms = P.sendAnoms, baseEntView = P.entView;
 
   P.wevAttacker = function (src) {
     if (!src) return null;
@@ -35,6 +35,11 @@ module.exports = function install(Game) {
   };
   // вклад в бой с боссом — по нанесённому урону
   P.applyDamage = function (t, dmg, src, ...rest) {
+    if (t && t.wboss && this.wev && this.wev.boss === t.id && this.wevShielded()) {
+      dmg *= 0.1;
+      const s = src && this.wevAttacker(src) && [...this.sessions].find(x => x.player && x.player.name === this.wevAttacker(src));
+      if (s && (!s.genWarn || this.now - s.genWarn > 20000)) { s.genWarn = this.now; this.notify(s, '☄ Щит Колосса держат генераторы — сначала уничтожьте четыре генератора щита!', 'warn'); }
+    }
     if (t && t.wboss && this.wev && this.wev.boss === t.id) {
       const name = this.wevAttacker(src);
       if (name && this.db.players[name]) this.wev.dmg[name] = (this.wev.dmg[name] || 0) + dmg;
@@ -42,6 +47,13 @@ module.exports = function install(Game) {
     return baseApply.call(this, t, dmg, src, ...rest);
   };
 
+  // купол щита на Колоссе виден, пока живы генераторы (клиент рисует его как купол пиратской базы)
+  P.entView = function (o, viewer) {
+    const v = baseEntView.call(this, o, viewer);
+    if (v && o.wboss && this.wev && this.wev.boss === o.id && this.wevShielded()) v.pbs = 'waves';
+    return v;
+  };
+  P.wevShielded = function () { const ev = this.wev; if (!ev || !ev.gens) return false; for (const id of ev.gens) if (this.ents.has(id)) return true; return false; };
   P.wevStart = function (kindId, sysId) {
     const K = WEV.kinds[kindId || pick(Object.keys(WEV.kinds))];
     kindId = Object.keys(WEV.kinds).find(k => WEV.kinds[k] === K);
@@ -58,7 +70,13 @@ module.exports = function install(Game) {
     const anomId = 'an_wev_' + uid();
     boss.anom = null;
     this.anoms.set(anomId, { id: anomId, sys: def.id, kind: 'wevent', public: true, name: `${K.name}: ${boss.name}`, radius: 0, landing: 25000, pos, sig: 1, created: this.now, expires: this.now + WEV.duration + 60000, triggered: true, npcs: new Set() });
-    this.wev = { id: anomId, kind: kindId, sys: def.id, boss: boss.id, start: this.now, until: this.now + WEV.duration, nextWave: this.now + 20000, dmg: {}, escort: new Set() };
+    this.wev = { id: anomId, kind: kindId, sys: def.id, boss: boss.id, start: this.now, until: this.now + WEV.duration, nextWave: this.now + 20000, dmg: {}, escort: new Set(), gens: new Set() };
+    // Колосс: четыре генератора щита вокруг — пока цел хоть один, по Колоссу проходит только 10% урона
+    if (K.boss === 'wb_colossus') for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + 0.4, gpos = add(pos, [Math.cos(a) * 7000, (i % 2 ? 1500 : -1500), Math.sin(a) * 7000]);
+      const gnr = this.spawnNpc('wb_gen', def.id, gpos); gnr.npcSpeedMul = 0; gnr.home = gpos; gnr.wgen = true; gnr.regenMul = 0.2;
+      this.wev.gens.add(gnr.id); this.wev.escort.add(gnr.id);
+    }
     const text = K.news(def.name);
     for (const s of this.sessions) {
       s.send({ t: 'chat', ch: 'global', from: '*', text: '☄ ' + text });
@@ -77,6 +95,7 @@ module.exports = function install(Game) {
   P.wevEnd = function (won) {
     const ev = this.wev; if (!ev) return;
     this.wev = null;
+    this.wevNext = this.now + rnd(...WEV.every); // пауза 20–35 минут — от конца события
     const K = WEV.kinds[ev.kind], sysName = (SYSTEMS.find(s => s.id === ev.sys) || {}).name;
     const a = this.anoms.get(ev.id); if (a) { a.done = true; a.expires = this.now + (won ? 10 * 60000 : 0); }
     for (const id of ev.escort) { const e = this.ents.get(id); if (e) this.removeEntity(e); }
@@ -116,7 +135,13 @@ module.exports = function install(Game) {
       this.wevEnd(true);
       return r;
     }
-    if (this.wev) this.wev.escort.delete(t.id);
+    if (this.wev) {
+      this.wev.escort.delete(t.id);
+      if (this.wev.gens && this.wev.gens.delete(t.id)) {
+        const left = [...this.wev.gens].filter(id => this.ents.has(id) && id !== t.id).length;
+        for (const s of this.sessions) if (s.ent && s.ent.sys === this.wev.sys) this.notify(s, left ? `☄ Генератор щита уничтожен! Осталось: ${left}` : '☄ Все генераторы уничтожены — щит Колосса пал! Огонь по Колоссу!', 'good');
+      }
+    }
     return baseDestroy.call(this, t, killer);
   };
 
@@ -129,11 +154,13 @@ module.exports = function install(Game) {
       // пилот на сюжетном этапе «Первый Колосс» — событие начнётся в ближайшие полторы минуты
       if ([...this.sessions].some(s => { const st = s.player && s.player.story, md = st && st.state === 'active' && require('./story').MISSIONS[st.m], sg = md && md.stages[st.st]; return sg && sg.type === 'stat' && sg.stat === 'wevents'; }))
         this.wevNext = Math.min(this.wevNext, this.now + 90000);
-      if (this.now >= this.wevNext) { this.wevNext = this.now + rnd(...WEV.every); this.wevStart(); }
+      if (this.now >= this.wevNext) { this.wevNext = Infinity; this.wevStart(); } // следующее назначается, когда это закончится
       return;
     }
     const ev = this.wev, boss = this.ents.get(ev.boss);
     if (!boss) return this.wevEnd(false);
+    // лучи от генераторов к Колоссу — видно, что держит щит
+    if (ev.gens && ev.gens.size && (!ev.beamAt || this.now - ev.beamAt > 2500)) { ev.beamAt = this.now; for (const id of ev.gens) if (this.ents.has(id)) this.fxSys(ev.sys, null, { k: 'beam', from: id, to: boss.id, color: 0x9a70ff, hit: true, dur: 2.4 }); }
     if (this.now > ev.until) return this.wevEnd(false);
     // волны эскорта, пока рядом есть пилоты
     const near = [...this.sessions].some(s => s.ent && s.ent.sys === ev.sys && dist(s.ent.pos, boss.pos) < 150000);

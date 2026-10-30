@@ -713,3 +713,17 @@ table.tbl tr.me td { background: rgba(95,200,232,.12); }
 .talk-deal { margin: 8px 0; }
 .talk-in { display: flex; gap: 6px; margin: 8px 0 4px; }
 .talk-in input { flex: 1; min-width: 0; font-size: 16px; padding: 8px; }
+
+/* фоторежим */
+body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !important; }
+#photo-bar { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 50; display: flex; gap: 8px; background: rgba(4,10,18,.55); padding: 6px; border-radius: 10px; }
+#photo-bar.hidden { display: none; }
+#photo-bar button { font-size: 15px; padding: 10px 14px; }
+#photo-bar button.on { border-color: #60e0ff; color: #60e0ff; }
+#photo-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 49; }
+#photo-flash.go { animation: phflash .45s ease-out; }
+@keyframes phflash { from { opacity: .75; } to { opacity: 0; } }
+/* покраска */
+.paint-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); }
+.swatch.on { border-color: #fff; box-shadow: 0 0 0 2px #60e0ff; }

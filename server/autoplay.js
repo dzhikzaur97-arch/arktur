@@ -117,7 +117,13 @@ module.exports = function install(Game) {
       s._botActing = true; s.isBot = true; // свои команды бота не считаются ручными и не упираются в лимит частоты
       try { this.botStep(bot); } catch (err) { this.botLog(bot, 'Сбой логики: ' + err.message); bot.opt = null; }
       finally { s._botActing = false; s.isBot = false; }
-      if (dead) { this.autoStop(s, '⚠ Автоигра остановлена: корабль уничтожен. Включите снова, когда будете готовы.'); continue; }
+      if (dead) {
+        // после гибели продолжаем со станции возрождения; если гибнем часто (2 раза за час) — останавливаемся
+        bot.deaths = (bot.deaths || []).filter(t => this.now - t < 3600000); bot.deaths.push(this.now);
+        bot.inbox = bot.inbox.filter(m => m.t !== 'destroyed'); bot.opt = null;
+        if (bot.deaths.length >= 2) { this.autoStop(s, '⚠ Автоигра остановлена: второй уничтоженный корабль за час. Проверьте оснастку и включите снова.'); continue; }
+        this.notify(s, '🤖 Корабль уничтожен — автоигра продолжает со станции возрождения (остановится, если это повторится в течение часа)', 'warn');
+      }
       if (this.now - (bot.sentAt || 0) >= 2000) this.autoSend(s);
     }
   };

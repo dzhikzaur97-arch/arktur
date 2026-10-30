@@ -152,7 +152,7 @@ module.exports = function install(Game) {
   };
   P.login = function (sess, name, pass) {
     baseLogin.call(this, sess, name, pass);
-    if (sess.player) this.c_careerInfo(sess, {}, sess.player);
+    if (sess.player && !sess.isBot) this.c_careerInfo(sess, {}, sess.player);
   };
 };
 module.exports.CAREER = CAREER;
