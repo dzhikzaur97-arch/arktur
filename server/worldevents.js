@@ -17,9 +17,9 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const WEV = {
   every: [20 * 60000, 35 * 60000], first: 4 * 60000, duration: 20 * 60000, waveEvery: 60000,
   kinds: {
-    invasion: { boss: 'wb_colossus', name: 'Вторжение Предтеч', hp: 5, escort: ['shard', 'shard', 'sentinel'], trophies: ['ev_core', 'ev_aegis'], pool: 3000000,
+    invasion: { boss: 'wb_colossus', name: 'Вторжение Предтеч', hp: 5, escort: ['shard', 'shard', 'sentinel'], trophies: ['ev_core', 'ev_aegis'], pool: 1200000,
       news: (sys) => `Сенсоры фиксируют пробуждение Колосса Предтеч в системе ${sys}! Всем пилотам — на перехват. Награда — по вкладу в бой.` },
-    dread:    { boss: 'wb_dread', name: 'Нападение дредноута', hp: 6, escort: ['raider', 'hunter', 'reaper'], trophies: ['ev_cannon', 'ev_warden'], pool: 3500000,
+    dread:    { boss: 'wb_dread', name: 'Нападение дредноута', hp: 6, escort: ['raider', 'hunter', 'reaper'], trophies: ['ev_cannon', 'ev_warden'], pool: 1400000,
       news: (sys) => `Дредноут «Левиафан Скверны» вышел из прыжка в системе ${sys}! Кто собьёт флагман пиратов — поделит награду.` }
   }
 };
@@ -89,11 +89,11 @@ module.exports = function install(Game) {
     }
     // награда: ISK по доле урона (каждому участнику не меньше 8% пула), тайник с трофеями — у места боя
     const total = Object.values(ev.dmg).reduce((x, y) => x + y, 0) || 1;
-    const pool = K.pool * incomeOf(ev.sys), names = Object.keys(ev.dmg);
+    const pool = K.pool * (0.6 + 0.4 * incomeOf(ev.sys)), names = Object.keys(ev.dmg); // доход региона влияет мягче, чем на добычу
     for (const n of names) {
       const p = this.db.players[n]; if (!p) continue;
       const share = Math.max(0.08, ev.dmg[n] / total), isk = Math.round(pool * share);
-      p.credits += isk;
+      p.credits += isk; p.stats.wevents = (p.stats.wevents || 0) + 1;
       const s = [...this.sessions].find(x => x.player === p);
       if (s) { this.notify(s, `☄ Босс повержен! Ваш вклад ${Math.round(ev.dmg[n] / total * 100)}% — награда ${fmt(isk)} ISK. Заберите тайник босса!`, 'good'); this.sendProfile(s); }
     }
@@ -126,6 +126,9 @@ module.exports = function install(Game) {
     if (!this.wev) {
       if (!online) return;
       if (!this.wevNext) this.wevNext = this.now + WEV.first;
+      // пилот на сюжетном этапе «Первый Колосс» — событие начнётся в ближайшие полторы минуты
+      if ([...this.sessions].some(s => { const st = s.player && s.player.story, md = st && st.state === 'active' && require('./story').MISSIONS[st.m], sg = md && md.stages[st.st]; return sg && sg.type === 'stat' && sg.stat === 'wevents'; }))
+        this.wevNext = Math.min(this.wevNext, this.now + 90000);
       if (this.now >= this.wevNext) { this.wevNext = this.now + rnd(...WEV.every); this.wevStart(); }
       return;
     }

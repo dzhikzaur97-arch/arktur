@@ -99,6 +99,7 @@ module.exports = function install(Game) {
       const h = this.hangar(p, j.station);
       if (j.kind === 'ship') for (let k = 0; k < j.qty; k++) h.ships.push(this.newShip(j.out, false));
       else h.items[j.out] = (h.items[j.out] || 0) + j.qty;
+      p.stats.built = (p.stats.built || 0) + j.runs; // считаем запуски, а не штуки в партии
       done = true;
       const sess = [...this.sessions].find(x => x.player === p);
       if (sess) {

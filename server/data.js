@@ -670,7 +670,8 @@ const BP_TIERS = [
   [250000, { mat_ceramite: 0.3, mat_crystal: 0.45, mat_nullalloy: 0.25 }],
   [Infinity, { mat_crystal: 0.3, mat_nullalloy: 0.45, mat_xcore: 0.25 }]
 ];
-const BP_BATCH = { msl_std: 20, energy_cell: 20, msl_torp: 10, turret_kit: 1 };
+// энергоячеек в производстве нет: это товар для торговли между регионами, его цена зависит от спроса
+const BP_BATCH = { msl_std: 20, msl_torp: 10, turret_kit: 1 };
 const BLUEPRINTS = {};
 function addBlueprint(out, kind, price, rare) {
   const qty = BP_BATCH[out] || 1, value = price * qty;
@@ -688,6 +689,8 @@ for (const [id, m] of Object.entries(MODULES)) if (m.lv === 1 && !m.artifact && 
 for (const [id, d] of Object.entries(DRONES)) addBlueprint(id, 'drone', d.price, d.elite);
 for (const id of Object.keys(BP_BATCH)) addBlueprint(id, 'item', ITEMS[id].base, false);
 for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0 && !t.unique) addBlueprint(id, 'ship', t.price, !!t.fac);
+// перепродажа станции: модули, дроны и боеприпасы — за полцены (иначе «докупил материалы → сделал → продал» печатало бы деньги)
+for (const it of Object.values(ITEMS)) it.resale = it.module || it.drone || (it.consumable && it !== ITEMS.energy_cell) ? 0.5 : 1;
 const RARE_BLUEPRINTS = Object.keys(BLUEPRINTS).filter(id => BLUEPRINTS[id].rare);
 const INDUSTRY = { baseJobs: 2, maxRuns: 50, buyMarkup: 1.5, skillCut: 0.04 };
 

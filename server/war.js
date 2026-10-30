@@ -78,7 +78,7 @@ module.exports = function install(Game) {
     // герои захвата — вступившие пилоты-победители, воевавшие тут последний час
     for (const p of Object.values(this.db.players)) {
       if (!p.war || p.war.fac !== fac || !p.war.contrib || !(this.now - (p.war.contrib[sysId] || 0) < 3600000)) continue;
-      p.war.medals += 5;
+      p.war.medals += 5; p.stats.medals = (p.stats.medals || 0) + 5; p.stats.captures = (p.stats.captures || 0) + 1;
       const s = [...this.sessions].find(x => x.player === p);
       if (s) this.notify(s, `⚔ ${name} взята! Вы сражались за неё — +5 знаков отличия`, 'good');
     }
@@ -149,16 +149,21 @@ module.exports = function install(Game) {
   // ---------- задания за сторону ----------
   P.warContracts = function (p) {
     const w = p.war;
+    const before = (w.contracts || []).length;
     w.contracts = (w.contracts || []).filter(c => !c.done && c.expires > this.now);
+    // новые задания взамен выполненных — не чаще одного в 3 минуты
+    if (w.contracts.length < before) w.nextGen = Math.max(w.nextGen || 0, this.now + 180000);
+    if (w.nextGen && this.now < w.nextGen && w.contracts.length) return w.contracts;
     const front = this.warFront().filter(id => this.warState().owner[id] === w.fac || this.warAttackers(id).includes(w.fac));
     if (!front.length) return w.contracts;
     const kinds = ['strike', 'supply', 'patrol'];
     while (w.contracts.length < 3) {
+      if (w.nextGen && this.now < w.nextGen && w.contracts.length) break;
       const used = new Set(w.contracts.map(c => c.type)), type = kinds.find(k => !used.has(k)) || pick(kinds);
       const sys = pick(front), inc = incomeOf(sys), sname = (SYSTEMS.find(x => x.id === sys) || {}).name, mine = this.warState().owner[sys] === w.fac;
       const c = { id: uid(), type, sys, sysName: sname, prog: 0, expires: this.now + 45 * 60000 };
       if (type === 'strike') { c.need = 3 + Math.floor(Math.random() * 3); c.medals = 4; c.isk = Math.round(70000 * inc); c.inf = 8; c.text = `Уничтожьте ${c.need} кораблей противника в системе ${sname}`; }
-      else if (type === 'patrol') { c.need = 120; c.medals = 2; c.isk = Math.round(40000 * inc); c.inf = 5; c.text = `Патрулируйте систему ${sname}: ${c.need / 60} мин в космосе`; }
+      else if (type === 'patrol') { c.need = 300; c.medals = 2; c.isk = Math.round(30000 * inc); c.inf = 5; c.text = `Патрулируйте систему ${sname}: ${c.need / 60} мин в космосе`; }
       else {
         // снабжение: везём на станцию своей фракции в системе фронта (или в ближайшую свою)
         const own = mine ? sys : (NEIGH[sys] || []).find(n => this.warState().owner[n] === w.fac) || sys;
@@ -174,7 +179,7 @@ module.exports = function install(Game) {
   };
   P.warContractDone = function (p, c) {
     c.done = true;
-    p.war.medals += c.medals; p.credits += c.isk;
+    p.war.medals += c.medals; p.credits += c.isk; p.stats.medals = (p.stats.medals || 0) + c.medals;
     p.war.contrib[c.sys] = this.now;
     this.warPush(c.sys, p.war.fac, c.inf);
     const s = [...this.sessions].find(x => x.player === p);
@@ -277,7 +282,7 @@ module.exports = function install(Game) {
       const sys = t.sys, tier = SHIPS[t.shipType].tier || 1;
       const kname = this.pbaseAttacker(killer), kp = kname && this.db.players[kname];
       if (kp && kp.war && kp.war.fac !== t.war) {
-        kp.war.medals += 1; kp.war.kills = (kp.war.kills || 0) + 1; kp.war.contrib[sys] = this.now;
+        kp.war.medals += 1; kp.war.kills = (kp.war.kills || 0) + 1; kp.stats.medals = (kp.stats.medals || 0) + 1; kp.war.contrib[sys] = this.now;
         const bounty = Math.round(15000 * tier * incomeOf(sys));
         kp.credits += bounty;
         this.warPush(sys, kp.war.fac, 2);

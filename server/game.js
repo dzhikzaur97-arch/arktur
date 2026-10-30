@@ -1284,7 +1284,7 @@ class Game {
   c_market(s, m, p) {
     const st = this.requireDocked(s); if (!st) return;
     const sell = {}, buy = {};
-    for (const id of Object.keys(ITEMS)) if (!ITEMS[id].noSell) sell[id] = Math.round(this.priceOf(st, id) * (ITEMS[id].module ? 0.5 : 1));
+    for (const id of Object.keys(ITEMS)) if (!ITEMS[id].noSell) sell[id] = Math.round(this.priceOf(st, id) * (ITEMS[id].resale || 1));
     for (const id of Object.keys(MODULES)) if (!MODULES[id].elite && MODULES[id].lv === 1) buy[id] = this.buyPriceOf(st, id);
     const ships = {};
     for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0) ships[id] = Math.round(t.price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
@@ -1301,7 +1301,7 @@ class Game {
     const h = this.hangar(p, st);
     const item = m.item, qty = Math.floor(+m.qty);
     if (!ITEMS[item] || ITEMS[item].noSell || !(qty > 0) || (h.items[item] || 0) < qty) return this.notify(s, 'Нет такого количества в ангаре', 'warn');
-    const unit = Math.round(this.priceOf(st, item) * (ITEMS[item].module ? 0.5 : 1));
+    const unit = Math.round(this.priceOf(st, item) * (ITEMS[item].resale || 1));
     const tax = Math.max(0, BASE_TAX - 0.01 * (p.skills.trade || 0));
     const total = Math.round(unit * qty * (1 - tax));
     h.items[item] -= qty; if (!h.items[item]) delete h.items[item];
@@ -1780,5 +1780,7 @@ require('./industry')(Game);
 require('./war')(Game);
 require('./wingmen')(Game);
 require('./worldevents')(Game);
+require('./career')(Game);
+require('./npctalk')(Game);
 
 module.exports = { Game };

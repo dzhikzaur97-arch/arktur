@@ -93,6 +93,7 @@ module.exports = function install(Game) {
     this.removeEntity(e);
     s.ent = null;
     p.loc = { sys: c.sys, pos: e.pos.slice(), surface: c.id, site: [sx, sz], ship: [sx, sz] };
+    p.stats.landings = (p.stats.landings || 0) + 1;
     this.enterSurface(s, false);
   };
 

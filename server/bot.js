@@ -96,7 +96,7 @@ module.exports = function install(Game) {
   };
   P.botWorth = function (p) {
     let w = p.credits + (SHIPS[p.ship.type].price || 0);
-    const val = (items) => { let v = 0; for (const [k, q] of Object.entries(items || {})) if (ITEMS[k]) v += (ITEMS[k].base || 0) * q * (ITEMS[k].module ? 0.5 : 1); return v; };
+    const val = (items) => { let v = 0; for (const [k, q] of Object.entries(items || {})) if (ITEMS[k]) v += (ITEMS[k].base || 0) * q * (ITEMS[k].resale || 1); return v; };
     for (const m of p.ship.fit) if (m) w += MODULES[m].price * 0.5;
     w += val(p.ship.cargo);
     for (const h of Object.values(p.hangars)) { w += val(h.items); for (const sh of h.ships) w += SHIPS[sh.type].price * 0.8; }

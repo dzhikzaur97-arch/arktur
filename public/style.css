@@ -693,3 +693,23 @@ body.mobile.ov-open #wing-fab, body.mobile.chat-open #wing-fab, body.mobile.dock
 #wing-fab-menu.hidden { display: none; }
 #wing-fab-menu button { white-space: nowrap; font-size: 13px; padding: 8px 12px; text-align: left; }
 #wing-fab-menu button.on { border-color: #60e0ff; color: #60e0ff; }
+
+/* карьера и достижения */
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-top: 6px; }
+.ach { border: 1px solid rgba(120,160,200,.2); border-radius: 6px; padding: 6px 8px; opacity: .55; }
+.ach.got { opacity: 1; border-color: #c8a040; background: rgba(200,160,64,.08); }
+table.tbl tr.me td { background: rgba(95,200,232,.12); }
+.ach-pop { position: fixed; left: 50%; top: calc(90px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center;
+  background: rgba(20,16,6,.94); border: 1px solid #c8a040; border-radius: 8px; padding: 10px 16px; color: #ffe6a0; box-shadow: 0 0 30px rgba(255,200,80,.25); transition: opacity .8s, transform .8s; max-width: 92vw; }
+.ach-pop.out { opacity: 0; transform: translate(-50%, -20px); }
+.ach-pop .ach-ico { font-size: 28px; }
+
+/* разговор с NPC */
+.talk-head { border-left: 3px solid; padding: 4px 10px; margin-bottom: 8px; }
+.talk-log { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.tb { max-width: 85%; padding: 7px 10px; border-radius: 10px; line-height: 1.4; white-space: pre-wrap; }
+.tb.me { align-self: flex-end; background: rgba(60,140,200,.25); border: 1px solid rgba(95,200,232,.35); }
+.tb.npc { align-self: flex-start; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
+.talk-deal { margin: 8px 0; }
+.talk-in { display: flex; gap: 6px; margin: 8px 0 4px; }
+.talk-in input { flex: 1; min-width: 0; font-size: 16px; padding: 8px; }

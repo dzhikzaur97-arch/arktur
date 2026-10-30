@@ -41,7 +41,9 @@ Object.assign(ITEMS, {
   q_recorder: { name: 'Бортовой самописец', cat: 'Миссия', vol: 1, base: 0, quest: true },
   q_key:      { name: 'Зашифрованный ключ', cat: 'Миссия', vol: 1, base: 0, quest: true },
   q_map:      { name: 'Фрагмент звёздной карты Предтеч', cat: 'Миссия', vol: 2, base: 0, quest: true },
-  q_core:     { name: 'Ядро маяка Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true }
+  q_core:     { name: 'Ядро маяка Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true },
+  q_shard:    { name: 'Осколок карты Колосса', cat: 'Миссия', vol: 2, base: 0, quest: true },
+  q_heart:    { name: 'Сердце Стража Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true }
 });
 
 // ---------- Кампания ----------
@@ -145,9 +147,99 @@ const MISSIONS = [
       { type: 'site', sys: 'ten7', site: 'Маяк Предтеч', act: 'kill', enemies: ['warlord', 'reaper', 'reaper'], text: 'Уничтожьте Полководца Скверны у Маяка в Тени-7' },
       { type: 'site', sys: 'ten7', site: 'Маяк Предтеч', act: 'hack', secs: 30, text: 'Отключите маяк и извлеките ядро (30 с у маяка)' },
       { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
-    done: null, // эпилог зависит от союзника
-    reward: { isk: 1000000, rep: { [ALLY]: 20 }, items: { q_core: 1 } } }
+    done: null, epilogue: true, // эпилог первой кампании зависит от союзника
+    reward: { isk: 1000000, rep: { [ALLY]: 20 }, items: { q_core: 1 } } },
+
+  // ===== Кампания «Эхо Колосса». Акт IV. Эхо =====
+  // Новые типы этапов: stat (вырасти счётчик пилота: built, wingKills, medals, wevents, pbases),
+  // warjoin (вступить в войну фракций), choice2 (выбор судьбы Колосса — меняет фронт и награду).
+  { id: 'm13', act: 4, title: 'Резонанс', from: 'Магистр Сайра Нод', faction: 'orden',
+    brief: ['Ядро маяка, которое вы извлекли, не молчит. Оно отвечает на что-то в глубине — тем же узором, но в тысячу раз сильнее.',
+            'В Короне стоит наш резонатор. Подвезите ядро на расстояние приёма и снимите эхо.'],
+    stages: [
+      { type: 'site', sys: 'korona', site: 'Резонатор Ордена', act: 'hack', secs: 25, text: 'Снимите эхо ядра у резонатора в Короне (25 с ближе 15 км)' },
+      { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
+    done: 'Эхо идёт от Колосса — машины Предтеч размером с луну. Он просыпается. И он не один.',
+    reward: { isk: 400000, rep: { orden: 10 } } },
+  { id: 'm14', act: 4, title: 'Оружие против гиганта', from: ALLY, faction: ALLY,
+    brief: ['Обычными пушками Колосса не пробить. Нужны свои заводы и свои изделия — быстро и много.',
+            'Запустите производство: три заказа на любой станции. Чертежи — во вкладке «Производство».'],
+    stages: [{ type: 'stat', stat: 'built', qty: 3, text: 'Выполните 3 заказа производства (вкладка «Производство» на станции)' }],
+    done: 'Линии работают. Теперь нужны пилоты, которые встанут рядом с вами.',
+    reward: { isk: 300000, rep: { [ALLY]: 5 }, items: { mat_crystal: 30, mat_nullalloy: 10 } } },
+  { id: 'm15', act: 4, title: 'Звено', from: ALLY, faction: ALLY,
+    brief: ['Против Колосса в одиночку не летают. Наймите пилотов — во вкладке «Напарники» на станции — и проверьте их в деле.'],
+    stages: [{ type: 'stat', stat: 'wingKills', qty: 4, text: 'Ваши напарники должны одержать 4 победы' }],
+    done: 'Звено сыграно. Хорошая команда — половина победы.',
+    reward: { isk: 350000, rep: { [ALLY]: 5 } } },
+  { id: 'm16', act: 4, title: 'Цена фронта', from: ALLY, faction: ALLY,
+    brief: ['Колосс тянется туда, где льётся больше всего энергии, — к линии фронта. Война фракций кормит его.',
+            'Вступите в войну и заработайте знаки отличия: нам нужно понять, где он ударит.'],
+    stages: [
+      { type: 'warjoin', text: 'Вступите в войну фракций (вкладка «Фронт» на станции)' },
+      { type: 'stat', stat: 'medals', qty: 5, text: 'Заработайте 5 знаков отличия на фронте' }],
+    done: 'Сенсоры фронта засекли всплеск. Колосс выходит. Скоро.',
+    reward: { isk: 500000, rep: { [ALLY]: 10 } } },
+  { id: 'm17', act: 4, title: 'Первый Колосс', from: ALLY, faction: ALLY,
+    brief: ['Это не учения. Колосс Предтеч или дредноут Скверны вот-вот выйдет в одной из систем — вы получите новость ☄.',
+            'Сразитесь с ним вместе со всеми, кто откликнется. Важен каждый выстрел.'],
+    stages: [{ type: 'stat', stat: 'wevents', qty: 1, text: 'Нанесите урон боссу мирового события ☄ и победите' }],
+    done: 'Он пал — но в его ядре мы нашли координаты. Колосс был стражем. А то, что он сторожил, всё ещё там.',
+    reward: { isk: 800000, rep: { [ALLY]: 10 } } },
+
+  // ===== Акт V. Наследие =====
+  { id: 'm18', act: 5, title: 'Осколки карты', from: 'Магистр Сайра Нод', faction: 'orden',
+    brief: ['Координаты указывают в Бездну. В Разломе дрейфуют осколки звёздной карты Колосса, и их стерегут.',
+            'Это нулевая безопасность. Возьмите звено и дронов.'],
+    stages: [
+      { type: 'site', sys: 'razlom', site: 'Поле осколков', act: 'kill', enemies: ['shard', 'shard', 'reaper', 'reaper'], text: 'Уничтожьте стражей поля осколков в Разломе' },
+      { type: 'site', sys: 'razlom', site: 'Поле осколков', act: 'loot', item: 'q_shard', text: 'Заберите осколок карты' },
+      { type: 'deliver', item: 'q_shard', station: 'arktur:st1', text: 'Доставьте осколок на Арктур Прайм II' }],
+    done: 'Карта сложилась. Сердце Колосса — на Кладбище кораблей. Там его последний Страж.',
+    reward: { isk: 900000, rep: { orden: 10 } } },
+  { id: 'm19', act: 5, title: 'Сердце Стража', from: ALLY, faction: ALLY,
+    brief: ['На Кладбище кораблей ждёт Страж Предтеч и его осколки. Сердце Стража — ключ к Колоссу.',
+            'Уничтожьте охрану и извлеките сердце.'],
+    stages: [
+      { type: 'site', sys: 'kladbishe', site: 'Гробница Стража', act: 'kill', enemies: ['shard', 'shard', 'shard', 'warlord'], text: 'Уничтожьте охрану гробницы на Кладбище кораблей' },
+      { type: 'site', sys: 'kladbishe', site: 'Гробница Стража', act: 'hack', secs: 35, text: 'Извлеките Сердце Стража (35 с у гробницы)' },
+      { type: 'site', sys: 'kladbishe', site: 'Гробница Стража', act: 'loot', item: 'q_heart', text: 'Заберите Сердце Стража' }],
+    done: 'Сердце бьётся в вашем трюме. Теперь решать вам — что будет с Колоссом.',
+    reward: { isk: 1000000, rep: { [ALLY]: 10 } } },
+  { id: 'm20', act: 5, title: 'Судьба Колосса', from: 'Совет фракций', faction: null,
+    brief: ['Сердце Стража позволяет управлять Колоссом. Совет фракций спорит, но последнее слово — за вами, пилот.',
+            'Уничтожить машину навсегда, подчинить её вашему союзнику — или отпустить за Край, туда, откуда пришли Предтечи?'],
+    stages: [{ type: 'choice2', text: 'Решите судьбу Колосса' }],
+    options: {
+      destroy: { text: 'Уничтожить Колосса', desc: 'Галактика станет безопаснее. Все фракции поднимут вашу репутацию (+10).' },
+      control: { text: 'Подчинить Колосса союзнику', desc: 'Сила Предтеч на стороне вашего союзника: +15 влияния во всех системах, где он наступает на фронте.' },
+      free:    { text: 'Отпустить за Край', desc: 'Колосс уйдёт к Предтечам и оставит дар: два редких чертежа.' } },
+    done: null, reward: { isk: 0 } },
+  { id: 'm21', act: 5, title: 'Последний рубеж', from: ALLY, faction: ALLY,
+    brief: ['Скверна узнала о Сердце и бросила на нас всё. Флагман «Рассвет» везёт Сердце через Тень-7.',
+            'Удержите коридор — три волны, в последней их Полководец.'],
+    stages: [
+      { type: 'site', sys: 'ten7', site: 'Коридор «Рассвета»', act: 'defend', ship: 'kit', ally: 'Флагман «Рассвет»',
+        waves: [['shard', 'shard', 'raider'], ['reaper', 'shard', 'shard'], ['warlord', 'shard', 'reaper']], text: 'Защитите флагман «Рассвет» в Тени-7 от трёх волн' }],
+    done: '«Рассвет» прорвался. Осталось последнее — Предтеча.',
+    reward: { isk: 1200000, rep: { [ALLY]: 10 } } },
+  { id: 'm22', act: 5, title: 'Тишина Предтеч', from: ALLY, faction: ALLY,
+    brief: ['Система Предтеча. Здесь Колосс спал тысячу лет. Его охраняют последние осколки — и Страж.',
+            'Доведите дело до конца.'],
+    stages: [
+      { type: 'travel', sys: 'predtecha', text: 'Прыгните в систему Предтеча (Глубокий космос)' },
+      { type: 'site', sys: 'predtecha', site: 'Колыбель Колосса', act: 'kill', enemies: ['sentinel', 'shard', 'shard'], text: 'Уничтожьте Стража у Колыбели Колосса' },
+      { type: 'site', sys: 'predtecha', site: 'Колыбель Колосса', act: 'hack', secs: 40, text: 'Исполните решение — 40 с у Колыбели' },
+      { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
+    done: null, final2: true,
+    reward: { isk: 2000000, rep: { [ALLY]: 20 }, items: { ev_core: 1 } } }
 ];
+// Эпилог «Эха Колосса» — по решению судьбы Колосса
+const EPILOGUE2 = {
+  destroy: 'Колосс распался на миллиард искр, и узор в эфире умолк навсегда. Фракции впервые за век подписали перемирие на один день — в вашу честь. Галактика стала тише. И, может быть, безопаснее.',
+  control: 'Колосс склонился перед вашим союзником. На фронте всё изменилось: там, где появляется его тень, враги отступают без боя. Вы дали своей фракции силу Предтеч. Время покажет, во что она её превратит.',
+  free: 'Колосс развернулся к Краю и ушёл туда, откуда пришли Предтечи. Перед уходом он оставил в вашем трюме два чертежа — и одну фразу на древнем языке, которую Орден переводит как «Мы ещё встретимся».'
+};
 const EPILOGUE = {
   cons: 'Консорциум изучит ядро маяка на верфях Арктура. Через год первые корабли с двигателями Предтеч сойдут со стапелей — и вы будете первым в очереди.',
   liga: 'Лига разобрала маяк и похоронила его ядро в недрах астероида. Сигнал умолк. Колонии Пограничья наконец спят спокойно — и знают, кому этим обязаны.',
@@ -225,13 +317,14 @@ module.exports = function install(Game) {
 
   P.storyView = function (p) {
     const st = this.storyOf(p), md = MISSIONS[st.m];
-    const rep = Object.entries(FACTIONS).map(([id, f]) => ({ id, name: f.name, short: f.short, color: f.color, desc: f.desc, v: p.rep[id] || 0, tier: repTier(p.rep[id] || 0) }));
-    if (!md) return { done: true, total: MISSIONS.length, ally: st.ally, rep, epilogue: st.ally ? EPILOGUE[st.ally] : null };
+    const rep = Object.entries(FACTIONS).map(([id, f]) => ({ id, name: f.name, short: f.short, color: f.color, desc: f.desc, leader: f.leader, v: p.rep[id] || 0, tier: repTier(p.rep[id] || 0) }));
+    if (!md) return { done: true, total: MISSIONS.length, ally: st.ally, rep, epilogue: st.c2done ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : st.ally ? EPILOGUE[st.ally] : null };
     const stage = md.stages[st.st] || {};
     let text = stage.text || '';
     if (stage.type === 'hack' || stage.act === 'hack') text += st.prog ? ` — ${Math.min(100, Math.round(st.prog / stage.secs * 100))}%` : '';
     if (stage.type === 'mine') text += ` — ${fmt(Math.min(stage.qty, p.stats.mined - (st.mined0 || 0)))} / ${fmt(stage.qty)}`;
     if (stage.type === 'hunt') text += ` — ${st.kills || 0} / ${stage.qty}`;
+    if (stage.type === 'stat') text += ` — ${Math.min(stage.qty, ((p.stats && p.stats[stage.stat]) || 0) - (st.base || 0))} / ${stage.qty}`;
     const sys = stage.sys || (stage.station && this.U.celestials[stage.station] ? this.U.celestials[stage.station].sys : null);
     return { n: st.m + 1, total: MISSIONS.length, act: md.act, title: md.title, from: this.speakerOf(p, md), state: st.state,
       stage: st.st + 1, stages: md.stages.length, text, sys, ally: st.ally, rep, failed: st.failed || null };
@@ -241,9 +334,10 @@ module.exports = function install(Game) {
   P.sendBriefing = function (s) {
     const p = s.player, st = this.storyOf(p), md = MISSIONS[st.m];
     if (!md || st.state !== 'offer') return;
-    const choice = md.stages[0].type === 'choice';
-    s.send({ t: 'dialog', kind: choice ? 'choice' : 'brief', title: `Акт ${md.act}. ${md.title}`, from: this.speakerOf(p, md), lines: md.brief,
-      choices: choice ? Object.entries(FACTIONS).map(([id, f]) => ({ id, text: f.name, desc: f.desc + ' Награда — ' + ALLY_REWARD[id].text + '.' })) : null,
+    const choice = md.stages[0].type === 'choice', choice2 = md.stages[0].type === 'choice2';
+    s.send({ t: 'dialog', kind: choice || choice2 ? 'choice' : 'brief', title: `Акт ${md.act}. ${md.title}`, from: this.speakerOf(p, md), lines: md.brief,
+      choices: choice ? Object.entries(FACTIONS).map(([id, f]) => ({ id, text: f.name, desc: f.desc + ' Награда — ' + ALLY_REWARD[id].text + '.' }))
+        : choice2 ? Object.entries(md.options).map(([id, o]) => ({ id, text: o.text, desc: o.desc })) : null,
       reward: md.reward.isk ? `${fmt(md.reward.isk)} ISK` : null });
   };
   P.c_storyBrief = function (s, m, p) {
@@ -253,13 +347,14 @@ module.exports = function install(Game) {
   };
   P.c_storyAccept = function (s, m, p) {
     const st = this.storyOf(p), md = MISSIONS[st.m];
-    if (!md || st.state !== 'offer' || md.stages[0].type === 'choice') return;
+    if (!md || st.state !== 'offer' || md.stages[0].type === 'choice' || md.stages[0].type === 'choice2') return;
     st.state = 'active'; st.st = 0; this.beginStage(s, p);
     this.notify(s, `Миссия принята: ${md.title}`, 'good');
     this.sendProfile(s); this.save();
   };
   P.c_storyChoice = function (s, m, p) {
     const st = this.storyOf(p), md = MISSIONS[st.m];
+    if (md && md.stages[0].type === 'choice2') return this.storyChoice2(s, m, p, st, md);
     if (!md || md.stages[0].type !== 'choice' || !FACTIONS[m.id] || st.ally) return;
     st.ally = m.id;
     for (const f of Object.keys(FACTIONS)) this.addRep(p, f, f === m.id ? 25 : -10, s);
@@ -272,6 +367,21 @@ module.exports = function install(Game) {
       this.notify(s, `Союз заключён. ${r.text} — в ангаре вашей домашней станции.`, 'good');
     }
     s.send({ t: 'dialog', kind: 'info', title: 'Союз заключён', from: FACTIONS[m.id].leader, lines: ['Добро пожаловать. Теперь это и ваша война, пилот.'] });
+    this.nextMission(s, p);
+  };
+
+  // судьба Колосса: меняет фронт, репутацию или даёт чертежи
+  P.storyChoice2 = function (s, m, p, st, md) {
+    if (!md.options[m.id] || st.c2choice) return;
+    st.c2choice = m.id;
+    const h = this.hangar(p, p.home);
+    if (m.id === 'destroy') for (const f of Object.keys(FACTIONS)) this.addRep(p, f, 10, s);
+    else if (m.id === 'control' && st.ally && this.warFront) {
+      let n = 0;
+      for (const sys of this.warFront()) if (this.warAttackers(sys).includes(st.ally)) { this.warPush(sys, st.ally, 15); n++; }
+      this.notify(s, `Тень Колосса легла на фронт: «${FACTIONS[st.ally].short}» усилила натиск в ${n} системах`, 'good');
+    } else if (m.id === 'free') { for (let i = 0; i < 2; i++) { const bp = this.rareBlueprint && this.rareBlueprint(); if (bp) h.items[bp] = (h.items[bp] || 0) + 1; } this.notify(s, 'Дар Колосса — два редких чертежа — в ангаре домашней станции', 'good'); }
+    s.send({ t: 'dialog', kind: 'info', title: 'Решение принято', from: 'Совет фракций', lines: [md.options[m.id].text + '. Так тому и быть, пилот.'] });
     this.nextMission(s, p);
   };
 
@@ -292,8 +402,9 @@ module.exports = function install(Game) {
       if (md.reward.items) { const h = this.hangar(p, p.home); for (const [it, n] of Object.entries(md.reward.items)) h.items[it] = (h.items[it] || 0) + n; }
       this.notify(s, `Миссия «${md.title}» выполнена! Награда: ${fmt(md.reward.isk || 0)} ISK`, 'good');
     }
-    const last = st.m === MISSIONS.length - 1;
-    const text = last ? EPILOGUE[st.ally] || EPILOGUE.liga : md.done;
+    if (md.final2) st.c2done = true;
+    const last = md.epilogue || md.final2;
+    const text = md.epilogue ? EPILOGUE[st.ally] || EPILOGUE.liga : md.final2 ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : md.done;
     if (text) s.send({ t: 'dialog', kind: last ? 'final' : 'info', title: last ? 'Эпилог' : `Миссия выполнена: ${md.title}`, from: last ? (FACTIONS[st.ally] || FACTIONS.liga).leader : this.speakerOf(p, md), lines: [text],
       reward: md.reward.isk ? `${fmt(md.reward.isk)} ISK` : null });
     this.nextMission(s, p);
@@ -306,6 +417,7 @@ module.exports = function install(Game) {
     st.prog = 0; st.failed = null;
     if (stage.type === 'mine') st.mined0 = p.stats.mined;
     if (stage.type === 'hunt') st.kills = 0;
+    if (stage.type === 'stat') st.base = (p.stats && p.stats[stage.stat]) || 0;
     this.notify(s, 'Новая задача: ' + stage.text, 'info');
   };
   P.advanceStage = function (s, p) {
@@ -362,6 +474,8 @@ module.exports = function install(Game) {
         case 'travel': if (e && !e.warp && e.sys === stage.sys) this.advanceStage(s, p); break;
         case 'mine': if (p.stats.mined - (st.mined0 || 0) >= stage.qty) this.advanceStage(s, p); else if (this.now - (st.lastSync || 0) > 5000) { st.lastSync = this.now; this.sendProfile(s); } break;
         case 'hunt': if ((st.kills || 0) >= stage.qty) this.advanceStage(s, p); break;
+        case 'stat': if (((p.stats && p.stats[stage.stat]) || 0) - (st.base || 0) >= stage.qty) this.advanceStage(s, p); else if (this.now - (st.lastSync || 0) > 5000) { st.lastSync = this.now; this.sendProfile(s); } break;
+        case 'warjoin': if (p.war) this.advanceStage(s, p); break;
         case 'site': this.siteStage(s, p, st, stage); break;
       }
     }

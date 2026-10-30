@@ -203,7 +203,7 @@ module.exports = function install(Game) {
         e.cmd = { type: 'orbit', target: ast.id, range: 1500 }; e.speedFrac = 1;
         if (this.surfaceDist(e, ast) < 4000 && this.now >= (e.nextMine || 0)) {
           e.nextMine = this.now + 6000;
-          const units = Math.min(ast.amount, Math.round((30 + 25 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2.5 : 1)));
+          const units = Math.min(ast.amount, Math.round((15 + 12 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2 : 1))); // примерно половина шахтёрского корабля игрока
           const vol = ITEMS[ast.ore].vol, free = oe.stats.cargo - this.cargoUsed(p.ship.cargo), toShip = Math.max(0, Math.min(units, Math.floor(free / vol)));
           if (toShip) p.ship.cargo[ast.ore] = (p.ship.cargo[ast.ore] || 0) + toShip;
           const rest = units - toShip, holdUsed = Object.entries(w.hold || {}).reduce((a, [it, q]) => a + q * ITEMS[it].vol, 0);
@@ -235,7 +235,7 @@ module.exports = function install(Game) {
     if (killer && killer.wingOf) {
       const p = this.db.players[killer.wingOf], s = p && [...this.sessions].find(x => x.player === p), w = p && (p.wing || []).find(x => x.id === killer.wingId);
       if (w && (t.npc || t.war)) {
-        w.xp++;
+        w.xp++; if (p) p.stats.wingKills = (p.stats.wingKills || 0) + 1;
         const lv = levelOf(w.xp);
         if (lv > w.lv) {
           w.lv = lv; w.ship = shipFor(w.role, lv);
