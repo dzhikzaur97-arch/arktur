@@ -40,7 +40,7 @@ module.exports = function install(Game) {
     const bp = BLUEPRINTS[m.bp];
     if (!bp || bp.rare) return this.notify(s, 'Такой чертёж здесь не продаётся', 'warn');
     if (this.hasBlueprint(p, st, m.bp)) return this.notify(s, 'Этот чертёж у вас уже есть на этой станции', 'warn');
-    if (p.credits < bp.price) return this.notify(s, `Недостаточно ISK: нужно ${fmt(bp.price)}`, 'warn');
+    if (p.credits < bp.price) return this.notify(s, `Недостаточно CR: нужно ${fmt(bp.price)}`, 'warn');
     p.credits -= bp.price;
     const h = this.hangar(p, st);
     h.items[m.bp] = (h.items[m.bp] || 0) + 1;
@@ -64,7 +64,7 @@ module.exports = function install(Game) {
     }
     if (missingCost && !m.buyMissing) return this.notify(s, 'Не хватает материалов — привезите их или отметьте «докупить недостающее»', 'warn');
     const total = c.fee + missingCost;
-    if (p.credits < total) return this.notify(s, `Недостаточно ISK: нужно ${fmt(total)}`, 'warn');
+    if (p.credits < total) return this.notify(s, `Недостаточно CR: нужно ${fmt(total)}`, 'warn');
     p.credits -= total;
     for (const [it, q] of Object.entries(c.mats)) {
       let need = q - (missing[it] || 0);
@@ -74,7 +74,7 @@ module.exports = function install(Game) {
     const job = { id: uid(), bp: m.bp, out: bp.out, kind: bp.kind, qty: bp.qty * runs, runs, station: st, start: this.now, end: this.now + c.time * 1000, mats: c.mats };
     p.jobs.push(job);
     const name = bp.kind === 'ship' ? SHIPS[bp.out].name : ITEMS[bp.out].name;
-    this.notify(s, `Производство запущено: ${name} ×${job.qty} — готово через ${Math.ceil(c.time / 60)} мин. Списано ${fmt(total)} ISK`, 'good');
+    this.notify(s, `Производство запущено: ${name} ×${job.qty} — готово через ${Math.ceil(c.time / 60)} мин. Списано ${fmt(total)} CR`, 'good');
     this.sendProfile(s); this.c_prodInfo(s, m, p); this.save();
   };
 

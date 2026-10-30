@@ -1,6 +1,6 @@
 // Пиратские базы: по одной в каждой системе. Нападение поднимает щит базы и вызывает пять волн:
 // рои дронов Скверны и пиратские корабли разных классов, каждая волна сильнее предыдущей.
-// После пятой волны щит падает, базу можно уничтожить. Награда (ISK и тайник) растёт с опасностью сектора.
+// После пятой волны щит падает, базу можно уничтожить. Награда (CR и тайник) растёт с опасностью сектора.
 'use strict';
 const crypto = require('crypto');
 const { MODULES, NPCS, AU, incomeOf } = require('./data');
@@ -104,7 +104,7 @@ module.exports = function install(Game) {
   P.pbaseAlert = function (b) {
     b.pb.state = 'waves'; b.pb.wave = 0; b.pb.cleared = true; b.pb.nextWaveAt = this.now + PBASE.firstWave;
     this.broadcastSys(b.sys, { t: 'chat', ch: 'local', from: b.name, text: pick(['Тревога! Рои — на взлёт!', 'Гости? Встречайте их, братья.', 'Поднять щит! Всем кораблям — к базе!', 'Вы пожалеете, что прилетели.']) });
-    this.pbaseNotify(b, `⚠ ${b.name} подняла щит! Отбейте ${PBASE.waves} волн, чтобы снять его. Награда за базу: ${fmt(this.pbaseReward(b))} ISK`, 'bad');
+    this.pbaseNotify(b, `⚠ ${b.name} подняла щит! Отбейте ${PBASE.waves} волн, чтобы снять его. Награда за базу: ${fmt(this.pbaseReward(b))} CR`, 'bad');
   };
 
   // состав волны: рой дронов растёт с каждой волной, корабли — из классов уровня базы, в последней — главарь
@@ -223,7 +223,7 @@ module.exports = function install(Game) {
       const p = this.db.players[n];
       p.credits += share; p.stats.npcKills++;
       p.stats.pbases = (p.stats.pbases || 0) + 1;
-      for (const s of this.sessions) if (s.player === p) { this.notify(s, `${t.name} уничтожена! Награда: ${fmt(share)} ISK${names.length > 1 ? ` (доля из ${fmt(total)})` : ''}. Заберите тайник базы.`, 'good'); this.sendProfile(s); }
+      for (const s of this.sessions) if (s.player === p) { this.notify(s, `${t.name} уничтожена! Награда: ${fmt(share)} CR${names.length > 1 ? ` (доля из ${fmt(total)})` : ''}. Заберите тайник базы.`, 'good'); this.sendProfile(s); }
     }
     const rec = (this.db.pbases || {})[t.sys];
     if (rec) { rec.deadUntil = this.now + PBASE.respawn; rec.entId = null; }

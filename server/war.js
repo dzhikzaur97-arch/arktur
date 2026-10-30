@@ -184,7 +184,7 @@ module.exports = function install(Game) {
     this.warPush(c.sys, p.war.fac, c.inf);
     const s = [...this.sessions].find(x => x.player === p);
     if (s) {
-      this.notify(s, `⚔ Задание выполнено: ${c.text}. Награда: ${fmt(c.isk)} ISK и ${c.medals} знака отличия`, 'good');
+      this.notify(s, `⚔ Задание выполнено: ${c.text}. Награда: ${fmt(c.isk)} CR и ${c.medals} знака отличия`, 'good');
       this.addRep(p, p.war.fac, 2, s);
       this.sendProfile(s); this.c_warInfo(s, {}, p);
     }
@@ -287,7 +287,7 @@ module.exports = function install(Game) {
         kp.credits += bounty;
         this.warPush(sys, kp.war.fac, 2);
         const s = [...this.sessions].find(x => x.player === kp);
-        if (s) { this.notify(s, `⚔ ${t.name} уничтожен: +1 знак отличия, ${fmt(bounty)} ISK`, 'good'); this.addRep(kp, t.war, -1, null); }
+        if (s) { this.notify(s, `⚔ ${t.name} уничтожен: +1 знак отличия, ${fmt(bounty)} CR`, 'good'); this.addRep(kp, t.war, -1, null); }
         for (const c of kp.war.contracts || []) if (c.type === 'strike' && !c.done && c.sys === sys && ++c.prog >= c.need) this.warContractDone(kp, c);
         if (s) this.sendProfile(s);
       } else if (killer && killer.war && killer.war !== t.war) this.warPush(sys, killer.war, 1);

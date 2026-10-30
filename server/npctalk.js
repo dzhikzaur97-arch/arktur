@@ -2,7 +2,7 @@
 // Сервер здесь — арбитр: хранит память разговоров и проверяет всё, что влияет на игру.
 //  · Торг с агентом: прибавка к награде за задание не больше 5% + репутация/5 (до 15%), один раз на задание.
 //  · Выкуп у пирата: цена не ниже минимальной (60% награды за его голову), пират уходит в прыжок.
-// Так никакие слова в чате не заставят пирата отпустить за 1 ISK или агента — удвоить плату.
+// Так никакие слова в чате не заставят пирата отпустить за 1 CR или агента — удвоить плату.
 'use strict';
 const { NPCS, incomeOf } = require('./data');
 const story = require('./story');
@@ -46,7 +46,7 @@ module.exports = function install(Game) {
     const before = o.reward;
     o.reward = Math.round(o.reward * (1 + pct / 100));
     p.npcDeals = (p.npcDeals || 0) + 1;
-    this.notify(s, `Договорились: награда за «${o.title}» +${pct}% (${fmt(before)} → ${fmt(o.reward)} ISK)`, 'good');
+    this.notify(s, `Договорились: награда за «${o.title}» +${pct}% (${fmt(before)} → ${fmt(o.reward)} CR)`, 'good');
     this.c_agents(s, m, p);
   };
 
@@ -69,8 +69,8 @@ module.exports = function install(Game) {
     const t = this.ransomTarget(s, m.id);
     if (!t) return this.notify(s, 'Пират уже не на связи', 'warn');
     const price = Math.round(+m.price || 0), floor = this.ransomFloor(t);
-    if (price < floor) return this.notify(s, `${t.name}: «Мало. Не меньше ${fmt(floor)} ISK — или прощайся с кораблём.»`, 'bad');
-    if (p.credits < price) return this.notify(s, 'Недостаточно ISK', 'warn');
+    if (price < floor) return this.notify(s, `${t.name}: «Мало. Не меньше ${fmt(floor)} CR — или прощайся с кораблём.»`, 'bad');
+    if (p.credits < price) return this.notify(s, 'Недостаточно CR', 'warn');
     p.credits -= price;
     // пират и его группа уходят в прыжок
     const group = this.groupKey(t);
@@ -81,7 +81,7 @@ module.exports = function install(Game) {
       this.removeEntity(x);
     }
     this.broadcastSys(t.sys, { t: 'chat', ch: 'local', from: t.name, text: 'Деньги получены. Живи пока — и не попадайся мне снова.' });
-    this.notify(s, `Выкуп ${fmt(price)} ISK уплачен — пираты ушли в прыжок (${leaving.length})`, 'info');
+    this.notify(s, `Выкуп ${fmt(price)} CR уплачен — пираты ушли в прыжок (${leaving.length})`, 'info');
     p.stats.ransoms = (p.stats.ransoms || 0) + 1;
     this.sendProfile(s); this.save();
   };

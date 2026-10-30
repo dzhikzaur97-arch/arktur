@@ -250,7 +250,7 @@ module.exports = function install(Game) {
       const kp = this.db.players[killerEnt.owner];
       const bounty = Math.round((NPCS[t.npc].bounty + SHIPS[t.shipType].price * 0.15) * incomeOf(sysId));
       kp.credits += bounty; kp.stats.npcKills++;
-      if (killerEnt.session) { this.notify(killerEnt.session, `Уничтожен ${t.name}. Награда за голову: ${fmt(bounty)} ISK`, 'good'); this.sendProfile(killerEnt.session); }
+      if (killerEnt.session) { this.notify(killerEnt.session, `Уничтожен ${t.name}. Награда за голову: ${fmt(bounty)} CR`, 'good'); this.sendProfile(killerEnt.session); }
     }
     // добыча убийцы — ИИ-пилота
     const kpil = killerEnt && killerEnt.aiPilot && this.aiPilot(killerEnt.aiPilot);
@@ -338,7 +338,7 @@ module.exports = function install(Game) {
           p.credits -= SHIPS[next].price;
           p.state = 'building'; p.buildShip = next;
           p.buildUntil = this.now + Math.min(300, 25 + SHIPS[next].price / 12000) * 1000;
-          this.aiNews(`${p.name} (${ROLE_NAME[p.role].toLowerCase()}): на верфи системы ${sys.def.name} заложен корабль «${SHIPS[next].name}» за ${fmt(SHIPS[next].price)} ISK.`);
+          this.aiNews(`${p.name} (${ROLE_NAME[p.role].toLowerCase()}): на верфи системы ${sys.def.name} заложен корабль «${SHIPS[next].name}» за ${fmt(SHIPS[next].price)} CR.`);
           continue;
         }
       }

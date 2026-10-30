@@ -68,7 +68,7 @@ module.exports = function install(Game) {
     reward = Math.round(Math.min(900000, (reward + 15000) * 1.25) / 1000) * 1000;
     p.cmission = { id: uid(), title: str(d.title, 60) || 'Особое задание', giver: str(d.giver, 40) || 'Неизвестный заказчик', brief: (Array.isArray(d.brief) ? d.brief : [d.brief]).map(x => str(x, 300)).filter(Boolean).slice(0, 3),
       done: str(d.done, 300) || 'Дело сделано. Спасибо, пилот.', stages, i: 0, prog: 0, reward, from: st, started: this.now };
-    this.notify(s, `✨ Особое задание «${p.cmission.title}» принято. Награда: ${fmt(reward)} ISK`, 'good');
+    this.notify(s, `✨ Особое задание «${p.cmission.title}» принято. Награда: ${fmt(reward)} CR`, 'good');
     this.cmBegin(s, p);
     this.c_cmOptions(s, m, p); this.save();
   };
@@ -122,8 +122,8 @@ module.exports = function install(Game) {
       p.stats.cmissions = (p.stats.cmissions || 0) + 1;
       this.cmClear(p); p.cmission = null;
       delete p.ship.cargo.q_cmcargo;
-      this.notify(s, `✨ Особое задание выполнено! Награда: ${fmt(c.reward)} ISK`, 'good');
-      s.send({ t: 'dialog', kind: 'info', title: `Задание выполнено: ${c.title}`, from: c.giver, lines: [c.done], reward: `${fmt(c.reward)} ISK` });
+      this.notify(s, `✨ Особое задание выполнено! Награда: ${fmt(c.reward)} CR`, 'good');
+      s.send({ t: 'dialog', kind: 'info', title: `Задание выполнено: ${c.title}`, from: c.giver, lines: [c.done], reward: `${fmt(c.reward)} CR` });
       s.send({ t: 'cmProgress', active: null });
       this.sendProfile(s); this.save();
       return;

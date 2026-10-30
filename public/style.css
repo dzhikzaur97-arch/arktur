@@ -727,3 +727,8 @@ body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !impo
 .paint-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); }
 .swatch.on { border-color: #fff; box-shadow: 0 0 0 2px #60e0ff; }
+
+/* авторы и «Об игре» */
+.login-box .credits { margin-top: 14px; font-size: 12px; color: var(--muted, #8fa3b8); text-align: center; letter-spacing: .3px; }
+.login-box .credits b { color: #cfe6ff; font-weight: 600; }
+.about { line-height: 1.6; }

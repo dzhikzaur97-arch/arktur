@@ -784,7 +784,7 @@ function showDiscovery(sp, m) {
   const el = $('#sf-disc'); if (!el) return;
   el.innerHTML = `<div class="sd-h">Новый вид открыт</div><div class="sd-n">${sp.name}</div>
     <div class="sd-k">${sp.planName} · ${sp.temperName} · ${sp.diet} · рост ${sp.height || sp.size} м · ${'◆'.repeat(sp.rarity)}</div>
-    <div class="sd-r">+${fmt(m.reward)} ISK${m.bonus ? ` · все виды планеты изучены: +${fmt(m.bonus)} ISK` : ''} · ${m.count}/${m.total}</div>`;
+    <div class="sd-r">+${fmt(m.reward)} CR${m.bonus ? ` · все виды планеты изучены: +${fmt(m.bonus)} CR` : ''} · ${m.count}/${m.total}</div>`;
   el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 5500);
   ctx.sound && ctx.sound.beep && ctx.sound.beep(700, 1500, 0.14);
 }

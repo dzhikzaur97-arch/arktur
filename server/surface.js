@@ -109,7 +109,7 @@ module.exports = function install(Game) {
     s.send({ t: 'surface', planet: loc.surface, sys: loc.sys, ship, shipType: p.ship.type, suit, restore: !!restore, now: this.now,
       depleted: [...dep.keys()], dead: [...dead.keys()], caps: Object.keys(p.surfCaps || {}), crates: Object.entries(p.surfCrates || {}).filter(([, t]) => t > this.now).map(([k]) => k),
       disc: Object.keys(disc.species).filter(k => k.startsWith(loc.surface + '#')).map(k => +k.split('#')[1]), recipes: RECIPES });
-    if (found) this.notify(s, `Открыта планета ${P2.name} (${P2.biomeName}). Данные проданы картографам: +${fmt(found)} ISK`, 'good');
+    if (found) this.notify(s, `Открыта планета ${P2.name} (${P2.biomeName}). Данные проданы картографам: +${fmt(found)} CR`, 'good');
     if (!restore) this.notify(s, `Посадка: ${P2.name}. ${P2.biomeName} · ${P2.temp[0]}…${P2.temp[1]} °C${P2.hz ? ' · опасность: ' + PG.HAZARD_NAME[P2.hz].toLowerCase() : ''}`, 'info');
     this.sendProfile(s);
   };
@@ -216,7 +216,7 @@ module.exports = function install(Game) {
       const isk = Math.round(rnd(2000, 8000) * incomeOf(u.sys)); p.credits += isk;
       const loot = Math.random() < 0.5 ? ['energy_cell', 5] : Math.random() < 0.5 ? ['launch_fuel', 1] : ['surf_kit', 1];
       const n = this.suitAdd(p, loot[0], loot[1]);
-      this.notify(s, `Контейнер вскрыт: ${fmt(isk)} ISK${n ? `, ${ITEMS[loot[0]].name} ×${n}` : ''}`, 'good');
+      this.notify(s, `Контейнер вскрыт: ${fmt(isk)} CR${n ? `, ${ITEMS[loot[0]].name} ×${n}` : ''}`, 'good');
       this.sendProfile(s);
       return reply(true, { use: true });
     }

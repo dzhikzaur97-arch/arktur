@@ -43,8 +43,8 @@ const ACH = [
   { id: 'hunt2', name: 'Гроза Скверны', desc: 'Уничтожить 250 пиратов', check: (p) => st(p, 'npcKills') >= 250, t: 'Гроза Скверны' },
   { id: 'pbase1', name: 'Штурмовик', desc: 'Уничтожить пиратскую базу', check: (p) => st(p, 'pbases') >= 1 },
   { id: 'pbase2', name: 'Сокрушитель баз', desc: 'Уничтожить 10 пиратских баз', check: (p) => st(p, 'pbases') >= 10, t: 'Сокрушитель баз' },
-  { id: 'rich1', name: 'Состоятельный', desc: 'Иметь 1 000 000 ISK', check: (p) => p.credits >= 1e6 },
-  { id: 'rich2', name: 'Магнат', desc: 'Иметь 50 000 000 ISK', check: (p) => p.credits >= 5e7, t: 'Магнат' },
+  { id: 'rich1', name: 'Состоятельный', desc: 'Иметь 1 000 000 CR', check: (p) => p.credits >= 1e6 },
+  { id: 'rich2', name: 'Магнат', desc: 'Иметь 50 000 000 CR', check: (p) => p.credits >= 5e7, t: 'Магнат' },
   { id: 'build1', name: 'Инженер', desc: 'Произвести 10 изделий', check: (p) => st(p, 'built') >= 10, t: 'Инженер' },
   { id: 'build2', name: 'Промышленник', desc: 'Произвести 200 изделий', check: (p) => st(p, 'built') >= 200, t: 'Промышленник' },
   { id: 'war1', name: 'Солдат фронта', desc: 'Заработать 10 знаков отличия', check: (p) => st(p, 'medals') >= 10 },
@@ -107,7 +107,7 @@ module.exports = function install(Game) {
         const h = this.hangar(p, p.home), got = [];
         for (const [it, q] of Object.entries(x.items || {})) { h.items[it] = (h.items[it] || 0) + q; got.push(it); }
         if (x.rareBp) { const bp = this.rareBlueprint(); if (bp) { h.items[bp] = (h.items[bp] || 0) + 1; got.push(bp); } }
-        this.notify(s, `🎖 Карьера ${c.step}/${CAREER.length}: «${x.title}» — +${fmt(x.isk)} ISK${got.length ? ', подарки в ангаре домашней станции' : ''}`, 'good');
+        this.notify(s, `🎖 Карьера ${c.step}/${CAREER.length}: «${x.title}» — +${fmt(x.isk)} CR${got.length ? ', подарки в ангаре домашней станции' : ''}`, 'good');
         if (c.step === CAREER.length) this.notify(s, '🎖 Карьера пилота пройдена целиком! Теперь вы знаете все системы галактики.', 'good');
       }
       p.ach = p.ach || {};
@@ -115,7 +115,7 @@ module.exports = function install(Game) {
         p.ach[a.id] = this.now; changed = true;
         const bonus = a.t ? 50000 : 20000;
         p.credits += bonus;
-        this.notify(s, `🏆 Достижение «${a.name}»: ${a.desc}. +${fmt(bonus)} ISK${a.t ? ` · новое звание «${a.t}»` : ''}`, 'good');
+        this.notify(s, `🏆 Достижение «${a.name}»: ${a.desc}. +${fmt(bonus)} CR${a.t ? ` · новое звание «${a.t}»` : ''}`, 'good');
         s.send({ t: 'achieve', id: a.id, name: a.name, desc: a.desc, title: a.t || null });
       }
       if (changed) { this.sendProfile(s); this.c_careerInfo(s, {}, p); this.save(); }

@@ -653,7 +653,7 @@ class Game {
         killerPlayer.credits += bounty;
         killerPlayer.stats.npcKills++;
         const ks = killerEnt.session;
-        if (ks) { this.notify(ks, `Уничтожен ${NPCS[t.npc].name}. Награда: ${fmt(bounty)} ISK`, 'good'); }
+        if (ks) { this.notify(ks, `Уничтожен ${NPCS[t.npc].name}. Награда: ${fmt(bounty)} CR`, 'good'); }
         for (const ms of killerPlayer.missions) {
           if (ms.type === 'kill' && ms.sys === sysId && ms.progress < ms.count) {
             ms.progress++;
@@ -1306,7 +1306,7 @@ class Game {
     const total = Math.round(unit * qty * (1 - tax));
     h.items[item] -= qty; if (!h.items[item]) delete h.items[item];
     p.credits += total;
-    this.notify(s, `Продано: ${ITEMS[item].name} ×${qty} за ${fmt(total)} ISK`, 'good');
+    this.notify(s, `Продано: ${ITEMS[item].name} ×${qty} за ${fmt(total)} CR`, 'good');
     this.sendProfile(s); this.c_market(s, m, p);
   }
 
@@ -1317,7 +1317,7 @@ class Game {
     if (MODULES[m.item] && MODULES[m.item].lv > 1) return this.notify(s, 'Улучшенные модули не продаются — улучшайте свои во вкладке «Оснастка»', 'warn');
     if (MODULES[m.item] || DRONES[m.item]) {
       const cost = this.buyPriceOf(st, m.item) * qty;
-      if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+      if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
       p.credits -= cost;
       const h = this.hangar(p, st);
       h.items[m.item] = (h.items[m.item] || 0) + qty;
@@ -1328,7 +1328,7 @@ class Game {
       const T = SHIPS[m.item];
       if (T.unique && this.ownsShip(p, m.item)) return this.notify(s, `«${T.name}» — уникальный корабль: у пилота может быть только один`, 'warn');
       const cost = Math.round(T.price * (this.U.byId[this.U.celestials[st].sys].hub ? 1 : 1.1));
-      if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+      if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
       p.credits -= cost;
       // уникальный корабль приходит полностью оснащённым: модули, дроны в ангаре, боезапас
       const ship = this.newShip(m.item, !!T.kit);
@@ -1392,7 +1392,7 @@ class Game {
     }
     if (missingCost && !m.buyMissing) return this.notify(s, 'Не хватает материалов — докупите их или привезите со своего завода', 'warn');
     const total = c.isk + missingCost;
-    if (p.credits < total) return this.notify(s, `Недостаточно ISK: нужно ${fmt(total)}`, 'warn');
+    if (p.credits < total) return this.notify(s, `Недостаточно CR: нужно ${fmt(total)}`, 'warn');
     // всё проверено — списываем одной операцией
     p.credits -= total;
     for (const [it, q] of Object.entries(c.mats)) {
@@ -1402,7 +1402,7 @@ class Game {
     }
     if (fitted) p.ship.fit[idx] = c.next;
     else { h.items[id]--; if (!h.items[id]) delete h.items[id]; h.items[c.next] = (h.items[c.next] || 0) + 1; }
-    this.notify(s, `${MODULES[D.modBase(id)].name} улучшен до уровня ${c.level}! Списано ${fmt(total)} ISK`, 'good');
+    this.notify(s, `${MODULES[D.modBase(id)].name} улучшен до уровня ${c.level}! Списано ${fmt(total)} CR`, 'good');
     this.sendProfile(s); this.save();
   }
 
@@ -1509,7 +1509,7 @@ class Game {
     if (o.seller === p.name) return;
     const qty = Math.min(o.qty, clamp(Math.floor(+m.qty) || 1, 1, 1e9));
     const cost = qty * o.price;
-    if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+    if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
     p.credits -= cost;
     const seller = this.db.players[o.seller];
     if (seller) {
@@ -1611,7 +1611,7 @@ class Game {
   completeMission(p, ms, s) {
     p.missions = p.missions.filter(x => x !== ms);
     p.credits += ms.reward;
-    if (s) { this.notify(s, `Задание выполнено: ${ms.title}. Награда ${fmt(ms.reward)} ISK`, 'good'); this.sendProfile(s); }
+    if (s) { this.notify(s, `Задание выполнено: ${ms.title}. Награда ${fmt(ms.reward)} CR`, 'good'); this.sendProfile(s); }
   }
 
   // --- Чат ---

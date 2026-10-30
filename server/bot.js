@@ -5,7 +5,7 @@
 // Обучение — обучение с подкреплением на уровне «занятий» (options):
 //   состояние  = класс корабля (шахтёр / боец / универсал) × уровень капитала;
 //   действия   = копать руду, охотиться на пиратов, возить энергоячейки, улучшить модуль, купить корабль, построить электростанцию;
-//   награда    = рост капитала (ISK + корабли + модули + склады) в минуту; гибель корабля — штраф;
+//   награда    = рост капитала (CR + корабли + модули + склады) в минуту; гибель корабля — штраф;
 //   обновление = Q ← Q + α·(r − Q), выбор ε-жадный, ε убывает с опытом;
 //   вложения (улучшения, корабли, станции) оцениваются отложенно: по изменению дохода в следующих трёх занятиях;
 //   внутри занятий — свои «бандиты»: в каких системах копать, где охотиться, куда везти ячейки.
@@ -205,7 +205,7 @@ module.exports = function install(Game) {
         if (pend.after.length < 3) continue;
         const gain = pend.after.reduce((a, b) => a + b, 0) / pend.after.length - pend.before;
         learn(qOf(mem, pend.st, pend.a), gain);
-        this.botLog(bot, `Оценка вложения «${ACTIONS[pend.a].name}»: доход ${gain >= 0 ? 'вырос' : 'упал'} на ${fmt(Math.abs(gain))} ISK/мин`);
+        this.botLog(bot, `Оценка вложения «${ACTIONS[pend.a].name}»: доход ${gain >= 0 ? 'вырос' : 'упал'} на ${fmt(Math.abs(gain))} CR/мин`);
         mem.pending = mem.pending.filter(x => x !== pend);
       }
     } else if (!o.failed) {
@@ -216,7 +216,7 @@ module.exports = function install(Game) {
     mem.history.unshift({ t: this.now, a: o.a, r: Math.round(r), mins: +mins.toFixed(1), died: !!died, band: o.band || null });
     if (mem.history.length > 60) mem.history.length = 60;
     mem.worth.push([this.now, Math.round(this.botWorth(p))]); if (mem.worth.length > 120) mem.worth.shift();
-    this.botLog(bot, `Итог «${ACTIONS[o.a].name}»${o.band ? ' (' + o.band + ')' : ''}: ${dw >= 0 ? '+' : ''}${fmt(dw)} ISK за ${mins.toFixed(1)} мин → награда ${fmt(r)}`);
+    this.botLog(bot, `Итог «${ACTIONS[o.a].name}»${o.band ? ' (' + o.band + ')' : ''}: ${dw >= 0 ? '+' : ''}${fmt(dw)} CR за ${mins.toFixed(1)} мин → награда ${fmt(r)}`);
     this.save();
   };
 

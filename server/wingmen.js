@@ -64,7 +64,7 @@ module.exports = function install(Game) {
     p.wing = p.wing || [];
     if (p.wing.length >= WING.max) return this.notify(s, `Больше ${WING.max} напарников не нанять — сначала отпустите кого-нибудь`, 'warn');
     if (p.wing.some(w => w.cand === c.id)) return;
-    if (p.credits < c.fee) return this.notify(s, `Недостаточно ISK: нужно ${fmt(c.fee)}`, 'warn');
+    if (p.credits < c.fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(c.fee)}`, 'warn');
     p.credits -= c.fee;
     p.wing.push({ id: uid(), cand: c.id, name: c.name, role: c.role, lv: c.lv, xp: WING.xpNeed[c.lv - 1] || 0, ship: c.ship, deadUntil: 0, hold: {} });
     this.notify(s, `${WING.roles[c.role].name} ${c.name} теперь летает с вами («${SHIPS[c.ship].name}»). Отстыкуйтесь — напарник вылетит следом`, 'good');
@@ -264,7 +264,7 @@ module.exports = function install(Game) {
     baseSlow.call(this);
     this.wingTick();
     // раз в минуту — сводка: сколько напарники взяли себе из наград
-    if (!this._wingShareAt || this.now - this._wingShareAt > 60000) { this._wingShareAt = this.now; for (const s of this.sessions) if (s.wingShare) { this.notify(s, `Напарники взяли свою долю наград за последние победы: ${fmt(s.wingShare)} ISK`, 'info'); s.wingShare = 0; } }
+    if (!this._wingShareAt || this.now - this._wingShareAt > 60000) { this._wingShareAt = this.now; for (const s of this.sessions) if (s.wingShare) { this.notify(s, `Напарники взяли свою долю наград за последние победы: ${fmt(s.wingShare)} CR`, 'info'); s.wingShare = 0; } }
   };
 };
 module.exports.WING = WING;

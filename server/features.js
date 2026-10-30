@@ -418,7 +418,7 @@ module.exports = function install(Game) {
     if (killerPlayer) killerPlayer.credits += bonus;
     for (const s of this.sessions) {
       if (!s.ent || s.ent.sys !== a.sys) continue;
-      this.notify(s, `Аномалия «${a.name}» зачищена! Тайник Скверны открыт.${killerPlayer && s.player === killerPlayer ? ` Премия: ${fmt(bonus)} ISK` : ''}`, 'good');
+      this.notify(s, `Аномалия «${a.name}» зачищена! Тайник Скверны открыт.${killerPlayer && s.player === killerPlayer ? ` Премия: ${fmt(bonus)} CR` : ''}`, 'good');
       this.sendAnoms(s);
     }
   };
@@ -508,13 +508,13 @@ module.exports = function install(Game) {
     const qty = Math.max(1, Math.floor(+m.qty) || 1);
     if (!o || o.qty < qty) return this.notify(s, 'Столько нет в наличии', 'warn');
     const cost = o.price * qty;
-    if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+    if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
     const free = this.calcStats(p, p.ship).cargo - this.cargoUsed(p.ship.cargo);
     if (ITEMS[o.item].vol * qty > free + 1e-9) return this.notify(s, 'Не хватает места в трюме', 'warn');
     p.credits -= cost; o.qty -= qty;
     if (!o.qty) d.stock.splice(d.stock.indexOf(o), 1);
     p.ship.cargo[o.item] = (p.ship.cargo[o.item] || 0) + qty;
-    this.notify(s, `Куплено у контрабандиста: ${ITEMS[o.item].name} ×${qty} за ${fmt(cost)} ISK. Товар в трюме.`, 'good');
+    this.notify(s, `Куплено у контрабандиста: ${ITEMS[o.item].name} ×${qty} за ${fmt(cost)} CR. Товар в трюме.`, 'good');
     this.sendProfile(s); this.sendBlack(s, d); this.save();
   };
 
@@ -526,7 +526,7 @@ module.exports = function install(Game) {
     if (!price || qty <= 0) return this.notify(s, 'Этот товар контрабандисту не нужен', 'warn');
     p.ship.cargo[m.item] -= qty; if (!p.ship.cargo[m.item]) delete p.ship.cargo[m.item];
     p.credits += price * qty;
-    this.notify(s, `Продано контрабандисту: ${ITEMS[m.item].name} ×${qty} за ${fmt(price * qty)} ISK`, 'good');
+    this.notify(s, `Продано контрабандисту: ${ITEMS[m.item].name} ×${qty} за ${fmt(price * qty)} CR`, 'good');
     this.sendProfile(s); this.sendBlack(s, d); this.save();
   };
 
@@ -568,7 +568,7 @@ module.exports = function install(Game) {
     if (!e || e.warp) return this.notify(s, 'Строить можно только в космосе', 'warn');
     if (this.myStructure(p)) return this.notify(s, 'У вас уже есть станция. Её можно улучшить.', 'warn');
     if (this.U.byId[e.sys].sec >= 1.0) return this.notify(s, 'В столичных системах (1.0) частные станции запрещены', 'warn');
-    if (p.credits < D.REFINERY.buildCost) return this.notify(s, `Нужно ${fmt(D.REFINERY.buildCost)} ISK`, 'warn');
+    if (p.credits < D.REFINERY.buildCost) return this.notify(s, `Нужно ${fmt(D.REFINERY.buildCost)} CR`, 'warn');
     for (const c of this.U.systems[e.sys].celestials) {
       if (dist(c.pos, e.pos) - (c.radius || 0) < 200000) return this.notify(s, `Слишком близко к объекту «${c.name}». Отлетите дальше 200 км (щелчок по космосу — корабль полетит в ту сторону).`, 'warn');
     }
@@ -598,7 +598,7 @@ module.exports = function install(Game) {
     const st = this.ownStation(s, p); if (!st) return;
     const next = D.REFINERY.levels[st.level + 1];
     if (!next) return this.notify(s, 'Станция уже максимального уровня', 'warn');
-    if (p.credits < next.cost) return this.notify(s, `Нужно ${fmt(next.cost)} ISK`, 'warn');
+    if (p.credits < next.cost) return this.notify(s, `Нужно ${fmt(next.cost)} CR`, 'warn');
     p.credits -= next.cost; st.level++;
     this.notify(s, `Станция улучшена до уровня ${st.level}: выход ×${next.yield}, скорость ×${next.speed}`, 'good');
     this.sendProfile(s); this.c_structInfo(s, m, p); this.save(true);

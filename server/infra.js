@@ -93,14 +93,14 @@ module.exports = function install(Game) {
     const st = this.requireDocked(s); if (!st) return;
     const qty = Math.max(1, Math.min(100000, Math.floor(+m.qty) || 1));
     const cost = this.buyPriceOf(st, m.item) * qty;
-    if (p.credits < cost) return this.notify(s, 'Недостаточно ISK', 'warn');
+    if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
     p.credits -= cost;
     // сразу в трюм, если влезает, иначе в ангар
     const stats = this.calcStats(p, p.ship), free = stats.cargo - this.cargoUsed(p.ship.cargo);
     const toCargo = Math.min(qty, Math.floor(free / ITEMS[m.item].vol + 1e-9));
     if (toCargo) p.ship.cargo[m.item] = (p.ship.cargo[m.item] || 0) + toCargo;
     if (qty > toCargo) { const h = this.hangar(p, st); h.items[m.item] = (h.items[m.item] || 0) + qty - toCargo; }
-    this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${fmt(qty)} за ${fmt(cost)} ISK${toCargo === qty ? ' (в трюме)' : toCargo ? ` (${fmt(toCargo)} в трюме, остальное в ангаре)` : ' (в ангаре)'}`, 'good');
+    this.notify(s, `Куплено: ${ITEMS[m.item].name} ×${fmt(qty)} за ${fmt(cost)} CR${toCargo === qty ? ' (в трюме)' : toCargo ? ` (${fmt(toCargo)} в трюме, остальное в ангаре)` : ' (в ангаре)'}`, 'good');
     this.sendProfile(s); this.c_market(s, m, p);
   };
 
@@ -180,7 +180,7 @@ module.exports = function install(Game) {
     if (!e || e.warp) return this.notify(s, 'Строить можно только в космосе', 'warn');
     if (this.infraOf(p, type).length >= cfg.max) return this.notify(s, `Не больше ${cfg.max}: ${cfg.name}`, 'warn');
     if (type === 'hub' && this.U.byId[e.sys].sec >= 1.0) return this.notify(s, 'В столичных системах (1.0) хаб строить нельзя', 'warn');
-    if (p.credits < cfg.buildCost) return this.notify(s, `Нужно ${fmt(cfg.buildCost)} ISK`, 'warn');
+    if (p.credits < cfg.buildCost) return this.notify(s, `Нужно ${fmt(cfg.buildCost)} CR`, 'warn');
     for (const c of this.U.systems[e.sys].celestials) {
       const minD = c.kind === 'sun' ? 0.25 * AU : 200000;
       if (dist(c.pos, e.pos) - (c.radius || 0) < minD) return this.notify(s, c.kind === 'sun' ? 'Слишком близко к звезде — станцию расплавит. Отлетите дальше 0.25 а.е.' : `Слишком близко к «${c.name}». Отлетите дальше 200 км.`, 'warn');
@@ -208,7 +208,7 @@ module.exports = function install(Game) {
     if (!st || !INFRA[st.type]) return;
     const next = INFRA[st.type].levels[st.level + 1];
     if (!next) return this.notify(s, 'Максимальный уровень', 'warn');
-    if (p.credits < next.cost) return this.notify(s, `Нужно ${fmt(next.cost)} ISK`, 'warn');
+    if (p.credits < next.cost) return this.notify(s, `Нужно ${fmt(next.cost)} CR`, 'warn');
     p.credits -= next.cost; st.level++;
     this.notify(s, `${st.name}: уровень ${st.level}`, 'good');
     this.sendProfile(s); this.c_infraInfo(s, m, p); this.save(true);
@@ -221,7 +221,7 @@ module.exports = function install(Game) {
     if (hub.buildUntil > this.now) return this.notify(s, 'Хаб ещё строится', 'warn');
     if (hub.level < T.hubLv) return this.notify(s, `Нужен хаб уровня ${T.hubLv}`, 'warn');
     if (hub.transports.length >= INFRA.hub.levels[hub.level].transports) return this.notify(s, 'Все места в хабе заняты — улучшите хаб', 'warn');
-    if (p.credits < T.price) return this.notify(s, `Нужно ${fmt(T.price)} ISK`, 'warn');
+    if (p.credits < T.price) return this.notify(s, `Нужно ${fmt(T.price)} CR`, 'warn');
     p.credits -= T.price;
     hub.transports.push({ id: 'tr_' + uid(), kind: m.kind, name: `${T.name} №${hub.transports.length + 1}`, at: hub.id, state: 'idle', cargo: {}, trips: 0, delivered: 0 });
     this.notify(s, `Куплен ${T.name}. Задайте маршрут — и он начнёт возить грузы сам.`, 'good');

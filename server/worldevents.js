@@ -106,7 +106,7 @@ module.exports = function install(Game) {
       this.broadcastAnoms(ev.sys);
       return;
     }
-    // награда: ISK по доле урона (каждому участнику не меньше 8% пула), тайник с трофеями — у места боя
+    // награда: CR по доле урона (каждому участнику не меньше 8% пула), тайник с трофеями — у места боя
     const total = Object.values(ev.dmg).reduce((x, y) => x + y, 0) || 1;
     const pool = K.pool * (0.6 + 0.4 * incomeOf(ev.sys)), names = Object.keys(ev.dmg); // доход региона влияет мягче, чем на добычу
     for (const n of names) {
@@ -114,7 +114,7 @@ module.exports = function install(Game) {
       const share = Math.max(0.08, ev.dmg[n] / total), isk = Math.round(pool * share);
       p.credits += isk; p.stats.wevents = (p.stats.wevents || 0) + 1;
       const s = [...this.sessions].find(x => x.player === p);
-      if (s) { this.notify(s, `☄ Босс повержен! Ваш вклад ${Math.round(ev.dmg[n] / total * 100)}% — награда ${fmt(isk)} ISK. Заберите тайник босса!`, 'good'); this.sendProfile(s); }
+      if (s) { this.notify(s, `☄ Босс повержен! Ваш вклад ${Math.round(ev.dmg[n] / total * 100)}% — награда ${fmt(isk)} CR. Заберите тайник босса!`, 'good'); this.sendProfile(s); }
     }
     const items = { salv_relic: 3 + Math.floor(Math.random() * 4), mat_xcore: 2 + Math.floor(Math.random() * 4) };
     for (let i = 0; i < Math.min(3, 1 + Math.floor(names.length / 2)); i++) { const t = pick(K.trophies); items[t] = (items[t] || 0) + 1; }

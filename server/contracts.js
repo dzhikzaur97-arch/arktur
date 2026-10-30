@@ -312,7 +312,7 @@ module.exports = function install(Game) {
       if (!t) return finish('сигнал оборвался — корабль уничтожен.', false);
       if (!a.npcs.size) {
         const helpers = nearby();
-        for (const s of helpers) { s.player.credits += ev.reward; this.addRep(s.player, factionOfSys(a.sys), 3, s); this.notify(s, `Спасибо, пилот! Награда за спасение: ${fmt(ev.reward)} ISK`, 'good'); this.sendProfile(s); }
+        for (const s of helpers) { s.player.credits += ev.reward; this.addRep(s.player, factionOfSys(a.sys), 3, s); this.notify(s, `Спасибо, пилот! Награда за спасение: ${fmt(ev.reward)} CR`, 'good'); this.sendProfile(s); }
         t.storyHold = false; t.goal = null;
         finish(helpers.length ? 'корабль спасён.' : 'пираты ушли.', true);
       }
@@ -329,7 +329,7 @@ module.exports = function install(Game) {
           const h = this.hangar(s.player, s.player.home), gift = pick(['shield_booster', 'armor_rep', 'afterburner', 'mining_upg', 'drone_light']);
           h.items[gift] = (h.items[gift] || 0) + 1;
           this.addRep(s.player, factionOfSys(a.sys), 3, s);
-          this.notify(s, `Транспорт отремонтирован! ${fmt(ev.reward)} ISK и «${ITEMS[gift].name}» (в ангаре домашней станции)`, 'good');
+          this.notify(s, `Транспорт отремонтирован! ${fmt(ev.reward)} CR и «${ITEMS[gift].name}» (в ангаре домашней станции)`, 'good');
           this.sendProfile(s);
           t.storyHold = false; t.hull = t.stats.hull * 0.6;
           return finish('транспорт снова на ходу.', true);

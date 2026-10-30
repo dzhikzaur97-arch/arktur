@@ -36,7 +36,7 @@ module.exports = function install(Game) {
     p.credits += bonus;
     let gift = null;
     if (d.streak % 7 === 0) { gift = this.rareBlueprint && this.rareBlueprint(); if (gift) { const h = this.hangar(p, p.home); h.items[gift] = (h.items[gift] || 0) + 1; } }
-    if (s) this.notify(s, `🎁 Бонус за вход: день ${d.streak} подряд — +${fmt(bonus)} ISK${gift ? ' и редкий чертёж (в ангаре домашней станции)' : ''}`, 'good');
+    if (s) this.notify(s, `🎁 Бонус за вход: день ${d.streak} подряд — +${fmt(bonus)} CR${gift ? ' и редкий чертёж (в ангаре домашней станции)' : ''}`, 'good');
     const avail = POOL.filter(x => !x.when || x.when(p));
     let seed = [...(today + p.name)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
     const pick = [];
@@ -61,7 +61,7 @@ module.exports = function install(Game) {
       let changed = before !== d.day;
       for (const t of d.tasks) if (!t.done && st(p, t.stat) - t.base >= t.need) {
         t.done = true; p.credits += t.isk; changed = true;
-        this.notify(s, `📅 Ежедневное задание выполнено: ${t.text} — +${fmt(t.isk)} ISK`, 'good');
+        this.notify(s, `📅 Ежедневное задание выполнено: ${t.text} — +${fmt(t.isk)} CR`, 'good');
         if (d.tasks.every(x => x.done)) this.notify(s, '📅 Все задания на сегодня выполнены! Завтра — новые, а бонус за вход вырастет.', 'good');
       }
       if (changed) { this.sendProfile(s); this.c_dailyInfo(s, {}, p); this.save(); }
@@ -74,11 +74,11 @@ module.exports = function install(Game) {
     const c = m.color == null ? null : +m.color;
     if (c !== null && !PALETTE.includes(c)) return;
     if (c !== null) {
-      if (p.credits < PAINT_COST) return this.notify(s, `Покраска стоит ${fmt(PAINT_COST)} ISK`, 'warn');
+      if (p.credits < PAINT_COST) return this.notify(s, `Покраска стоит ${fmt(PAINT_COST)} CR`, 'warn');
       p.credits -= PAINT_COST;
     }
     p.ship.paint = c;
-    this.notify(s, c === null ? 'Заводская окраска восстановлена' : `Корабль перекрашен (−${fmt(PAINT_COST)} ISK)`, 'good');
+    this.notify(s, c === null ? 'Заводская окраска восстановлена' : `Корабль перекрашен (−${fmt(PAINT_COST)} CR)`, 'good');
     this.sendProfile(s); this.save();
   };
 

@@ -246,9 +246,9 @@ const EPILOGUE = {
   orden: 'Орден расшифровал маяк. Он ведёт дальше, за Край — туда, где Предтечи оставили что-то ещё. Путь только начинается.'
 };
 const ALLY_REWARD = {
-  cons: { items: { dmg_amp: 2, shield_booster_l: 1 }, isk: 300000, text: 'Консорциум: 300 000 ISK, 2 усилителя урона и тяжёлый усилитель щита' },
-  liga: { items: { drone_heavy: 3, rail_l: 1 }, isk: 300000, text: 'Лига: 300 000 ISK, 3 тяжёлых дрона и тяжёлый рельсотрон' },
-  orden: { items: { speed_x: 1, drone_light: 2 }, isk: 200000, text: 'Орден: 200 000 ISK, варп-ускоритель «Призрак» и 2 дрона' }
+  cons: { items: { dmg_amp: 2, shield_booster_l: 1 }, isk: 300000, text: 'Консорциум: 300 000 CR, 2 усилителя урона и тяжёлый усилитель щита' },
+  liga: { items: { drone_heavy: 3, rail_l: 1 }, isk: 300000, text: 'Лига: 300 000 CR, 3 тяжёлых дрона и тяжёлый рельсотрон' },
+  orden: { items: { speed_x: 1, drone_light: 2 }, isk: 200000, text: 'Орден: 200 000 CR, варп-ускоритель «Призрак» и 2 дрона' }
 };
 
 module.exports = function install(Game) {
@@ -304,7 +304,7 @@ module.exports = function install(Game) {
     if (!d) return;
     const delta = Math.round(spent * d);
     p.credits += delta;
-    this.notify(s, d > 0 ? `Скидка ${FACTIONS[factionOfSys(this.U.celestials[s.docked].sys)].short}: −${fmt(delta)} ISK` : `Наценка из-за плохой репутации: ${fmt(-delta)} ISK`, d > 0 ? 'good' : 'warn');
+    this.notify(s, d > 0 ? `Скидка ${FACTIONS[factionOfSys(this.U.celestials[s.docked].sys)].short}: −${fmt(delta)} CR` : `Наценка из-за плохой репутации: ${fmt(-delta)} CR`, d > 0 ? 'good' : 'warn');
     this.sendProfile(s);
   };
   // Контракты агентов дают репутацию фракции станции
@@ -338,7 +338,7 @@ module.exports = function install(Game) {
     s.send({ t: 'dialog', kind: choice || choice2 ? 'choice' : 'brief', title: `Акт ${md.act}. ${md.title}`, from: this.speakerOf(p, md), lines: md.brief,
       choices: choice ? Object.entries(FACTIONS).map(([id, f]) => ({ id, text: f.name, desc: f.desc + ' Награда — ' + ALLY_REWARD[id].text + '.' }))
         : choice2 ? Object.entries(md.options).map(([id, o]) => ({ id, text: o.text, desc: o.desc })) : null,
-      reward: md.reward.isk ? `${fmt(md.reward.isk)} ISK` : null });
+      reward: md.reward.isk ? `${fmt(md.reward.isk)} CR` : null });
   };
   P.c_storyBrief = function (s, m, p) {
     const st = this.storyOf(p), md = MISSIONS[st.m];
@@ -400,13 +400,13 @@ module.exports = function install(Game) {
       p.credits += md.reward.isk || 0;
       for (const [f, v] of Object.entries(md.reward.rep || {})) this.addRep(p, allyOf(p, f), v, s);
       if (md.reward.items) { const h = this.hangar(p, p.home); for (const [it, n] of Object.entries(md.reward.items)) h.items[it] = (h.items[it] || 0) + n; }
-      this.notify(s, `Миссия «${md.title}» выполнена! Награда: ${fmt(md.reward.isk || 0)} ISK`, 'good');
+      this.notify(s, `Миссия «${md.title}» выполнена! Награда: ${fmt(md.reward.isk || 0)} CR`, 'good');
     }
     if (md.final2) st.c2done = true;
     const last = md.epilogue || md.final2;
     const text = md.epilogue ? EPILOGUE[st.ally] || EPILOGUE.liga : md.final2 ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : md.done;
     if (text) s.send({ t: 'dialog', kind: last ? 'final' : 'info', title: last ? 'Эпилог' : `Миссия выполнена: ${md.title}`, from: last ? (FACTIONS[st.ally] || FACTIONS.liga).leader : this.speakerOf(p, md), lines: [text],
-      reward: md.reward.isk ? `${fmt(md.reward.isk)} ISK` : null });
+      reward: md.reward.isk ? `${fmt(md.reward.isk)} CR` : null });
     this.nextMission(s, p);
   };
 

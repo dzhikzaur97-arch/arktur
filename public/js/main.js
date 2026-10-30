@@ -4,7 +4,11 @@ import * as SF from './surface.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const isk = (n) => Math.round(n).toLocaleString('ru-RU') + ' ISK';
+const isk = (n) => Math.round(n).toLocaleString('ru-RU') + ' CR';
+// авторы игры — показываются на экране входа и в окне «Помощь → Об игре»
+const AUTHORS = window.VF_AUTHOR || 'dzhik';
+const EDITION = window.VF_EDITION || 'claude'; // 'public' — устанавливаемая версия для всех, без функций claude.ai
+const CLAUDE_OK = EDITION !== 'public'; // живые NPC, помощник, особые задания, облако, друзья — только на claude.ai
 const num = (n) => Math.round(n).toLocaleString('ru-RU');
 const AU = 1.496e11;
 
@@ -294,6 +298,9 @@ function fxVolume(fx) {
   const d = len(sub(pos, S.meRec.dp));
   return Math.max(0, 1 - d / 80000) ** 1.5;
 }
+// вибрация (Android; на iPhone браузер её не поддерживает — вызов просто ничего не делает)
+let buzzAt = 0;
+function buzz(ms) { if (CFG.haptics === false || !navigator.vibrate || performance.now() - buzzAt < 120) return; buzzAt = performance.now(); try { navigator.vibrate(ms); } catch {} }
 function playFx(fx) {
   if (fx.cover) return; // золотая нить «Покрова» — без звука, иначе в бою сплошной треск
   const v = fxVolume(fx);
@@ -303,8 +310,8 @@ function playFx(fx) {
   else if (fx.k === 'jump') Sound.whoosh(v * 0.7, false, 1.5);
   if (fx.k === 'beam' && fx.arc && fx.main) Sound.boom(v * 0.6, false); // раскат грома при залпе «Копья Зари»
   // тряска камеры: близкие взрывы и попадания по нам (сила — в настройках, 0 выключает)
-  if (fx.k === 'boom' && v > 0.25) R.shake(v * ((fx.size || 0) > 500 ? 0.9 : 0.45));
-  else if (fx.k === 'beam' && S.me && fx.to === S.me.id) R.shake(0.12);
+  if (fx.k === 'boom' && v > 0.25) { R.shake(v * ((fx.size || 0) > 500 ? 0.9 : 0.45)); buzz(v > 0.6 ? 70 : 35); }
+  else if (fx.k === 'beam' && S.me && fx.to === S.me.id && fx.hit) { R.shake(0.12); buzz(18); }
 }
 addEventListener('mousedown', () => Sound.init(), { capture: true });
 addEventListener('keydown', () => Sound.init(), { capture: true });
@@ -373,6 +380,8 @@ function onMsg(m) {
       S.auto = null; renderAuto();
       if (RC.until) { stopReconnect(); note('Связь восстановлена', 'good'); }
       S.data = m.data; S.name = m.name;
+      // приветствие — только новичку (опытному пилоту просто отмечаем, что знакомство было)
+      setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) welcomeOnce(); else try { localStorage.setItem('vf-welcome', '1'); } catch {} }, 1800);
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
@@ -692,7 +701,7 @@ function actionsFor(o) {
     else A.push(['lock', '⌖', 'Захват', 'Ctrl']);
   }
   if (o.kind === 'wreck') A.push(['loot', '⇩', 'Обыскать', '']);
-  if (o.kind === 'ship' && o.npc && !o.wf) A.push(['talk', '💬', 'Переговоры', '']);
+  if (CLAUDE_OK && o.kind === 'ship' && o.npc && !o.wf) A.push(['talk', '💬', 'Переговоры', '']);
   A.push(['info', 'i', 'Информация', '']);
   return A;
 }
@@ -726,6 +735,9 @@ const canvas = $('#scene');
 R.setGraphics(effectiveGfx()); // до создания рендера: от профиля зависят разрешение текстур и детализация моделей
 const TEX_AT_START = effectiveGfx().tex;
 R.init(canvas);
+{ const cr = document.getElementById('lg-credits'); if (cr) cr.innerHTML = `Создатели игры: <b>${esc(AUTHORS)}</b> и <b>Claude</b>`; }
+// публичная версия: убираем то, что работает только на claude.ai
+if (!CLAUDE_OK) for (const sel of ['[data-win=assist]', '#chat-tabs [data-ch=friends]']) { const el = document.querySelector(sel); if (el) el.remove(); }
 setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейдеров, пока открыт экран входа
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
@@ -1303,7 +1315,7 @@ function renderSelected() {
     if (o.o) extra += `<div class="muted">Пилот: ${esc(o.o)}${o.cr ? ' · <span style="color:var(--bad)">преступник</span>' : o.su ? ' · <span style="color:var(--warn)">подозреваемый</span>' : ''}</div>`;
     if (o.tg) extra += `<div style="color:var(--bad)">⚠ Захватил вас в прицел</div>`;
     if (o.pbs) extra += `<div class="pb-st ${o.pbs}">${o.pbs === 'idle' ? `Опасность сектора: ${esc(o.pbd)}. Нападите — база поднимет щит и вышлет ${o.pbn} волн роёв.`
-      : o.pbs === 'waves' ? `⛨ Щит активен · волна ${o.pbw}/${o.pbn}` : '⚠ Щит отключён — уничтожьте базу!'}<br><span class="isk">Награда: ${num(o.pbr)} ISK + тайник</span></div>`;
+      : o.pbs === 'waves' ? `⛨ Щит активен · волна ${o.pbw}/${o.pbn}` : '⚠ Щит отключён — уничтожьте базу!'}<br><span class="isk">Награда: ${num(o.pbr)} CR + тайник</span></div>`;
   }
   if (o.kind === 'planet') extra = planetHTML(o);
   if (o.kind === 'asteroid') extra = `<div class="muted">Осталось: ${num(o.am)} ед. руды «${esc(S.data.items[o.ore].name)}»</div>`;
@@ -1629,7 +1641,7 @@ function renderWin() {
   if (S.win === 'skills') { setHTML(el, skillsHTML()); return updateSkillProgress(); }
   if (S.win === 'missions') return setHTML(el, missionsHTML(false));
   if (S.win === 'assets') return setHTML(el, assetsHTML());
-  if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>`);
+  if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>` + aboutHTML());
   if (S.win === 'settings') return setHTML(el, settingsHTML());
   if (S.win === 'bench') return setHTML(el, benchHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
@@ -1824,7 +1836,15 @@ function renderStoryTrack() {
     : `<div class="st-t">◆ Входящая передача</div><div class="st-x">${esc(v.title)} — нажмите, чтобы открыть</div>`;
 }
 // Окно передачи: брифинг миссии, выбор союзника, итог
+// новичку сюжет не мешает: брифинг первой миссии сам не открывается, пока не пройдены первые шаги обучения
+function storyWaits(m) {
+  if (m.kind !== 'brief' || S.wantBrief) return false;
+  const v = S.prof && S.prof.story;
+  return !!v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 5;
+}
 function showDialog(m) {
+  if (storyWaits(m)) return; // передача ждёт в индикаторе «◆ Входящая передача»
+  S.wantBrief = false;
   const lines = (m.lines || []).map(l => `<p>${esc(l)}</p>`).join('');
   const choices = m.choices ? `<div class="dlg-choices">${m.choices.map(c => `<button class="dlg-choice" data-c="${c.id}"><b>${esc(c.text)}</b><span>${esc(c.desc)}</span></button>`).join('')}</div>` : '';
   const html = `<div class="dlg"><div class="dlg-from">Входящая передача · ${esc(m.from || '')}</div><div class="dlg-title">${esc(m.title)}</div>${lines}
@@ -1854,7 +1874,7 @@ function missionsHTML(withOffers) {
     if (!S.cmReq && S.docked) { S.cmReq = true; send({ t: 'cmOptions' }); }
     if (!S.agents) html += '<div class="muted">Загрузка…</div>';
     else if (!S.agents.length) html += '<div class="muted">Новых предложений нет. Загляните позже.</div>';
-    else for (const o of S.agents) html += `<div class="mission"><div class="mt">${o.typeName ? `<span class="ctype">${esc(o.typeName)}</span> ` : ''}${esc(o.title)}</div><div>${esc(o.text)}</div><div class="muted">Награда: <span class="isk">${isk(o.reward)}</span>${o.bargained ? ' · <span class="small">договорились</span>' : ''}</div><button class="primary" data-a="accept" data-id="${o.id}">Принять</button>${o.bargained ? '' : ` <button data-a="talkAgent" data-id="${o.id}">💬 Торговаться</button>`}</div>`;
+    else for (const o of S.agents) html += `<div class="mission"><div class="mt">${o.typeName ? `<span class="ctype">${esc(o.typeName)}</span> ` : ''}${esc(o.title)}</div><div>${esc(o.text)}</div><div class="muted">Награда: <span class="isk">${isk(o.reward)}</span>${o.bargained ? ' · <span class="small">договорились</span>' : ''}</div><button class="primary" data-a="accept" data-id="${o.id}">Принять</button>${o.bargained || !CLAUDE_OK ? '' : ` <button data-a="talkAgent" data-id="${o.id}">💬 Торговаться</button>`}</div>`;
   }
   return html;
 }
@@ -1960,10 +1980,10 @@ function showUpgrade(slot, item) {
     <div class="up-arrow">→</div><div>${lvBadge(nd)}<b>Уровень ${c.level}</b><div>${moduleDesc(nd)}${nd.heatPerShot ? `, нагрев ${nd.heatPerShot}` : ''}</div></div></div>
     <table class="tbl"><tr><th>Материал</th><th class="r">Нужно</th><th class="r">Есть (ангар + трюм)</th></tr>${rows}</table>
     <div class="kv"><span>Работа верфи</span><span class="isk">${isk(c.isk)}</span>${missingCost ? `<span>Докупить недостающее (×${U.buyMarkup})</span><span class="isk">${isk(missingCost)}</span>` : ''}<span><b>Итого</b></span><span class="isk"><b>${isk(total)}</b></span></div>
-    ${canPay ? '' : '<div class="bad">Недостаточно ISK</div>'}
+    ${canPay ? '' : '<div class="bad">Недостаточно CR</div>'}
     <div class="muted small">Материалы дают переработка руды на своей станции и литейный цех «Бегемота». Улучшенные модули нельзя купить — только сделать.</div>`;
   const go = (buy) => () => send({ t: 'upgradeModule', slot, item, buyMissing: buy });
-  modal(html, [['Отмена', null], ...(canPay ? [[missingCost ? `Улучшить и докупить (${num(total)} ISK)` : `Улучшить (${num(total)} ISK)`, go(!!missingCost), 'primary']] : [])]);
+  modal(html, [['Отмена', null], ...(canPay ? [[missingCost ? `Улучшить и докупить (${num(total)} CR)` : `Улучшить (${num(total)} CR)`, go(!!missingCost), 'primary']] : [])]);
 }
 
 function moduleDesc(d) {
@@ -2229,14 +2249,14 @@ function agentSpec(offerId) {
   const name = AGENT_NAMES[hashStr(st.id) % AGENT_NAMES.length];
   return { key: 'agent:' + st.id, kind: 'agent', name, role: `агент станции «${st.name}»`, color: facCol(fac), offerId, cap,
     persona: `${name}, агент станции «${st.name}» фракции «${facName(fac)}». Раздаёт задания пилотам, деловой и немного ироничный, ценит надёжность и репутацию. Может поднять награду, если пилот убедителен, но не больше ${cap}% и лучше меньше; на грубость и наглость — 0%.`,
-    ctx: `Репутация пилота у фракции «${facName(fac)}»: ${r.v} (${r.tier}). Обсуждаемое задание: «${o ? o.title : '?'}» — ${o ? o.text : ''} Награда сейчас: ${o ? o.reward : 0} ISK. Максимальная прибавка, которую ты вправе дать: ${cap}%.`,
+    ctx: `Репутация пилота у фракции «${facName(fac)}»: ${r.v} (${r.tier}). Обсуждаемое задание: «${o ? o.title : '?'}» — ${o ? o.text : ''} Награда сейчас: ${o ? o.reward : 0} CR. Максимальная прибавка, которую ты вправе дать: ${cap}%.`,
     format: '{"reply": "твоя реплика", "offer": null или целое число процентов прибавки от 0 до ' + cap + ', которое ты готов дать прямо сейчас (null — пока торгуетесь без конкретного предложения)}' };
 }
 function pirateSpec(m) {
   return { key: 'pirate:' + m.name, kind: 'pirate', name: m.name, role: m.kind, color: '#ff6050', npcId: m.id, floor: m.floor,
     persona: `${m.name} — ${m.kind}, пират банды Скверны. Грубый, жадный, насмешливый, но прагматичный: деньги любит больше драки. Говорит коротко, с угрозой.`,
-    ctx: `Пилот на связи — твоя возможная жертва. Ты готов отпустить его за выкуп. Твоя минимальная цена — ${m.floor} ISK: ниже ни за что. Начни с запроса около ${Math.round(m.floor * 1.7)} ISK и торгуйся. ${m.hp < 0.6 ? 'Твой корабль сильно повреждён — ты сговорчивее.' : 'Твой корабль цел — ты уверен в себе.'} ${m.hostile ? 'Ты уже атакуешь этого пилота.' : ''} Если пилот угрожает или хамит — подними цену.`,
-    format: '{"reply": "твоя реплика", "price": null или целое число ISK — цена, за которую ты прямо сейчас отпустишь пилота (не меньше ' + m.floor + ')}' };
+    ctx: `Пилот на связи — твоя возможная жертва. Ты готов отпустить его за выкуп. Твоя минимальная цена — ${m.floor} CR: ниже ни за что. Начни с запроса около ${Math.round(m.floor * 1.7)} CR и торгуйся. ${m.hp < 0.6 ? 'Твой корабль сильно повреждён — ты сговорчивее.' : 'Твой корабль цел — ты уверен в себе.'} ${m.hostile ? 'Ты уже атакуешь этого пилота.' : ''} Если пилот угрожает или хамит — подними цену.`,
+    format: '{"reply": "твоя реплика", "price": null или целое число CR — цена, за которую ты прямо сейчас отпустишь пилота (не меньше ' + m.floor + ')}' };
 }
 function leaderSpec(fac) {
   const r = repOf(fac), st = S.prof.story || {}, w = S.war || {}, me = w.me;
@@ -2405,7 +2425,7 @@ function stateSummary() {
   const t = S.data.ships[p.ship.type], sk = Object.entries(p.skills || {}).map(([k, v]) => `${(S.data.skills[k] || {}).name || k} ${v}`).join(', ') || 'нет';
   const st = p.story || {}, w = S.war && S.war.me, c = S.career;
   const cargo = Object.entries(p.ship.cargo || {}).slice(0, 8).map(([k, q]) => `${(S.data.items[k] || {}).name || k} ×${q}`).join(', ') || 'пусто';
-  return [`Пилот ${S.name}, ${num(p.credits)} ISK, корабль «${t.name}» (${t.cls}).`,
+  return [`Пилот ${S.name}, ${num(p.credits)} CR, корабль «${t.name}» (${t.cls}).`,
     S.docked ? `Пристыкован: ${S.docked.name}.` : S.sys ? `В космосе: система ${S.sys.name} (безопасность ${S.sys.sec.toFixed(1)}).` : '',
     `Навыки: ${sk}${p.training ? `; учится ${(S.data.skills[p.training.skill] || {}).name} ${p.training.level}` : ''}.`,
     `Трюм: ${cargo}.`,
@@ -2445,6 +2465,7 @@ ${GUIDE}
 // Особые задания: сюжет пишет Claude, шаги и награду проверяет игра
 // ======================================================================
 function cmHTML(withOffers) {
+  if (!CLAUDE_OK) return '';
   const cm = S.cm, a = cm && cm.active;
   if (a) return `<h3>✨ Особое задание</h3><div class="mission story"><div class="mt">${esc(a.title)} <span class="muted">· ${esc(a.giver)}</span></div>${a.brief.map(l => `<div class="small">${esc(l)}</div>`).join('')}
     <div>Шаг ${a.step} из ${a.steps}: <b>${esc(a.text)}</b>${a.sys ? ` <span class="muted">(${esc(sysName(a.sys))})</span>` : ''}</div><div class="muted">Награда: <span class="isk">${isk(a.reward)}</span></div><button data-a="cmAbandon" class="danger small-btn">Отменить</button></div>`;
@@ -2479,6 +2500,40 @@ ${sys}
   } catch (e) { note('Особое задание: ' + ({ not_granted: 'нет разрешения обращаться к Claude', rate_limited: 'слишком много запросов — подождите', invalid_json: 'Claude ответил неразборчиво — попробуйте ещё раз' }[e && e.code] || 'связь прервалась'), 'warn'); }
   finally { S.cmBusy = false; renderStation(); }
 }
+// «Об игре»: авторы, издание, лицензии
+function aboutHTML() {
+  return `<h3>Об игре</h3><div class="about"><b>Void Frontier</b> — космическая песочница.<br>
+    Создатели игры: <b>${esc(AUTHORS)}</b> и <b>Claude</b> (ИИ-ассистент Anthropic) — вместе, от первой строчки до последней.<br>
+    <span class="muted small">${EDITION === 'public' ? 'Бесплатная версия для всех: работает без интернета, сохранения — на вашем устройстве (экспорт в файл — в «Сохранениях»).' : 'Версия на claude.ai: с живыми персонажами, помощником, облачной копией и игрой с друзьями.'}
+    3D-графика — three.js (лицензия MIT). Игра бесплатна и не собирает никаких данных.</span></div>`;
+}
+// первое знакомство: одно короткое приветствие с одной целью
+function welcomeOnce() {
+  try { if (localStorage.getItem('vf-welcome')) return; localStorage.setItem('vf-welcome', '1'); } catch { return; }
+  modal(`<h3>Добро пожаловать в Void Frontier!</h3><p>Вы — пилот фрегата «Искра» на станции Арктур Прайм. Впереди — тысячи систем добычи, торговли, боёв и тайн Предтеч.</p>
+    <p><b>Первая цель:</b> отстыкуйтесь и добудьте немного руды. Подсказки — в окне «Первые шаги».</p><p class="muted small">Сюжет, война фракций, напарники и всё остальное откроются по ходу игры. Ничего не нужно запоминать сразу.</p>`, [['Начать', null, 'primary']]);
+}
+// ======================================================================
+// Кнопка «Назад» (Android) в устанавливаемой версии: закрывает верхнее окно, а не выходит из игры.
+// Внутри рамки claude.ai не включается — там историей управляет само приложение.
+// ======================================================================
+if (EDITION === 'public' && window.top === window) {
+  let exitArmed = 0;
+  const arm = () => { try { history.pushState({ vf: 1 }, ''); } catch {} };
+  arm();
+  addEventListener('popstate', () => {
+    const open = (sel) => { const el = $(sel); return el && !el.classList.contains('hidden'); };
+    if (open('#modal')) $('#modal').classList.add('hidden');
+    else if (document.body.classList.contains('photo')) photoMode(false);
+    else if (open('#ctx')) hideCtx();
+    else if (S.win) closeWin();
+    else if (open('#map')) toggleMap();
+    else if (document.body.classList.contains('ov-open') || document.body.classList.contains('chat-open')) { document.body.classList.remove('ov-open', 'chat-open'); }
+    else if (performance.now() - exitArmed < 2500) { history.back(); return; }
+    else { exitArmed = performance.now(); note('Нажмите «Назад» ещё раз, чтобы выйти из игры'); }
+    arm();
+  });
+}
 // Окно «Карьера»: шаги карьеры, достижения со званиями, таблица лидеров
 function careerHTML() {
   const c = S.career;
@@ -2506,7 +2561,7 @@ function careerHTML() {
     html += `<p class="muted small">Рейтинг: имущество, победы, пиратские базы, знаки отличия, мировые события, добыча, производство и достижения. ИИ-пилоты галактики соревнуются вместе с вами.</p>
       <table class="tbl"><tr><th class="r">#</th><th>Пилот</th><th class="r">Очки</th><th class="r">Побед</th></tr>${L.top.map(row).join('')}${L.me ? '<tr><td colspan="4" class="muted">…</td></tr>' + row(L.me) : ''}</table>
       <button data-a="leadersRefresh">Обновить</button>`;
-    html += `<h3>Общая таблица друзей</h3>${!CLOUD.db ? '<div class="muted small">Работает, когда игра открыта на claude.ai: каждый, кому вы откроете игру, попадёт сюда со своим лучшим результатом.</div>'
+    if (CLAUDE_OK) html += `<h3>Общая таблица друзей</h3>${!CLOUD.db ? '<div class="muted small">Работает, когда игра открыта на claude.ai: каждый, кому вы откроете игру, попадёт сюда со своим лучшим результатом.</div>'
       : BOARD.list.length ? `<table class="tbl"><tr><th class="r">#</th><th>Пилот</th><th class="r">Очки</th><th class="r">Достижений</th></tr>${BOARD.list.map((r, i) => `<tr class="${r.id === CLOUD.uid ? 'me' : ''}"><td class="r">${i + 1}</td><td><b>${esc(String(r.name || '?').slice(0, 24))}</b><div class="muted small">${esc(String(r.title || '').slice(0, 30))}</div></td><td class="r">${num(+r.score || 0)}</td><td class="r">${+r.ach || 0}</td></tr>`).join('')}</table>`
       : '<div class="muted small">Пока пусто — ваш результат появится через минуту.</div>'}`;
   }
@@ -2606,7 +2661,7 @@ function warHTML() {
     } else if (here) html += `<div class="muted small">Лавка трофеев работает на станциях вашей фракции.</div>`;
   }
   const reps = (S.prof.story && S.prof.story.rep) || [];
-  if (reps.length) html += `<h3>Лидеры фракций</h3><div class="muted small">Поговорите с лидером: расскажет о войне, Предтечах и о том, как фракция к вам относится. Ответы пишет Claude (включается в настройках).</div><div class="btn2">${reps.map(r => `<button data-a="talkLeader" data-fac="${r.id}" style="border-color:${r.color}">💬 ${esc(r.leader || r.name)}</button>`).join(' ')}</div>`;
+  if (reps.length && CLAUDE_OK) html += `<h3>Лидеры фракций</h3><div class="muted small">Поговорите с лидером: расскажет о войне, Предтечах и о том, как фракция к вам относится. Ответы пишет Claude (включается в настройках).</div><div class="btn2">${reps.map(r => `<button data-a="talkLeader" data-fac="${r.id}" style="border-color:${r.color}">💬 ${esc(r.leader || r.name)}</button>`).join(' ')}</div>`;
   html += '<h3>Линия фронта</h3><div class="muted small">Влияние фракций в пограничных системах. Когда нападающие перевешивают хозяина на 25 и набирают 60 — система переходит к ним. Столицы не сдаются.</div>';
   html += `<div class="front-list">${w.front.map(id => `<div class="front-row"><div><b>${esc(sysName(id))}</b> <span style="color:${facCol(w.owner[id])}">${esc(facName(w.owner[id], true))}</span>${w.owner[id] !== w.home[id] ? ' <span class="muted small">(захвачена)</span>' : ''}</div>${infBars(w.inf[id] || {})}</div>`).join('')}</div>`;
   return html;
@@ -2754,8 +2809,10 @@ function settingsHTML() {
       ${chk('cfg-flash', CFG.flash, 'Яркие вспышки взрывов (выключите, если вспышки неприятны)')}
       ${chk('cfg-labels', CFG.labels, 'Подписи у всех объектов в космосе')}
     ${MOBILE ? chk('cfg-battery', CFG.battery !== false, 'Экономия батареи: на станции и в карте 30 кадров/с, под открытыми окнами космос почти не рисуется') : ''}
+    ${'vibrate' in navigator ? chk('cfg-haptics', CFG.haptics !== false, 'Вибрация при попаданиях и взрывах') : ''}
+    ${document.fullscreenEnabled ? '<p><button data-a="fullscreen">Во весь экран</button></p>' : ''}
     ${chk('cfg-voice', CFG.voice !== false, 'Озвучивать реплики персонажей встроенным голосом устройства (бесплатно, лимиты Claude не тратит)')}
-    ${chk('cfg-liveNpc', CFG.liveNpc, 'Claude в игре: живые разговоры (агенты, пираты, лидеры фракций), бортовой помощник и особые задания. Каждый ответ расходует лимиты вашего аккаунта Claude; работает, когда игра открыта на claude.ai')}
+    ${!CLAUDE_OK ? '' : chk('cfg-liveNpc', CFG.liveNpc, 'Claude в игре: живые разговоры (агенты, пираты, лидеры фракций), бортовой помощник и особые задания. Каждый ответ расходует лимиты вашего аккаунта Claude; работает, когда игра открыта на claude.ai')}
     </div>
     <div class="set-p ${(S.setTab || 0) === 1 ? '' : 'hidden'}">
       ${rng('cfg-volume', 'Общая громкость', CFG.volume, 0, 1, 0.05, pct)}
@@ -2871,7 +2928,7 @@ async function cloudInit() {
 }
 // предложение восстановить: на экране входа — прямо в форме (окна игры там ещё скрыты), в игре — модальным окном
 function cloudOffer(cm, local) {
-  const info = `Найдена копия игры от <b>${new Date(cm.when).toLocaleString('ru-RU')}</b>: ${esc(cm.pilots.join(', '))}${cm.credits != null ? ' · ' + num(cm.credits) + ' ISK' : ''}.`;
+  const info = `Найдена копия игры от <b>${new Date(cm.when).toLocaleString('ru-RU')}</b>: ${esc(cm.pilots.join(', '))}${cm.credits != null ? ' · ' + num(cm.credits) + ' CR' : ''}.`;
   const why = local.pilots.length ? 'Она новее, чем сохранение на этом устройстве. Если откажетесь, облачная копия будет заменена текущей игрой.' : 'На этом устройстве сохранения нет — похоже, память браузера была очищена.';
   const box = document.querySelector('#login .login-box');
   if (box && getComputedStyle($('#login')).display !== 'none') {
@@ -2924,6 +2981,7 @@ async function cloudLoad() {
   } catch (e) { note('Облако: не удалось загрузить — ' + ((e && (e.code || e.message)) || 'ошибка'), 'bad'); }
 }
 function cloudHTML() {
+  if (!CLAUDE_OK) return '';
   if (!CLOUD.db) return `<h3>☁ Облачная копия</h3><div class="muted small">Доступна, когда игра открыта на claude.ai под вашим аккаунтом: сохранение дублируется в личное хранилище страницы и переживает очистку памяти браузера.</div>`;
   const m = CLOUD.meta;
   return `<h3>☁ Облачная копия</h3><div class="small">${m ? 'Последняя копия: <b>' + new Date(m.when).toLocaleString('ru-RU') + '</b> · ' + esc((m.pilots || []).join(', ')) : 'Копии ещё нет'}${CLOUD.err ? ` <span class="bad">· ${esc(CLOUD.err)}</span>` : ''}</div>
@@ -2967,7 +3025,7 @@ $('#win-body').addEventListener('input', (e) => {
   if (id === 'cfg-fpsCap') CFG.fpsCap = +e.target.value;
   const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1), 'cfg-fov': (v) => v + '°' }[id] || ((v) => Math.round(v * 100) + '%');
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
-  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
 });
@@ -3136,7 +3194,7 @@ function renderStation() {
         <td class="r"><input class="qty" type="number" min="1" max="${q}" value="${q}" id="sq-${id}"> <button data-a="sell" data-item="${id}">Продать</button></td></tr>`).join('');
       html = `<h3>Продажа из ангара <span class="muted">(налог ${(mk.tax * 100).toFixed(0)}%)</span></h3>
         ${sellRows ? `<table class="tbl"><tr><th>Предмет</th><th class="r">Есть</th><th class="r">Цена за ед.</th><th class="r">Итого</th><th></th></tr>${sellRows}</table>` : '<div class="muted">Нечего продавать. Разгрузите трюм в ангар (вкладка «Ангар»).</div>'}
-        <h3>Цены на сырьё в этой системе</h3><div class="kv">${Object.entries(mk.sell).filter(([id]) => S.data.items[id].cat === 'Руда' || S.data.items[id].cat === 'Трофеи').map(([id, pr]) => `<span>${esc(S.data.items[id].name)}</span><span class="isk">${num(pr)} ISK</span>`).join('')}</div>
+        <h3>Цены на сырьё в этой системе</h3><div class="kv">${Object.entries(mk.sell).filter(([id]) => S.data.items[id].cat === 'Руда' || S.data.items[id].cat === 'Трофеи').map(([id, pr]) => `<span>${esc(S.data.items[id].name)}</span><span class="isk">${num(pr)} CR</span>`).join('')}</div>
         <h3>Модули</h3><table class="tbl"><tr><th>Модуль</th><th>Слот</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
         ${Object.entries(mk.buy).map(([id, pr]) => { const d = S.data.modules[id]; return `<tr><td>${esc(d.name)}</td><td class="muted">${{ high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted">${moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`; }).join('')}</table>
         ${mk.consumables ? `<h3>Расходники: энергия, боеприпасы, оборона</h3><table class="tbl"><tr><th>Товар</th><th>Зачем</th><th class="r">Цена</th><th></th></tr>${Object.entries(mk.consumables).map(([id, pr]) => `<tr><td>${esc(S.data.items[id].name)}</td><td class="muted small">${{ energy_cell: 'топливо для прыжков, завода, транспортов и улучшений; вдали от Ядра дороже', msl_std: 'боезапас ракетных установок «Игла» и «Шторм»', msl_torp: 'боезапас торпедного аппарата «Гром»', turret_kit: 'турель в космосе на 15 мин: бьёт пиратов рядом с вами (кнопка «⛫ Турель»)' }[id] || ''}</td><td class="r isk">${num(pr)}</td>
@@ -3235,7 +3293,7 @@ function onActionClick(e) {
     case 'placeOrder': send({ t: 'placeOrder', item: $('#po-item').value, qty: +$('#po-qty').value, price: +$('#po-price').value }); break;
     case 'train': send({ t: 'train', skill: d.skill }); break;
     case 'accept': send({ t: 'acceptMission', id: d.id }); break;
-    case 'storyBrief': send({ t: 'storyBrief' }); break;
+    case 'storyBrief': S.wantBrief = true; send({ t: 'storyBrief' }); break;
     case 'setTab': S.setTab = +d.id; renderWin(); break;
     case 'buildTab': S.buildTab = +d.id; send({ t: 'infraInfo' }); renderWin(); break;
     case 'buildInfra': send({ t: 'buildInfra', kind: d.id }); break;
@@ -3256,6 +3314,7 @@ function onActionClick(e) {
     case 'slotDel': window.VF_SAVES.del(d.id); renderWin(); break;
     case 'saveExport': exportSave(); break;
     case 'bpBuy': send({ t: 'bpBuy', bp: d.bp }); break;
+    case 'fullscreen': (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({ navigationUI: 'hide' })).catch(() => note('Полноэкранный режим недоступен', 'warn')); break;
     case 'paint': send({ t: 'paint', color: d.c === '' ? null : +d.c }); break;
     case 'talkAgent': if (talkAllowed()) openTalk(agentSpec(d.id)); break;
     case 'talkLeader': if (talkAllowed()) openTalk(leaderSpec(d.fac)); break;
@@ -3283,7 +3342,7 @@ function onActionClick(e) {
     case 'prodCancel': modal('<p>Отменить заказ? Материалы вернутся в ангар станции, сбор не возвращается.</p>', [['Нет', null], ['Отменить заказ', () => send({ t: 'prodCancel', id: d.id }), 'danger']]); break;
     case 'cloudSave': cloudSave(true).then(() => renderWin()); break;
     case 'cloudLoad': modal('<p>Загрузить игру из облачной копии? Текущий прогресс на этом устройстве будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => cloudLoad(), 'primary']]); break;
-    case 'storyBrief2': send({ t: 'storyBrief' }); break;
+    case 'storyBrief2': S.wantBrief = true; send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
     case 'pilotsRefresh': send({ t: 'aiList' }); break;
