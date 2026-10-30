@@ -13,7 +13,7 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'dist/site');
-const CFG = { author: process.env.VF_AUTHOR || 'dzhik', title: 'Void Frontier', short: 'Void Frontier',
+const CFG = { author: process.env.VF_AUTHOR || 'Salamov Rustam', title: 'Arktur', short: 'Arktur',
   desc: 'Космическая песочница: добыча, торговля, бои, войны фракций, планеты и тайны Предтеч. Бесплатно, без рекламы, работает без интернета.' };
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
 // файлы three.js, которые нужны игре (с зависимостями эффектов)
@@ -86,9 +86,9 @@ fs.writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
 
 // 6) политика конфиденциальности
 fs.writeFileSync(path.join(OUT, 'privacy.html'), `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Void Frontier — конфиденциальность</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;background:#06101e;color:#d8e4f0}a{color:#7fd0ff}h1{font-size:24px}</style></head><body>
-<h1>Политика конфиденциальности Void Frontier</h1>
-<p>Void Frontier — бесплатная игра. Её создали ${CFG.author} и Claude (ИИ-ассистент Anthropic).</p>
+<title>Arktur — конфиденциальность</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;background:#06101e;color:#d8e4f0}a{color:#7fd0ff}h1{font-size:24px}</style></head><body>
+<h1>Политика конфиденциальности Arktur</h1>
+<p>Arktur — бесплатная игра. Её создали ${CFG.author} и Claude (ИИ-ассистент Anthropic).</p>
 <ul>
 <li>Игра <b>не собирает и не отправляет</b> никаких данных: нет аналитики, рекламы, учётных записей на сервере и сторонних трекеров.</li>
 <li>Прогресс, настройки и сохранения хранятся <b>только на вашем устройстве</b> (в хранилище браузера). Их можно выгрузить в файл и загрузить обратно в меню «Сохранения».</li>
@@ -103,7 +103,7 @@ fs.writeFileSync(path.join(OUT, 'privacy.html'), `<!doctype html><html lang="ru"
 const files = ['./', 'index.html', 'manifest.webmanifest', 'privacy.html', ...fs.readdirSync(path.join(OUT, 'icons')).map(f => 'icons/' + f),
   ...THREE_FILES.filter(f => f.endsWith('.js')).map(f => 'vendor/three/' + f)];
 const ver = crypto.createHash('sha1').update(html).digest('hex').slice(0, 10);
-fs.writeFileSync(path.join(OUT, 'sw.js'), `// офлайн-кэш Void Frontier, версия ${ver}
+fs.writeFileSync(path.join(OUT, 'sw.js'), `// офлайн-кэш Arktur, версия ${ver}
 const CACHE = 'vf-${ver}';
 const FILES = ${JSON.stringify(files)};
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });

@@ -113,7 +113,7 @@ window.VF_SAVES = {
   exportText() { return JSON.stringify({ ...__db, savedAt: Date.now() }); },
   importText(text) {
     const m = __meta(text);
-    if (!m || !m.pilots.length) return { ok: false, msg: 'Файл не похож на сохранение Void Frontier' };
+    if (!m || !m.pilots.length) return { ok: false, msg: 'Файл не похож на сохранение Arktur' };
     __noSave = true;
     try { const prev = __ls.get(DB_KEY); if (prev) __ls.set(BAK_KEY, prev); __write(DB_KEY, text); } catch (err) { __noSave = false; return { ok: false, msg: err.message }; }
     location.reload();
@@ -197,7 +197,7 @@ const art = embed(artDir, 960, 70);
 // единая серия фото кораблей (tools/make-photos.js)
 const photoDir = path.join(ROOT, 'public/img/photos');
 const photos = embed(photoDir, 800, 72);
-const page = `<title>Void Frontier</title>
+const page = `<title>Arktur</title>
 <script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)};</script>
 <style>
 ${css}

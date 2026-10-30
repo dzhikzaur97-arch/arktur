@@ -104,4 +104,4 @@ function shutdown() { console.log('\nСохранение…'); for (const s of 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-server.listen(PORT, () => console.log(`Void Frontier запущен: http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`Arktur запущен: http://localhost:${PORT}`));
