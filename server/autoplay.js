@@ -42,6 +42,14 @@ module.exports = function install(Game) {
       if (s.ent && !s.ent.warp && s.ent.cmd.type !== 'manual') { s.ent.cmd = { type: 'stop' }; s.ent.autopilot = null; }
       return this.autoStop(s, 'Автоигра выключена');
     }
+    // сектор автодобычи: id системы или '' — «сам выбирает»
+    if (m.sys !== undefined) {
+      const d = m.sys && this.U.byId[m.sys];
+      if (m.sys && (!d || d.wormhole || !this.U.systems[m.sys].belts.length)) return this.notify(s, 'В этой системе нечего копать — выберите систему с поясами астероидов', 'warn');
+      p.autoSys = m.sys || null;
+      if (s.auto) { s.auto.mineSys = p.autoSys; s.auto.opt = null; }
+      if (p.autoSys) this.notify(s, `🤖 Автодобыча: сектор ${this.U.byId[p.autoSys].name} (${this.U.byId[p.autoSys].sec.toFixed(1)})`, 'good');
+    }
     const mode = MODES[m.mode] ? m.mode : (s.auto && s.auto.mode) || p.autoMode || 'auto';
     const bold = m.bold !== undefined ? !!m.bold : s.auto ? s.auto.bold : !!p.autoBold;
     p.autoMode = mode; p.autoBold = bold;
@@ -56,7 +64,7 @@ module.exports = function install(Game) {
       p.autoMem = { Q: src ? JSON.parse(JSON.stringify(src.Q)) : {}, sub: src ? JSON.parse(JSON.stringify(src.sub)) : {},
         episodes: 0, history: [], log: [], worth: [], from: src ? srcName : null, pass: crypto.randomBytes(4).toString('hex') };
     }
-    const bot = { name: p.name, mem: p.autoMem, sess: s, opt: null, nextStep: this.now + 300, inbox: [], human: true, mode, bold };
+    const bot = { name: p.name, mem: p.autoMem, sess: s, opt: null, nextStep: this.now + 300, inbox: [], human: true, mode, bold, mineSys: p.autoSys && this.U.systems[p.autoSys] ? p.autoSys : null };
     s.auto = bot;
     if (!s._sendRaw) {
       s._sendRaw = s.send;
@@ -82,7 +90,7 @@ module.exports = function install(Game) {
     if (!bot) return;
     bot.sentAt = this.now;
     const o = bot.opt;
-    s.send({ t: 'auto', on: true, mode: bot.mode, bold: bot.bold, episodes: bot.mem.episodes, from: bot.mem.from,
+    s.send({ t: 'auto', on: true, mode: bot.mode, bold: bot.bold, sys: bot.mineSys || null, episodes: bot.mem.episodes, from: bot.mem.from,
       doing: o ? { a: ACTIONS[o.a].name, aKey: o.a, phase: o.phase, band: o.band || null, secs: Math.round((this.now - o.t0) / 1000) } : null,
       log: bot.mem.log.slice(0, 5).map(x => x.text) });
   };

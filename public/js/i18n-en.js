@@ -3125,4 +3125,12 @@ window.VF_EN = {"Шахтёр":"Miner",
 "токсины":"toxins",
 "радиация":"radiation",
 "открылась червоточина":"a wormhole opened",
-"Доход там":"Income there"};
+"Доход там":"Income there",
+"выбранный сектор":"chosen sector",
+"⛏ Где копать":"⛏ Where to mine",
+"сам выбирает (по безопасности)":"its own choice (by security)",
+"Ферит, Корундит + Аркселит":"Ferite, Corundite + Arkselite",
+"⛏ Автодобыча в этой системе":"⛏ Auto-mining in this system",
+"Автоигра сама долетит, накопает полный трюм, продаст руду на ближайшей станции и вернётся сюда — по кругу":"Autoplay flies here, fills the hold, sells the ore at the nearest station and comes back — over and over",
+"В этой системе нечего копать — выберите систему с поясами астероидов":"There's nothing to mine in this system — pick a system with asteroid belts",
+"🤖 Автодобыча: сектор":"🤖 Auto-mining: sector"};

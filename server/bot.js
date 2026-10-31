@@ -225,7 +225,12 @@ module.exports = function install(Game) {
     if (s.docked) return true;
     const e = s.ent; if (!e || e.warp || e.cmd.type === 'align' || e.cmd.type === 'dock') return false;
     const sts = this.U.systems[e.sys].stations.filter(st => !st.player || st.owner === s.player.name);
-    if (!sts.length) { const r = route(this.U.neighbors, e.sys, this.U.celestials[s.player.home].sys); if (r && !e.autopilot) this.handle(s, { t: 'autopilot', dest: r[r.length - 1], go: true }); return false; }
+    if (!sts.length) {
+      // в системе нет станции — летим в ближайшую систему со станцией (а не через всю галактику домой)
+      const dest = this.botNearestSys(e.sys, d => this.U.systems[d.id].stations.some(st => !st.player || st.owner === s.player.name)) || this.U.celestials[s.player.home].sys;
+      if (!e.autopilot) this.handle(s, { t: 'autopilot', dest, go: true });
+      return false;
+    }
     const st = sts.reduce((b, x) => dist(x.pos, e.pos) < dist(b.pos, e.pos) ? x : b, sts[0]);
     this.handle(s, { t: 'dock', id: st.id });
     return false;
@@ -285,6 +290,9 @@ module.exports = function install(Game) {
         this.botSellCargo(s, p, id => ITEMS[id] && (ITEMS[id].cat === 'Руда' || ITEMS[id].cat === 'Материалы'));
         this.botRestock(s, p);
         if (!SHIPS[p.ship.type].foundry) this.botBuyFit(s, p, 'miner', p.credits > 200000 ? 'miner_2' : 'miner_1', SHIPS[p.ship.type].slots.high >= 3 ? 2 : 1);
+        // сектор, выбранный пилотом для автодобычи, — если он ещё существует и в нём есть пояса
+        const fixed = bot.human && bot.mineSys && this.U.systems[bot.mineSys] && this.U.systems[bot.mineSys].belts.length ? bot.mineSys : null;
+        if (fixed) { o.band = 'chosen'; o.data.sys = fixed; o.phase = 'travel'; return; }
         o.band = this.botSubChoose(bot, 'mine');
         const [lo, hi] = BANDS.mine[o.band];
         o.data.sys = this.botNearestSys(this.U.celestials[s.docked].sys, d => d.sec >= lo && d.sec < hi);

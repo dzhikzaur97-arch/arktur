@@ -1475,6 +1475,7 @@ function renderAuto() {
   $('#ap-state').textContent = `${a.episodes} занятий`;
   setHTML($('#ap-body'), `<div class="ap-doing">${doing}</div>
     <div class="dr-btns ap-modes">${AUTO_MODES.map(([k, l, t]) => `<button data-ap="${k}" class="${a.mode === k ? 'on' : ''}" title="${t}">${l}</button>`).join('')}</div>
+    ${a.mode === 'mine' || a.mode === 'auto' ? `<label class="ap-sys">⛏ Где копать <select data-ap-sys><option value="">сам выбирает (по безопасности)</option>${mineSysOptions(a.sys)}</select></label>` : ''}
     <label class="ap-bold" title="Опасные сектора, покупка кораблей и электростанций"><input type="checkbox" data-ap-bold ${a.bold ? 'checked' : ''}> смелый режим</label>
     <div class="ap-log">${(a.log || []).slice(0, 3).map(x => `<div>${esc(x)}</div>`).join('')}</div>
     <div class="muted ap-hint">Опыт начат с ИИ-ученика ${esc(a.from || '—')} и дальше копится свой. Любая команда полёта вернёт вам управление.</div>
@@ -1485,7 +1486,22 @@ onTap($('#autoplay'), (e) => {
   const b = e.target.closest('[data-ap]');
   if (b) { Sound.click(); if (b.dataset.ap === 'off') send({ t: 'autoplay', on: false }); else autoToggle(b.dataset.ap); }
 });
-$('#autoplay').addEventListener('change', (e) => { if (e.target.matches('[data-ap-bold]')) send({ t: 'autoplay', on: true, bold: e.target.checked }); });
+$('#autoplay').addEventListener('change', (e) => {
+  if (e.target.matches('[data-ap-bold]')) send({ t: 'autoplay', on: true, bold: e.target.checked });
+  if (e.target.matches('[data-ap-sys]')) send({ t: 'autoplay', on: true, mode: 'mine', sys: e.target.value });
+});
+// список систем для автодобычи: по регионам, с безопасностью и рудой
+const ORE_BY_SEC = (sec) => sec >= 0.8 ? 'Ферит, Корундит' : sec >= 0.5 ? 'Ферит, Корундит + Аркселит' : sec > 0 ? 'Корундит, Аркселит, Нуллий' : sec > -0.5 ? 'Аркселит, Нуллий' : 'Нуллий, Ксенон-кристалл';
+function mineSysOptions(cur) {
+  return S.data.systems.filter(s => !s.wormhole).slice().sort((a, b) => b.sec - a.sec)
+    .map(s => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)} ${s.sec.toFixed(1)} — ${ORE_BY_SEC(s.sec)}</option>`).join('');
+}
+// автодобыча в выбранной системе — с карты
+function autoMineHere(sysId) {
+  if (MAN.on) manualToggle(false, true);
+  send({ t: 'autoplay', on: true, mode: 'mine', sys: sysId });
+  if (!$('#map').classList.contains('hidden')) toggleMap();
+}
 $('#b-turret').onclick = () => send({ t: 'deployTurret' });
 $('#b-land').onclick = () => { const id = $('#b-land').dataset.planet; if (id) { Sound.click(); send({ t: 'land', planet: id }); } };
 $('#story-track').onclick = () => openWin('missions');
@@ -2117,7 +2133,7 @@ onTap($('#tut'), (e) => {
 // Самообучающиеся ИИ-пилоты: что делают сейчас и чему научились (Q-оценки занятий, предпочтения, журнал)
 const BAND_NAME = { hi: 'безопасные (0.8+)', mid: 'средние (0.5–0.8)', low: 'опасные (<0.5)', calm: '0.5–0.8', edge: '0.3–0.5', wild: '<0.3', border: 'Пограничье', low_: 'Тёмный рубеж', null: 'Бездна' };
 const PHASE_NAME = { start: 'подготовка', travel: 'перелёт', belt: 'к поясу', mining: 'добыча', fight: 'бой', return: 'возвращение', sell: 'продажа', toCore: 'в Ядро за товаром', dockCore: 'стыковка', buy: 'закупка', clear: 'ищет место для стройки' };
-const bandName = (kind, b) => BAND_NAME[kind === 'trade' && b === 'low' ? 'low_' : b] || b;
+const bandName = (kind, b) => b === 'chosen' ? 'выбранный сектор' : BAND_NAME[kind === 'trade' && b === 'low' ? 'low_' : b] || b;
 function sparkline(pts, w = 220, h = 40) {
   if (!pts || pts.length < 2) return '';
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -3741,8 +3757,10 @@ function renderMapInfo() {
     ${S.war && S.war.inf && S.war.inf[s.id] ? '<div class="small" style="margin:6px 0 2px">Влияние фракций</div>' + infBars(S.war.inf[s.id]) : ''}
     ${stations.map(st => `<div class="muted" style="font-size:11px">⌂ ${esc(st.name)}</div>`).join('')}
     ${s.id !== cur ? `<div style="display:flex;gap:6px;margin-top:10px"><button id="mi-route">Проложить маршрут</button><button id="mi-ap" class="primary">Автопилот</button></div>` : '<p class="muted">Вы здесь.</p>'}
-    ${S.route.length ? '<button id="mi-clear" style="margin-top:6px">Сбросить маршрут</button>' : ''}`;
-  const r = $('#mi-route'), ap = $('#mi-ap'), cl = $('#mi-clear');
+    ${S.route.length ? '<button id="mi-clear" style="margin-top:6px">Сбросить маршрут</button>' : ''}
+    ${!s.wormhole ? `<button id="mi-mine" style="margin-top:6px" title="Автоигра сама долетит, накопает полный трюм, продаст руду на ближайшей станции и вернётся сюда — по кругу">⛏ Автодобыча в этой системе</button>` : ''}`;
+  const r = $('#mi-route'), ap = $('#mi-ap'), cl = $('#mi-clear'), mm = $('#mi-mine');
+  if (mm) mm.onclick = () => { Sound.click(); autoMineHere(s.id); };
   if (r) r.onclick = () => send({ t: 'autopilot', dest: s.id });
   if (ap) ap.onclick = () => { send({ t: 'autopilot', dest: s.id, go: true }); if (S.docked) note('Маршрут проложен. Отстыкуйтесь и включите автопилот снова.'); else toggleMap(); };
   if (cl) cl.onclick = () => { S.route = []; send({ t: 'autopilot', dest: null }); updateSysInfo(); drawMap(); renderMapInfo(); };

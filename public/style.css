@@ -761,3 +761,5 @@ body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !impo
 .lang-sw button { padding: 3px 10px; font-size: 12px; opacity: 0.6; }
 .lang-sw button.on { opacity: 1; border-color: var(--accent); color: #fff; }
 .set-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 6px 0 10px; }
+.ap-sys { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted, #8a9aa8); margin: 4px 0; }
+.ap-sys select { max-width: 100%; font-size: 12px; }
