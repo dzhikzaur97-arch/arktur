@@ -4,6 +4,8 @@ import * as SF from './surface.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// захват касания: Safari выбрасывает NotFoundError, если палец уже убран (быстрый тап) — тогда просто не захватываем
+function capture(el, id) { try { el.setPointerCapture(id); } catch {} }
 const isk = (n) => Math.round(n).toLocaleString('ru-RU') + ' CR';
 // авторы игры — показываются на экране входа и в окне «Помощь → Об игре»
 const AUTHORS = window.VF_AUTHOR || 'Salamov Rustam';
@@ -809,8 +811,8 @@ document.addEventListener('pointerlockchange', () => SF.setLocked(document.point
   let stick = null, look = null;
   hud.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('[data-tb]');
-    if (b) { e.preventDefault(); SF.touchBtn(b.dataset.tb, true); b.setPointerCapture(e.pointerId); b.onpointerup = b.onpointercancel = () => SF.touchBtn(b.dataset.tb, false); return; }
-    if (e.target.closest('#sf-stick')) { stick = { id: e.pointerId, x: e.clientX, y: e.clientY }; e.target.setPointerCapture(e.pointerId); }
+    if (b) { e.preventDefault(); SF.touchBtn(b.dataset.tb, true); capture(b, e.pointerId); b.onpointerup = b.onpointercancel = () => SF.touchBtn(b.dataset.tb, false); return; }
+    if (e.target.closest('#sf-stick')) { stick = { id: e.pointerId, x: e.clientX, y: e.clientY }; capture(e.target, e.pointerId); }
   });
   hud.addEventListener('pointermove', (e) => {
     if (stick && e.pointerId === stick.id) { const dx = (e.clientX - stick.x) / 50, dy = (e.clientY - stick.y) / 50; SF.touchMove(Math.max(-1, Math.min(1, dx)), Math.max(-1, Math.min(1, -dy))); const k = $('#sf-stick i'); if (k) k.style.transform = `translate(${Math.max(-40, Math.min(40, dx * 50))}px,${Math.max(-40, Math.min(40, dy * 50))}px)`; }
@@ -828,7 +830,7 @@ let pinch0 = null, tap = null, lastTap = 0, lpTimer = null;
 const touchDist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' || SF.active()) return;
-  canvas.setPointerCapture(e.pointerId);
+  capture(canvas, e.pointerId);
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   hideCtx();
   if (touches.size === 1) {
@@ -3379,7 +3381,7 @@ function toggleMap() {
 }
 $('#map-close').onclick = toggleMap;
 const mc = $('#map-canvas');
-mc.addEventListener('pointerdown', (e) => { mc.setPointerCapture(e.pointerId); map.drag = { x: e.clientX, y: e.clientY, moved: 0 }; });
+mc.addEventListener('pointerdown', (e) => { capture(mc, e.pointerId); map.drag = { x: e.clientX, y: e.clientY, moved: 0 }; });
 mc.addEventListener('pointermove', (e) => {
   if (!map.drag) return;
   const dx = e.clientX - map.drag.x, dy = e.clientY - map.drag.y;
