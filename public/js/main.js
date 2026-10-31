@@ -2414,7 +2414,7 @@ const GUIDE = `Arktur — космическая песочница в духе 
 Управление на телефоне: кнопки вверху — меню ☰, обзор ◫, варп », скан ◎, чат 💬; палец вращает камеру, щипок — зум, тап по космосу — курс, долгое нажатие — меню варпа; действия с выбранным объектом — крупные кнопки внизу; модули — круглые кнопки справа внизу. На компьютере: WASD/мышь, F1–F8 модули, V скан, M карта.
 Заработок: добыча руды (буровой лазер, пояса астероидов, ценная руда — в опасных системах), охота на пиратов (награды), задания агентов на станциях (с агентом можно поторговаться), торговля энергоячейками между регионами, переработка руды на своём заводе, производство по чертежам. Доход растёт к опасным регионам: Ядро ×1, Пограничье ×1.4, Тёмный рубеж ×2, Бездна ×2.8, Глубокий космос ×4.
 Безопасность: ≥0.5 — стражи порядка, ниже — PvP и сильные пираты, ≤0 — закона нет. Потеря корабля: страховка, возрождение на домашней станции.
-Станция, вкладки: Ангар, Корабли (купить/пересесть), Оснастка (модули по слотам и улучшение до 5 уровня), Рынок, Производство (чертежи, заказы идут и без вас), Фронт (война фракций), Напарники (до 3 ИИ-пилотов: боец, шахтёр, ремонтник), Биржа, Агенты, Навыки (учатся в реальном времени).
+Станция, вкладки: Ангар, Корабли (купить/пересесть), Оснастка (модули по слотам и улучшение до 5 уровня), Рынок, Производство (чертежи, заказы идут и без вас), Фронт (война фракций), Напарники (до 4 ИИ-пилотов каждого типа: боец, шахтёр, ремонтник), Биржа, Агенты, Навыки (учатся в реальном времени).
 Война фракций: Консорциум, Лига и Орден делят пограничные системы ⚔; вступив во «Фронте», получаете задания за сторону и знаки отличия, за знаки — чертежи фракционных кораблей; самые редкие — на захваченных станциях.
 Мировые события ☄: раз в 20–35 минут Колосс Предтеч или дредноут Скверны; награда по доле урона, в тайнике — уникальные трофеи.
 Аномалии (скан V/◎): боевые, рудные, руины; аномалии Предтеч дают артефакты. Пиратская база ☠ в каждой системе — 5 волн охраны и тайник.
@@ -2580,14 +2580,15 @@ function wingHTML() {
   const wg = S.wing;
   if (!wg) return '<div class="muted">Загрузка…</div>';
   let html = `<p class="muted">Нанятые пилоты летают рядом с вашим кораблём: следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм или чинят корабль. За победы растут в уровне и пересаживаются на корабли мощнее. Погибший напарник возвращается из ремонта через 5 минут. Приказы — на панели «Напарники» в полёте.</p>`;
-  html += `<h3>Ваша команда <span class="muted">(${wg.list.length} из ${wg.max})</span></h3>`;
+  const byRole = (r) => wg.list.filter(w => w.role === r).length, per = wg.perRole || 4;
+  html += `<h3>Ваша команда <span class="muted">· ${Object.entries(wg.roles).map(([r, x]) => `${WING_ICON[r]} ${esc(x.name)} ${byRole(r)}/${per}`).join(' · ')}</span></h3>`;
   html += wg.list.length ? wg.list.map(w => `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[w.role]} ${esc(w.name)}</b> · ${esc(w.roleName)} · ур. ${w.lv}
       <span class="muted">· ${esc(S.data.ships[w.ship].name)}${w.next ? ` · побед ${w.xp}/${w.next}` : ' · максимальный уровень'}${w.dead ? ` · <span class="bad">в ремонте ${fmtTime(w.dead / 1000)}</span>` : ''}${Object.keys(w.hold || {}).length ? ' · в трюме: ' + Object.entries(w.hold).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ') : ''}</span></span>
       <button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div>`).join('') : '<div class="muted">Пока никого. Наймите пилотов ниже.</div>';
   html += '<h3>Пилоты ищут работу на этой станции</h3><div class="muted small">Список обновляется каждый час. Плата — разовая.</div>';
-  html += wg.candidates.length ? `<div class="grid-cards">${wg.candidates.map(c => `<div class="shipcard">${artImg(c.ship)}<div class="sname">${WING_ICON[c.role]} ${esc(c.name)}</div>
-      <div class="muted">${esc(wg.roles[c.role].name)} · уровень ${c.lv} · «${esc(S.data.ships[c.ship].name)}»</div><div>${esc(wg.roles[c.role].desc)}</div>
-      <div class="isk">${isk(c.fee)}</div><button class="primary" data-a="wingHire" data-id="${c.id}" ${wg.list.length >= wg.max ? 'disabled' : ''}>Нанять</button></div>`).join('')}</div>` : '<div class="muted">Свободных пилотов нет — загляните через час.</div>';
+  html += wg.candidates.length ? wg.candidates.map(c => `<div class="slot-row">${artImg(c.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[c.role]} ${esc(c.name)}</b> · ${esc(wg.roles[c.role].name)} · ур. ${c.lv}
+      <span class="muted">· «${esc(S.data.ships[c.ship].name)}» — ${esc(wg.roles[c.role].desc)}</span> <span class="isk">${isk(c.fee)}</span></span>
+      <button class="primary" data-a="wingHire" data-id="${c.id}" ${byRole(c.role) >= per ? 'disabled' : ''}>${byRole(c.role) >= per ? 'Тип заполнен' : 'Нанять'}</button></div>`).join('') : '<div class="muted">Свободных пилотов нет — загляните через час.</div>';
   return html;
 }
 function renderWing() {

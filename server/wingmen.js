@@ -1,4 +1,4 @@
-// Напарники: ИИ-пилоты, которых нанимают на станциях (до трёх). Летают рядом с кораблём игрока,
+// Напарники: ИИ-пилоты, которых нанимают на станциях (до 4 каждого типа: боец, шахтёр, ремонтник). Летают рядом с кораблём игрока,
 // следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм
 // или чинят корабль. Растут в уровне от побед. Погибший напарник возвращается через 5 минут.
 // Приказы (всем сразу): «следовать», «атаковать мою цель», «копать», «стоять».
@@ -14,7 +14,7 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 const WING = {
-  max: 3, reviveMs: 5 * 60000, leash: 150000,
+  max: 12, perRole: 4, reviveMs: 5 * 60000, leash: 150000, // до 4 напарников каждого типа
   roles: {
     combat: { name: 'Боец', ships: ['klinok', 'vihr', 'molot', 'molot', 'citadel'], fee: 60000, desc: 'защищает вас и бьёт вашу цель' },
     miner:  { name: 'Шахтёр', ships: ['burlak', 'staratel', 'staratel', 'leviafan', 'leviafan'], fee: 45000, desc: 'копает руду прямо в ваш трюм' },
@@ -37,8 +37,8 @@ module.exports = function install(Game) {
     const hour = Math.floor(this.now / 3600000), r = rng('wing:' + stationId + ':' + hour);
     const sec = this.U.byId[this.U.celestials[stationId].sys].sec;
     const out = [];
-    for (let i = 0; i < 4; i++) {
-      const role = ['combat', 'miner', 'medic', 'combat'][i];
+    for (let i = 0; i < 9; i++) { // по три кандидата каждого типа
+      const role = ['combat', 'miner', 'medic'][i % 3];
       const lv = Math.max(1, Math.min(3, 1 + Math.floor(r() * 2) + (sec < 0.5 ? 1 : 0)));
       const name = WING.first[Math.floor(r() * WING.first.length)] + ' ' + WING.last[Math.floor(r() * WING.last.length)];
       out.push({ id: stationId + ':' + hour + ':' + i, name, role, lv, ship: shipFor(role, lv), fee: Math.round(WING.roles[role].fee * Math.pow(lv, 1.8)) });
@@ -53,7 +53,7 @@ module.exports = function install(Game) {
     });
   };
   P.c_wingInfo = function (s, m, p) {
-    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: WING.max, orders: WING.orders,
+    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: WING.max, perRole: WING.perRole, orders: WING.orders,
       roles: Object.fromEntries(Object.entries(WING.roles).map(([k, r]) => [k, { name: r.name, desc: r.desc }])),
       candidates: s.docked ? this.wingCandidates(s.docked).filter(c => !(p.wing || []).some(w => w.cand === c.id)) : [] });
   };
@@ -62,7 +62,7 @@ module.exports = function install(Game) {
     const c = this.wingCandidates(st).find(x => x.id === m.id);
     if (!c) return this.notify(s, 'Этот пилот уже ушёл — список обновился', 'warn');
     p.wing = p.wing || [];
-    if (p.wing.length >= WING.max) return this.notify(s, `Больше ${WING.max} напарников не нанять — сначала отпустите кого-нибудь`, 'warn');
+    if (p.wing.filter(w => w.role === c.role).length >= WING.perRole) return this.notify(s, `${WING.roles[c.role].name}: больше ${WING.perRole} напарников одного типа не нанять — сначала отпустите кого-нибудь`, 'warn');
     if (p.wing.some(w => w.cand === c.id)) return;
     if (p.credits < c.fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(c.fee)}`, 'warn');
     p.credits -= c.fee;
