@@ -732,3 +732,6 @@ body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !impo
 .login-box .credits { margin-top: 14px; font-size: 12px; color: var(--muted, #8fa3b8); text-align: center; letter-spacing: .3px; }
 .login-box .credits b { color: #cfe6ff; font-weight: 600; }
 .about { line-height: 1.6; }
+.wing-up { margin: -2px 0 8px 18px; padding-left: 8px; border-left: 2px solid var(--line); }
+.wing-up .slot-row { flex-wrap: wrap; }
+.wing-up .slot-row .sm { flex: 1 1 200px; }

@@ -2,6 +2,8 @@
 // следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм
 // или чинят корабль. Растут в уровне от побед. Погибший напарник возвращается через 5 минут.
 // Приказы (всем сразу): «следовать», «атаковать мою цель», «копать», «стоять».
+// Усиление на станции: тренировка (уровень за CR, до 7), улучшения корабля (броня, орудия, спецмодуль роли — по 3 ступени),
+// срочный ремонт погибшего напарника.
 'use strict';
 const crypto = require('crypto');
 const { SHIPS, ITEMS, NPCS } = require('./data');
@@ -20,12 +22,25 @@ const WING = {
     miner:  { name: 'Шахтёр', ships: ['burlak', 'staratel', 'staratel', 'leviafan', 'leviafan'], fee: 45000, desc: 'копает руду прямо в ваш трюм' },
     medic:  { name: 'Ремонтник', ships: ['sokol', 'piligrim', 'strazh', 'strazh', 'bastion'], fee: 55000, desc: 'чинит щит и броню вашего корабля' }
   },
-  xpNeed: [0, 15, 40, 80, 150],   // побед до уровня 2..5
+  xpNeed: [0, 15, 40, 80, 150, 250, 400],   // побед до уровня 2..7 (6 и 7 — ветеран и ас)
+  maxLv: 7,
+  // улучшения корабля напарника: 3 ступени каждое; цена ступени = base × ступень²
+  ups: {
+    arm:  { name: 'Броня и щиты', desc: '+20% прочности за ступень', base: 40000 },
+    gun:  { name: 'Орудия', desc: '+20% урона за ступень', base: 50000 },
+    spec: { name: 'Спецмодуль', base: 45000, byRole: { combat: 'скорострельность +15% за ступень', miner: 'добыча +25% за ступень', medic: 'ремонт +25% за ступень' } }
+  },
+  upMax: 3,
+  rankName: ['', 'новичок', 'пилот', 'опытный', 'бывалый', 'элита', 'ветеран', 'ас'],
   first: ['Арс', 'Вега', 'Дан', 'Кира', 'Лео', 'Мира', 'Ник', 'Ольга', 'Рэй', 'Тэо', 'Юна', 'Зар', 'Сол', 'Тарас', 'Ева', 'Гор', 'Лана', 'Марк', 'Нора', 'Ян'],
   last: ['Корвин', 'Стрельцов', 'Ноэль', 'Варга', 'Айхен', 'Мерк', 'Ростов', 'Кейн', 'Орлова', 'Тайри', 'Векс', 'Лунд', 'Сато', 'Белых', 'Рейн'],
   orders: { follow: 'Следовать', attack: 'Атаковать мою цель', mine: 'Копать', hold: 'Стоять' }
 };
 const shipFor = (role, lv) => { const l = WING.roles[role].ships; return l[Math.min(l.length - 1, lv - 1)]; };
+const trainFee = (role, lv) => Math.round(WING.roles[role].fee * 0.6 * Math.pow(lv + 1, 1.8)); // цена перехода lv → lv+1
+const upFee = (k, r) => WING.ups[k].base * (r + 1) * (r + 1);
+const upOf = (w, k) => (w.up && w.up[k]) || 0;
+const reviveFee = (w) => Math.round(3000 * w.lv * w.lv);
 const levelOf = (xp) => { let lv = 1; for (let i = 1; i < WING.xpNeed.length; i++) if (xp >= WING.xpNeed[i]) lv = i + 1; return lv; };
 
 module.exports = function install(Game) {
@@ -49,11 +64,14 @@ module.exports = function install(Game) {
     return (p.wing || []).map(w => {
       const e = w.ent && this.ents.get(w.ent);
       return { id: w.id, name: w.name, role: w.role, roleName: WING.roles[w.role].name, lv: w.lv, xp: w.xp, next: WING.xpNeed[w.lv] || null, ship: w.ship,
-        dead: w.deadUntil > this.now ? w.deadUntil - this.now : 0, hp: e ? +((e.shield + e.armor + e.hull) / (e.stats.shield + e.stats.armor + e.stats.hull)).toFixed(2) : null, hold: w.hold || {} };
+        dead: w.deadUntil > this.now ? w.deadUntil - this.now : 0, up: { arm: upOf(w, 'arm'), gun: upOf(w, 'gun'), spec: upOf(w, 'spec') },
+        train: w.lv < WING.maxLv ? trainFee(w.role, w.lv) : null, upFee: Object.fromEntries(Object.keys(WING.ups).map(k => [k, upOf(w, k) < WING.upMax ? upFee(k, upOf(w, k)) : null])),
+        revive: w.deadUntil > this.now ? reviveFee(w) : null, rank: WING.rankName[w.lv] || '', hp: e ? +((e.shield + e.armor + e.hull) / (e.stats.shield + e.stats.armor + e.stats.hull)).toFixed(2) : null, hold: w.hold || {} };
     });
   };
   P.c_wingInfo = function (s, m, p) {
-    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: WING.max, perRole: WING.perRole, orders: WING.orders,
+    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: WING.max, perRole: WING.perRole, orders: WING.orders, maxLv: WING.maxLv, upMax: WING.upMax,
+      ups: Object.fromEntries(Object.entries(WING.ups).map(([k, u]) => [k, { name: u.name, desc: u.desc || '', byRole: u.byRole || null }])),
       roles: Object.fromEntries(Object.entries(WING.roles).map(([k, r]) => [k, { name: r.name, desc: r.desc }])),
       candidates: s.docked ? this.wingCandidates(s.docked).filter(c => !(p.wing || []).some(w => w.cand === c.id)) : [] });
   };
@@ -78,6 +96,44 @@ module.exports = function install(Game) {
     this.notify(s, `${w.name} покидает команду`, 'info');
     this.c_wingInfo(s, m, p); this.save();
   };
+  // ---------- усиление ----------
+  const findW = (p, id) => (p.wing || []).find(w => w.id === id);
+  const respawn = function (p, w) { // пересобрать корабль в космосе с новыми характеристиками
+    const s = [...this.sessions].find(x => x.player === p), old = w.ent && this.ents.get(w.ent);
+    if (old && s && s.ent) { this.removeEntity(old); this.wingSpawn(p, w, s.ent, p.wing.indexOf(w)); }
+  };
+  P.c_wingTrain = function (s, m, p) {
+    if (!this.requireDocked(s)) return;
+    const w = findW(p, m.id); if (!w) return;
+    if (w.lv >= WING.maxLv) return this.notify(s, `${w.name} уже на высшем уровне`, 'warn');
+    const fee = trainFee(w.role, w.lv);
+    if (p.credits < fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(fee)}`, 'warn');
+    p.credits -= fee;
+    const oldShip = w.ship;
+    w.lv++; w.xp = Math.max(w.xp, WING.xpNeed[w.lv - 1] || 0); w.ship = shipFor(w.role, w.lv);
+    this.notify(s, `★ ${w.name} прошёл тренировку: уровень ${w.lv} (${WING.rankName[w.lv]})${w.ship !== oldShip ? ` и пересел на «${SHIPS[w.ship].name}»` : ''}`, 'good');
+    this.sendProfile(s); this.c_wingInfo(s, m, p); this.save();
+  };
+  P.c_wingUpgrade = function (s, m, p) {
+    if (!this.requireDocked(s)) return;
+    const w = findW(p, m.id), u = WING.ups[m.k]; if (!w || !u) return;
+    const r = upOf(w, m.k);
+    if (r >= WING.upMax) return this.notify(s, `${u.name}: уже максимальная ступень`, 'warn');
+    const fee = upFee(m.k, r);
+    if (p.credits < fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(fee)}`, 'warn');
+    p.credits -= fee;
+    w.up = w.up || {}; w.up[m.k] = r + 1;
+    this.notify(s, `${w.name}: «${u.name}» — ступень ${r + 1} из ${WING.upMax}`, 'good');
+    this.sendProfile(s); this.c_wingInfo(s, m, p); this.save();
+  };
+  P.c_wingRevive = function (s, m, p) {
+    const w = findW(p, m.id); if (!w || !(w.deadUntil > this.now)) return;
+    const fee = reviveFee(w);
+    if (p.credits < fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(fee)}`, 'warn');
+    p.credits -= fee; w.deadUntil = 1; // на следующем тике вернётся в строй
+    this.notify(s, `Срочный ремонт оплачен: ${w.name} вылетает к вам`, 'good');
+    this.sendProfile(s); this.c_wingInfo(s, m, p); this.save();
+  };
   P.c_wingOrder = function (s, m, p) {
     if (!WING.orders[m.order]) return;
     p.wingOrder = m.order;
@@ -92,7 +148,7 @@ module.exports = function install(Game) {
     const a = (i / 3) * Math.PI * 2 + Math.random();
     e.pos = add(oe.pos, [Math.cos(a) * 3000, rnd(-500, 500), Math.sin(a) * 3000]); e.vel = oe.vel.slice();
     e.civ = 'wing'; e.wingOf = p.name; e.wingId = w.id; e.goal = null;
-    const k = 1 + 0.15 * (w.lv - 1);
+    const k = (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'arm'));
     for (const f of ['shield', 'armor', 'hull']) { e.stats[f] = Math.round(e.stats[f] * k * 1.3); e[f] = e.stats[f]; }
     e.stats.maxSpeed = Math.max(e.stats.maxSpeed, (oe.stats.maxSpeed || 300) * 1.1);
     this.fxSys(oe.sys, e.pos, { k: 'jump', pos: e.pos });
@@ -157,10 +213,10 @@ module.exports = function install(Game) {
     const fd = this.surfaceDist(e, foe);
     e.cmd = { type: 'orbit', target: foe.id, range: 5000 }; e.speedFrac = fd > 12000 ? 1.6 : 1;
     if (fd < 24000 && this.now >= (e.nextShot || 0)) {
-      e.nextShot = this.now + 2400;
+      e.nextShot = this.now + 2400 / (1 + (w.role === 'combat' ? 0.15 * upOf(w, 'spec') : 0));
       const hit = Math.random() < 0.82;
       this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: foe.id, color: 0x60e0ff, hit, dur: 0.8 });
-      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (25 + SHIPS[e.shipType].radius * 0.5) * (1 + 0.15 * (w.lv - 1)), e); // помощник, а не замена игроку
+      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (25 + SHIPS[e.shipType].radius * 0.5) * (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'gun')), e); // помощник, а не замена игроку
     }
   };
   P.wingShipTick = function (e) {
@@ -177,7 +233,7 @@ module.exports = function install(Game) {
       const hurt = oe.shield < oe.stats.shield * 0.95 || oe.armor < oe.stats.armor * 0.98;
       if (hurt && this.surfaceDist(e, oe) < 15000 && this.now >= (e.nextRep || 0)) {
         e.nextRep = this.now + 3000;
-        const amt = (60 + 25 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2 : 1);
+        const amt = (60 + 25 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2 : 1) * (1 + 0.25 * upOf(w, 'spec'));
         if (oe.shield < oe.stats.shield) oe.shield = Math.min(oe.stats.shield, oe.shield + amt);
         else oe.armor = Math.min(oe.stats.armor, oe.armor + amt * 0.7);
         this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: oe.id, color: 0x70ffc0, hit: true, dur: 0.9 });
@@ -203,7 +259,7 @@ module.exports = function install(Game) {
         e.cmd = { type: 'orbit', target: ast.id, range: 1500 }; e.speedFrac = 1;
         if (this.surfaceDist(e, ast) < 4000 && this.now >= (e.nextMine || 0)) {
           e.nextMine = this.now + 6000;
-          const units = Math.min(ast.amount, Math.round((15 + 12 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2 : 1))); // примерно половина шахтёрского корабля игрока
+          const units = Math.min(ast.amount, Math.round((15 + 12 * w.lv) * (SHIPS[e.shipType].radius > 100 ? 2 : 1) * (1 + 0.25 * upOf(w, 'spec')))); // примерно половина шахтёрского корабля игрока
           const vol = ITEMS[ast.ore].vol, free = oe.stats.cargo - this.cargoUsed(p.ship.cargo), toShip = Math.max(0, Math.min(units, Math.floor(free / vol)));
           if (toShip) p.ship.cargo[ast.ore] = (p.ship.cargo[ast.ore] || 0) + toShip;
           const rest = units - toShip, holdUsed = Object.entries(w.hold || {}).reduce((a, [it, q]) => a + q * ITEMS[it].vol, 0);
@@ -240,7 +296,7 @@ module.exports = function install(Game) {
         if (lv > w.lv) {
           w.lv = lv; w.ship = shipFor(w.role, lv);
           if (s) this.notify(s, `★ ${w.name} получил уровень ${lv}${SHIPS[w.ship].name !== SHIPS[killer.shipType].name ? ` и пересел на «${SHIPS[w.ship].name}»` : ''}`, 'good');
-          const old = this.ents.get(w.ent); if (old && s && s.ent) { this.removeEntity(old); this.wingSpawn(p, w, s.ent, p.wing.indexOf(w)); }
+          respawn.call(this, p, w);
           if (s) this.c_wingInfo(s, {}, p);
         }
       }
@@ -268,3 +324,4 @@ module.exports = function install(Game) {
   };
 };
 module.exports.WING = WING;
+module.exports.fees = { trainFee, upFee, reviveFee };

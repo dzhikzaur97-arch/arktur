@@ -2581,12 +2581,27 @@ const WING_ICON = { combat: '⚔', miner: '⛏', medic: '✚' };
 function wingHTML() {
   const wg = S.wing;
   if (!wg) return '<div class="muted">Загрузка…</div>';
-  let html = `<p class="muted">Нанятые пилоты летают рядом с вашим кораблём: следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм или чинят корабль. За победы растут в уровне и пересаживаются на корабли мощнее. Погибший напарник возвращается из ремонта через 5 минут. Приказы — на панели «Напарники» в полёте.</p>`;
+  let html = `<p class="muted">Нанятые пилоты летают рядом с вашим кораблём: следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм или чинят корабль. За победы растут в уровне и пересаживаются на корабли мощнее. Кнопка «Усилить» — тренировка до 7 уровня, улучшения брони, орудий и спецмодуля и срочный ремонт. Погибший напарник возвращается из ремонта через 5 минут. Приказы — на панели «Напарники» в полёте.</p>`;
   const byRole = (r) => wg.list.filter(w => w.role === r).length, per = wg.perRole || 4;
   html += `<h3>Ваша команда <span class="muted">· ${Object.entries(wg.roles).map(([r, x]) => `${WING_ICON[r]} ${esc(x.name)} ${byRole(r)}/${per}`).join(' · ')}</span></h3>`;
-  html += wg.list.length ? wg.list.map(w => `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[w.role]} ${esc(w.name)}</b> · ${esc(w.roleName)} · ур. ${w.lv}
-      <span class="muted">· ${esc(S.data.ships[w.ship].name)}${w.next ? ` · побед ${w.xp}/${w.next}` : ' · максимальный уровень'}${w.dead ? ` · <span class="bad">в ремонте ${fmtTime(w.dead / 1000)}</span>` : ''}${Object.keys(w.hold || {}).length ? ' · в трюме: ' + Object.entries(w.hold).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ') : ''}</span></span>
-      <button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div>`).join('') : '<div class="muted">Пока никого. Наймите пилотов ниже.</div>';
+  const ups = wg.ups || {}, upMax = wg.upMax || 3, cr = (S.prof || {}).credits || 0;
+  const stars = (n) => '<span class="isk">' + '●'.repeat(n) + '</span><span class="muted">' + '○'.repeat(upMax - n) + '</span>';
+  html += wg.list.length ? wg.list.map(w => {
+    const open = S.wingOpen === w.id;
+    let row = `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[w.role]} ${esc(w.name)}</b> · ${esc(w.roleName)} · ур. ${w.lv}${w.rank ? ` <span class="muted">(${esc(w.rank)})</span>` : ''}
+      <span class="muted">· ${esc(S.data.ships[w.ship].name)}${w.next ? ` · побед ${w.xp}/${w.next}` : ' · высший уровень'}${w.dead ? ` · <span class="bad">в ремонте ${fmtTime(w.dead / 1000)}</span>` : ''}${Object.keys(w.hold || {}).length ? ' · в трюме: ' + Object.entries(w.hold).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ') : ''}</span>
+      ${w.up ? `<span class="small"> · ${Object.keys(ups).map(k => `${k === 'arm' ? '🛡' : k === 'gun' ? '✦' : WING_ICON[w.role]}${stars(w.up[k] || 0)}`).join(' ')}</span>` : ''}</span>
+      <button data-a="wingOpen" data-id="${w.id}" class="${open ? 'on' : ''}">${open ? 'Скрыть' : 'Усилить'}</button></div>`;
+    if (open) {
+      const btn = (a, fee, label, extra = '') => fee == null ? '' : `<button class="primary" data-a="${a}" data-id="${w.id}" ${extra} ${cr < fee ? 'disabled' : ''}>${label} · ${isk(fee)}</button>`;
+      row += `<div class="wing-up">`;
+      if (w.dead && w.revive != null) row += `<div class="slot-row"><span class="sm"><b>Срочный ремонт</b> <span class="muted">— вернуть в строй сразу, без ожидания</span></span>${btn('wingRevive', w.revive, 'Починить')}</div>`;
+      row += `<div class="slot-row"><span class="sm"><b>Тренировка</b> <span class="muted">— ${w.train != null ? `сразу уровень ${w.lv + 1} из ${wg.maxLv || 7}: прочность и урон +15%${w.lv < 5 ? ', корабль мощнее' : ''}` : 'достигнут высший уровень'}</span></span>${S.docked ? btn('wingTrain', w.train, 'Тренировать') : ''}</div>`;
+      row += Object.entries(ups).map(([k, u]) => `<div class="slot-row"><span class="sm"><b>${esc(u.name)}</b> ${stars(w.up[k] || 0)} <span class="muted">— ${esc(u.byRole ? u.byRole[w.role] : u.desc)}</span></span>${S.docked ? (w.upFee[k] == null ? '<span class="muted small">максимум</span>' : btn('wingUp', w.upFee[k], 'Улучшить', `data-k="${k}"`)) : ''}</div>`).join('');
+      row += `<div class="dr-btns"><button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div></div>`;
+    }
+    return row;
+  }).join('') : '<div class="muted">Пока никого. Наймите пилотов ниже.</div>';
   html += '<h3>Пилоты ищут работу на этой станции</h3><div class="muted small">Список обновляется каждый час. Плата — разовая.</div>';
   html += wg.candidates.length ? wg.candidates.map(c => `<div class="slot-row">${artImg(c.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[c.role]} ${esc(c.name)}</b> · ${esc(wg.roles[c.role].name)} · ур. ${c.lv}
       <span class="muted">· «${esc(S.data.ships[c.ship].name)}» — ${esc(wg.roles[c.role].desc)}</span> <span class="isk">${isk(c.fee)}</span></span>
@@ -3340,6 +3355,10 @@ function onActionClick(e) {
     case 'warDeliver': send({ t: 'warDeliver', id: d.id }); break;
     case 'warBuy': send({ t: 'warBuy', id: d.id }); break;
     case 'wingHire': send({ t: 'wingHire', id: d.id }); break;
+    case 'wingOpen': S.wingOpen = S.wingOpen === d.id ? null : d.id; renderStation(); break;
+    case 'wingTrain': send({ t: 'wingTrain', id: d.id }); break;
+    case 'wingUp': send({ t: 'wingUpgrade', id: d.id, k: d.k }); break;
+    case 'wingRevive': send({ t: 'wingRevive', id: d.id }); break;
     case 'wingFire': modal('<p>Отпустить напарника? Плата за найм не возвращается.</p>', [['Нет', null], ['Отпустить', () => send({ t: 'wingFire', id: d.id }), 'danger']]); break;
     case 'prodStart': send({ t: 'prodStart', bp: d.bp, runs: +($('#pr-' + d.bp) || {}).value || 1, buyMissing: !!($('#pb-' + d.bp) || {}).checked }); break;
     case 'prodCancel': modal('<p>Отменить заказ? Материалы вернутся в ангар станции, сбор не возвращается.</p>', [['Нет', null], ['Отменить заказ', () => send({ t: 'prodCancel', id: d.id }), 'danger']]); break;
