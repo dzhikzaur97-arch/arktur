@@ -3191,4 +3191,5 @@ window.VF_EN = {"Шахтёр":"Miner",
 "Слишком далеко от звезды":"Too far from the star",
 "Метку можно поставить в космосе (не в варпе) или на карте системы":"You can place a bookmark in space (not in warp) or on the system map",
 "📍 Метка «":"📍 Bookmark «",
-"» поставлена":"» placed"};
+"» поставлена":"» placed",
+"Не выключать экран, пока игра открыта":"Keep the screen on while the game is open"};

@@ -2976,6 +2976,7 @@ function settingsHTML() {
       ${chk('cfg-labels', CFG.labels, 'Подписи у всех объектов в космосе')}
     ${MOBILE ? chk('cfg-battery', CFG.battery !== false, 'Экономия батареи: на станции и в карте 30 кадров/с, под открытыми окнами космос почти не рисуется') : ''}
     ${'vibrate' in navigator ? chk('cfg-haptics', CFG.haptics !== false, 'Вибрация при попаданиях и взрывах') : ''}
+    ${chk('cfg-awake', CFG.awake !== false, 'Не выключать экран, пока игра открыта')}
     ${document.fullscreenEnabled ? '<p><button data-a="fullscreen">Во весь экран</button></p>' : ''}
     ${chk('cfg-voice', CFG.voice !== false, 'Озвучивать реплики персонажей встроенным голосом устройства (бесплатно, лимиты Claude не тратит)')}
     ${!CLAUDE_OK ? '' : chk('cfg-liveNpc', CFG.liveNpc, 'Claude в игре: живые разговоры (агенты, пираты, лидеры фракций), бортовой помощник и особые задания. Каждый ответ расходует лимиты вашего аккаунта Claude; работает, когда игра открыта на claude.ai')}
@@ -3192,7 +3193,8 @@ $('#win-body').addEventListener('input', (e) => {
   if (id === 'cfg-fpsCap') CFG.fpsCap = +e.target.value;
   const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1), 'cfg-fov': (v) => v + '°' }[id] || ((v) => Math.round(v * 100) + '%');
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
-  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  if (id === 'cfg-awake') keepAwake(CFG.awake);
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
 });
@@ -4058,3 +4060,39 @@ requestAnimationFrame(loop);
 document.addEventListener('change', (e) => { if (e.target && e.target.id === 'cfg-lang' && window.VF_SET_LANG) window.VF_SET_LANG(e.target.value); });
 document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.lang-sw [data-lang]'); if (b && window.VF_SET_LANG && b.dataset.lang !== (window.VF_LANG || 'ru')) window.VF_SET_LANG(b.dataset.lang); });
 { const sw = document.querySelector('.lang-sw'); if (sw) for (const b of sw.children) b.classList.toggle('on', b.dataset.lang === (window.VF_LANG || 'ru')); }
+// ======================================================================
+// Экран не гаснет, пока игра открыта: Screen Wake Lock, а где его нет (старый iOS, рамка без разрешения) —
+// крошечное беззвучное зацикленное видео (так делают видеоплееры). Блокировка снимается браузером при сворачивании
+// и берётся снова при возврате; запрос — по первому касанию, как требует iOS.
+// ======================================================================
+const AWAKE = { lock: null, video: null, want: false };
+const NOSLEEP_MP4 = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAYYbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAD6AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAml0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAD6AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAA+gAAAAAAABAAAAAAHhbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAABAABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABjG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAUxzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMACDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAAVGAAAFRgAAABhzdHRzAAAAAAAAAAEAAAAEAABAAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAACRzdHN6AAAAAAAAAAAAAAAEAAAChgAAAAoAAAAKAAAACQAAACBzdGNvAAAAAAAAAAQAAAZdAAAJAwAACS0AAAlXAAAC2XRyYWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAIAAAAAAAAPoAAAAAAAAAAAAAAAAQEAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAACRlZHRzAAAAHGVsc3QAAAAAAAAAAQAAD6AAAAQAAAEAAAAAAlFtZGlhAAAAIG1kaGQAAAAAAAAAAAAAAAAAAB9AAACBAFXEAAAAAAAtaGRscgAAAAAAAAAAc291bgAAAAAAAAAAAAAAAFNvdW5kSGFuZGxlcgAAAAH8bWluZgAAABBzbWhkAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAAHAc3RibAAAAH5zdHNkAAAAAAAAAAEAAABubXA0YQAAAAAAAAABAAAAAAAAAAAAAQAQAAAAAB9AAAAAAAA2ZXNkcwAAAAADgICAJQACAASAgIAXQBUAAAAAAB9AAAABIAWAgIAFFYhW5QAGgICAAQIAAAAUYnRydAAAAAAAAB9AAAABIAAAACBzdHRzAAAAAAAAAAIAAAAgAAAEAAAAAAEAAAEAAAAAKHN0c2MAAAAAAAAAAgAAAAEAAAABAAAAAQAAAAIAAAAIAAAAAQAAAJhzdHN6AAAAAAAAAAAAAAAhAAAAFQAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAAJHN0Y28AAAAAAAAABQAABkgAAAjjAAAJDQAACTcAAAlgAAAAGnNncGQBAAAAcm9sbAAAAAIAAAAB//8AAAAcc2JncAAAAAByb2xsAAAAAQAAACEAAAABAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2MC4xNi4xMDAAAAAIZnJlZQAAA0BtZGF03gIATGF2YzYwLjMxLjEwMgACMEAOAAACcAYF//9s3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MToweDExMSBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MCBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49MSBzY2VuZWN1dD00MCBpbnRyYV9yZWZyZXNoPTAgcmNfbG9va2FoZWFkPTQwIHJjPWNyZiBtYnRyZWU9MSBjcmY9MjMuMCBxY29tcD0wLjYwIHFwbWluPTAgcXBtYXg9NjkgcXBzdGVwPTQgaXBfcmF0aW89MS40MCBhcT0xOjEuMDAAgAAAAA5liIQF////D0UAAVefgAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABkGaOAv6gAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABkGaVALeoAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABUGaYBX1ARggBwEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAc=';
+const NOSLEEP_WEBM = 'data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIzEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggId7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECvQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYjGSgErWMWCQZyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBELqBEJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYjGSgErWMWCQWfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDQuMDAwMDAwMDAwAB9DtnX554EAo6OBAACAEAIAnQEqEAAQAABHCIWFiJmEiAICAAwNYAD+/6tQgKOZgQPoALEBAAEQEAAYADA/9AwAAAD+/6tQgKOZgQfQALEBAAEQEAAYADA/9AwAAAD+/6tQgKOZgQu4ALEBAAEQEAAYADA/9AwAAAD+/6tQgBxTu2uRu4+zgQC3iveBAfGCAZ/wgQM=';
+async function awakeOn() {
+  if (!AWAKE.want || document.hidden) return;
+  if ('wakeLock' in navigator) {
+    try { if (!AWAKE.lock || AWAKE.lock.released) { AWAKE.lock = await navigator.wakeLock.request('screen'); AWAKE.lock.addEventListener('release', () => { AWAKE.lock = null; }); } return; } catch {}
+  }
+  // запасной путь: невидимое видео
+  try {
+    if (!AWAKE.video) {
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.muted = true; v.loop = true; v.title = 'Arktur';
+      v.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+      // data: и blob: — что-нибудь из них страница обычно разрешает
+      const blob = URL.createObjectURL(dataUrlToBlob(NOSLEEP_MP4));
+      for (const [src, type] of [[NOSLEEP_WEBM, 'video/webm'], [NOSLEEP_MP4, 'video/mp4'], [blob, 'video/mp4']]) { const so = document.createElement('source'); so.src = src; so.type = type; v.appendChild(so); }
+      document.body.appendChild(v); AWAKE.video = v;
+    }
+    await AWAKE.video.play();
+  } catch {}
+}
+function awakeOff() {
+  if (AWAKE.lock) { AWAKE.lock.release().catch(() => {}); AWAKE.lock = null; }
+  if (AWAKE.video) AWAKE.video.pause();
+}
+function keepAwake(on) { AWAKE.want = on !== false; if (AWAKE.want) awakeOn(); else awakeOff(); }
+AWAKE.want = CFG.awake !== false;
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { if (AWAKE.want && !AWAKE.lock && (!AWAKE.video || AWAKE.video.paused)) awakeOn(); }, { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) awakeOn(); });
+window.__awake = () => ({ lock: !!(AWAKE.lock && !AWAKE.lock.released), video: !!(AWAKE.video && !AWAKE.video.paused), want: AWAKE.want });
