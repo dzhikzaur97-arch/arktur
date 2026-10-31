@@ -184,6 +184,15 @@ const SHIPS = {
     bonus: { mining: 1.5 }, foundry: { range: 25000, cycle: 6, perRock: 300, maxRocks: 10, refine: 0.85 },
     desc: 'SC-02 — мобильный плавильный комплекс длиной 4,2 км. Всеядные буры сами поглощают ВСЕ астероиды в радиусе 25 км, а литейный цех на лету переплавляет руду в слитки (85% выхода завода). Трюм 80 000 м³, +150% к добыче, отсек на 5 дронов-тендеров.',
     req: { mining: 4, trade: 2, engineering: 2 }
+  },
+  flagman: {
+    name: 'Командор', cls: 'Флагман звена', price: 9500000, color: 0x3f4652,
+    maxSpeed: 110, align: 13, warpSpeed: 1.9, sig: 520, radius: 340,
+    shield: 16000, armor: 16000, hull: 15000, cap: 6000, capRegen: 60,
+    cargo: 2500, slots: { high: 5, mid: 6, low: 5 }, maxLocks: 8, lockRange: 90000, lockTime: 5,
+    bonus: { drones: 0.2 }, wingBonus: { power: 0.35, revive: 60000, perRole: 1 },
+    desc: 'Флагман для звена напарников: лётная палуба и ремонтный док. Напарники +35% к прочности и урону, сбитые возвращаются через 1 минуту, нанять можно по 5 пилотов каждого типа.',
+    req: { drones: 3, gunnery: 3, navigation: 3 }
   }
 ,
   // ===== Фракционные линейки: продаются только на станциях своей фракции и требуют репутации =====
@@ -505,7 +514,7 @@ Object.assign(ITEMS, {
 });
 // Отсек дронов (м³) и сколько дронов можно выпустить одновременно
 const DRONE_CAPS = { iskra: [10, 2], klinok: [15, 2], burlak: [50, 5], tyagach: [0, 0], strazh: [50, 5], molot: [75, 5],
-  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5],
+  strizh: [0, 0], sokol: [10, 2], staratel: [15, 3], vihr: [10, 2], piligrim: [150, 5], leviafan: [100, 5], kit: [0, 0], citadel: [100, 5], begemot: [400, 5], flagman: [100, 5],
   gadyuka: [10, 2], burya: [50, 4], bastion: [150, 5], matka: [800, 10], fortress: [0, 0],
   merkuriy: [0, 0], prorab: [40, 4], argus: [60, 5], senator: [150, 5], brodyaga: [15, 2], pastuh: [100, 5], kovcheg: [25, 3], taran: [50, 4],
   iskatel: [10, 2], prizma: [15, 2], orakul: [200, 5], relikvariy: [150, 5], serafim: [1200, 12] };
@@ -522,7 +531,7 @@ const SHIP_ROLE = { iskra: ['explore', 1], sokol: ['explore', 1], staratel: ['mi
   vihr: ['combat', 2], tyagach: ['transport', 2], burlak: ['mining', 2],
   strazh: ['combat', 3], burya: ['combat', 3], piligrim: ['carrier', 3],
   molot: ['combat', 4], citadel: ['combat', 4], leviafan: ['mining', 4], kit: ['transport', 4],
-  bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5],
+  bastion: ['combat', 5], matka: ['carrier', 5], begemot: ['mining', 5], flagman: ['carrier', 5],
   merkuriy: ['transport', 1], prorab: ['mining', 2], argus: ['combat', 3], senator: ['combat', 5],
   brodyaga: ['explore', 1], pastuh: ['carrier', 2], kovcheg: ['transport', 3], taran: ['combat', 4],
   iskatel: ['explore', 2], prizma: ['combat', 2], orakul: ['carrier', 3], relikvariy: ['combat', 5],
@@ -710,8 +719,9 @@ for (const it of Object.values(ITEMS)) it.resale = it.module || it.drone || (it.
 const RARE_BLUEPRINTS = Object.keys(BLUEPRINTS).filter(id => BLUEPRINTS[id].rare);
 const INDUSTRY = { baseJobs: 2, maxRuns: 50, buyMarkup: 1.5, skillCut: 0.04 };
 
-const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId); return s ? REGIONS[s.region].income : 1; };
+const EXTRA_SYS = {}; // временные системы (червоточины): id → описание
+const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId) || EXTRA_SYS[sysId]; return s ? (s.income || REGIONS[s.region].income) : 1; };
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel, BLUEPRINTS, RARE_BLUEPRINTS, INDUSTRY };
+module.exports = { EXTRA_SYS, AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel, BLUEPRINTS, RARE_BLUEPRINTS, INDUSTRY };

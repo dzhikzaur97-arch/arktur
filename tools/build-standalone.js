@@ -11,7 +11,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 // --- серверные модули в мини-загрузчике CommonJS ---
 // генератор планет общий для сервера и клиента — лежит в public/js
 const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
-const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'sleep', 'cmissions', 'dailies', 'game'].map(name =>
+const serverMods = ['data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'sleep', 'cmissions', 'dailies', 'outposts', 'wormholes', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `
@@ -197,7 +197,10 @@ const art = embed(artDir, 960, 70);
 // единая серия фото кораблей (tools/make-photos.js)
 const photoDir = path.join(ROOT, 'public/img/photos');
 const photos = embed(photoDir, 800, 72);
+const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
+if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
 const page = `<title>Arktur</title>
+<script>${i18n}</script>
 <script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)};</script>
 <style>
 ${css}

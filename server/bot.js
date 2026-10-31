@@ -246,7 +246,7 @@ module.exports = function install(Game) {
   P.botNearestSys = function (from, test) {
     let best = null, bl = 1e9;
     for (const id of Object.keys(this.U.systems)) {
-      if (!test(this.U.byId[id])) continue;
+      if (this.U.byId[id].wormhole || !test(this.U.byId[id])) continue;
       const r = route(this.U.neighbors, from, id); if (r && r.length < bl) { bl = r.length; best = id; }
     }
     return best;

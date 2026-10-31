@@ -1,0 +1,14 @@
+# Render.com Blueprint: New → Blueprint → выбрать репозиторий. Диск нужен, чтобы пилоты не терялись при перезапуске (тариф Starter).
+services:
+  - type: web
+    name: arktur
+    runtime: docker
+    plan: starter
+    healthCheckPath: /
+    disk:
+      name: arktur-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DB_FILE
+        value: /data/db.json

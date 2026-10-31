@@ -37,6 +37,9 @@ const WING = {
   orders: { follow: 'Следовать', attack: 'Атаковать мою цель', mine: 'Копать', hold: 'Стоять' }
 };
 const shipFor = (role, lv) => { const l = WING.roles[role].ships; return l[Math.min(l.length - 1, lv - 1)]; };
+// флагман «Командор» усиливает звено
+const flagOf = (p) => (p && p.ship && SHIPS[p.ship.type] && SHIPS[p.ship.type].wingBonus) || null;
+const perRoleOf = (p) => WING.perRole + ((flagOf(p) || {}).perRole || 0);
 const trainFee = (role, lv) => Math.round(WING.roles[role].fee * 0.6 * Math.pow(lv + 1, 1.8)); // цена перехода lv → lv+1
 const upFee = (k, r) => WING.ups[k].base * (r + 1) * (r + 1);
 const upOf = (w, k) => (w.up && w.up[k]) || 0;
@@ -70,7 +73,7 @@ module.exports = function install(Game) {
     });
   };
   P.c_wingInfo = function (s, m, p) {
-    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: WING.max, perRole: WING.perRole, orders: WING.orders, maxLv: WING.maxLv, upMax: WING.upMax,
+    s.send({ t: 'wing', list: this.wingView(p), order: p.wingOrder || 'follow', max: perRoleOf(p) * 3, perRole: perRoleOf(p), flagship: !!flagOf(p), orders: WING.orders, maxLv: WING.maxLv, upMax: WING.upMax,
       ups: Object.fromEntries(Object.entries(WING.ups).map(([k, u]) => [k, { name: u.name, desc: u.desc || '', byRole: u.byRole || null }])),
       roles: Object.fromEntries(Object.entries(WING.roles).map(([k, r]) => [k, { name: r.name, desc: r.desc }])),
       candidates: s.docked ? this.wingCandidates(s.docked).filter(c => !(p.wing || []).some(w => w.cand === c.id)) : [] });
@@ -80,7 +83,7 @@ module.exports = function install(Game) {
     const c = this.wingCandidates(st).find(x => x.id === m.id);
     if (!c) return this.notify(s, 'Этот пилот уже ушёл — список обновился', 'warn');
     p.wing = p.wing || [];
-    if (p.wing.filter(w => w.role === c.role).length >= WING.perRole) return this.notify(s, `${WING.roles[c.role].name}: больше ${WING.perRole} напарников одного типа не нанять — сначала отпустите кого-нибудь`, 'warn');
+    if (p.wing.filter(w => w.role === c.role).length >= perRoleOf(p)) return this.notify(s, `${WING.roles[c.role].name}: больше ${perRoleOf(p)} напарников одного типа не нанять${flagOf(p) ? '' : ' (на флагмане «Командор» — 5)'} — сначала отпустите кого-нибудь`, 'warn');
     if (p.wing.some(w => w.cand === c.id)) return;
     if (p.credits < c.fee) return this.notify(s, `Недостаточно CR: нужно ${fmt(c.fee)}`, 'warn');
     p.credits -= c.fee;
@@ -148,7 +151,8 @@ module.exports = function install(Game) {
     const a = (i / 3) * Math.PI * 2 + Math.random();
     e.pos = add(oe.pos, [Math.cos(a) * 3000, rnd(-500, 500), Math.sin(a) * 3000]); e.vel = oe.vel.slice();
     e.civ = 'wing'; e.wingOf = p.name; e.wingId = w.id; e.goal = null;
-    const k = (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'arm'));
+    e.wingPow = 1 + ((flagOf(p) || {}).power || 0);
+    const k = (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'arm')) * e.wingPow;
     for (const f of ['shield', 'armor', 'hull']) { e.stats[f] = Math.round(e.stats[f] * k * 1.3); e[f] = e.stats[f]; }
     e.stats.maxSpeed = Math.max(e.stats.maxSpeed, (oe.stats.maxSpeed || 300) * 1.1);
     this.fxSys(oe.sys, e.pos, { k: 'jump', pos: e.pos });
@@ -216,7 +220,7 @@ module.exports = function install(Game) {
       e.nextShot = this.now + 2400 / (1 + (w.role === 'combat' ? 0.15 * upOf(w, 'spec') : 0));
       const hit = Math.random() < 0.82;
       this.fxSys(e.sys, null, { k: 'beam', from: e.id, to: foe.id, color: 0x60e0ff, hit, dur: 0.8 });
-      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (25 + SHIPS[e.shipType].radius * 0.5) * (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'gun')), e); // помощник, а не замена игроку
+      if (hit) this.applyDamage(foe, rnd(0.85, 1.15) * (25 + SHIPS[e.shipType].radius * 0.5) * (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'gun')) * (e.wingPow || 1), e); // помощник, а не замена игроку
     }
   };
   P.wingShipTick = function (e) {
@@ -307,9 +311,10 @@ module.exports = function install(Game) {
     if (t.civ === 'wing') {
       const p = this.db.players[t.wingOf], w = p && (p.wing || []).find(x => x.id === t.wingId);
       if (w) {
-        w.deadUntil = this.now + WING.reviveMs; w.ent = null;
+        const rv = (flagOf(p) || {}).revive || WING.reviveMs;
+        w.deadUntil = this.now + rv; w.ent = null;
         const s = [...this.sessions].find(x => x.player === p);
-        if (s) this.notify(s, `✖ Корабль напарника ${w.name} уничтожен! Пилот катапультировался — вернётся через 5 минут`, 'bad');
+        if (s) this.notify(s, `✖ Корабль напарника ${w.name} уничтожен! Пилот катапультировался — вернётся через ${rv >= 120000 ? Math.round(rv / 60000) + ' минут' : 'минуту (ремонтный док флагмана)'}`, 'bad');
         if (s) this.c_wingInfo(s, {}, p);
       }
     }

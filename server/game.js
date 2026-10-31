@@ -265,7 +265,7 @@ class Game {
     sess.send({
       t: 'system', id: sysId, name: sys.def.name, sec: sys.def.sec,
       region: sys.def.region, income: incomeOf(sysId),
-      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star, companion: c.companion, owner: c.owner }))
+      celestials: sys.celestials.map(c => ({ id: c.id, kind: c.kind, name: c.name, pos: c.pos, radius: c.radius, ptype: c.ptype, hue: c.hue, dest: c.dest, style: c.style, star: c.star, companion: c.companion, owner: c.owner, wh: c.wh }))
     });
     this.sendLocalMembers(sysId);
     this.sendAnoms(sess);
@@ -1542,7 +1542,7 @@ class Game {
     const sysId = this.U.celestials[stationId].sys;
     const offers = [];
     // ближайшие системы для заданий
-    const near = Object.keys(this.U.systems).map(id => ({ id, r: route(this.U.neighbors, sysId, id) })).filter(x => x.r && x.r.length <= 5);
+    const near = Object.keys(this.U.systems).filter(id => !this.U.byId[id].wormhole).map(id => ({ id, r: route(this.U.neighbors, sysId, id) })).filter(x => x.r && x.r.length <= 5);
     const hostile = near.filter(x => this.U.byId[x.id].sec < 0.8);
     for (let i = 0; i < 4; i++) {
       if (i % 2 === 0 && hostile.length) {
@@ -1785,5 +1785,7 @@ require('./npctalk')(Game);
 require('./sleep')(Game);
 require('./cmissions')(Game);
 require('./dailies')(Game);
+require('./outposts')(Game);
+require('./wormholes')(Game);
 
 module.exports = { Game };

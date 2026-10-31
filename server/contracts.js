@@ -39,7 +39,7 @@ module.exports = function install(Game) {
     let b = this.missionBoards[stationId];
     if (b && b.until > this.now) return b;
     const sysId = this.U.celestials[stationId].sys;
-    const near = Object.keys(this.U.systems).map(id => ({ id, r: route(this.U.neighbors, sysId, id) })).filter(x => x.r && x.r.length <= 6)
+    const near = Object.keys(this.U.systems).filter(id => !this.U.byId[id].wormhole).map(id => ({ id, r: route(this.U.neighbors, sysId, id) })).filter(x => x.r && x.r.length <= 6)
       .map(x => ({ id: x.id, j: x.r.length - 1, sec: this.U.byId[x.id].sec }));
     const offers = [], used = new Set();
     const names = (id) => this.U.byId[id].name;

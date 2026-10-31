@@ -136,7 +136,8 @@ module.exports = function install(Game) {
     if (!this.nearShip(s)) return this.notify(s, 'Подойдите к кораблю', 'warn');
     const c = this.U.celestials[u.planet];
     let how;
-    if (this.surfHave(s, 'launch_fuel') >= 1) { this.surfTake(s, 'launch_fuel', 1); how = 'Топливо взлёта израсходовано'; }
+    if (this.padLaunch && this.padLaunch(s)) how = 'Взлёт с площадки базы — без топлива';
+    else if (this.surfHave(s, 'launch_fuel') >= 1) { this.surfTake(s, 'launch_fuel', 1); how = 'Топливо взлёта израсходовано'; }
     else if (this.surfHave(s, 'res_dihydro') >= SURF.takeoffFuel) { this.surfTake(s, 'res_dihydro', SURF.takeoffFuel); how = `Израсходовано ${SURF.takeoffFuel} ди-водорода`; }
     else if (!m.emergency) return s.send({ t: 'takeoffFuel', need: SURF.takeoffFuel });
     else { p.ship.hp = { shield: 0, armor: Math.min(p.ship.hp.armor, 0.5), hull: Math.max(0.2, (p.ship.hp.hull || 1) * 0.65) }; how = 'Аварийный взлёт без топлива: двигатели перегружены, броня и корпус повреждены'; }

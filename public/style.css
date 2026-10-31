@@ -630,7 +630,7 @@ body.on-surface #brackets, body.on-surface #mact, body.on-surface #story-track, 
 #sf-prompt b { display: inline-block; min-width: 18px; padding: 0 4px; margin-right: 6px; border: 1px solid #fff; text-align: center; }
 #sf-wanted { position: fixed; left: 50%; top: 44px; transform: translateX(-50%); color: #ff5040; font-weight: 700; letter-spacing: .1em; z-index: 5; text-shadow: 0 0 8px #000; }
 #sf-compass { position: fixed; left: 50%; top: 10px; width: 440px; height: 26px; margin-left: -220px; overflow: hidden; border-bottom: 1px solid rgba(255,255,255,.25); z-index: 5; text-align: center; font-size: 12px; pointer-events: none; }
-#sf-ship-mark { display: inline-block; color: #8fe8b0; white-space: nowrap; text-shadow: 0 0 6px #000; }
+#sf-ship-mark, #sf-base-mark { display: inline-block; color: #8fe8b0; white-space: nowrap; text-shadow: 0 0 6px #000; }
 #sf-picks { position: fixed; right: 20px; top: 40%; z-index: 5; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 14px; color: #dff; text-shadow: 0 0 6px #000; pointer-events: none; }
 #sf-disc { position: fixed; left: 50%; top: 70px; transform: translate(-50%, -20px); opacity: 0; transition: all .4s; padding: 10px 18px; background: rgba(6,16,12,.88); border: 1px solid #6fd29a; text-align: center; z-index: 6; pointer-events: none; }
 #sf-disc.show { opacity: 1; transform: translate(-50%, 0); }
@@ -735,3 +735,29 @@ body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !impo
 .wing-up { margin: -2px 0 8px 18px; padding-left: 8px; border-left: 2px solid var(--line); }
 .wing-up .slot-row { flex-wrap: wrap; }
 .wing-up .slot-row .sm { flex: 1 1 200px; }
+/* первые 10 минут: подсветка нужной кнопки, закрытые вкладки, вступление */
+.tut-glow { position: relative; z-index: 3; animation: tutGlow 1.4s ease-in-out infinite; }
+@keyframes tutGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 200, 80, 0); } 50% { box-shadow: 0 0 0 3px rgba(255, 200, 80, 0.85), 0 0 18px rgba(255, 200, 80, 0.6); } }
+.tabs span.tut-glow { color: #ffd070; }
+.tabs span.locked { display: none; }
+.tab-lock-note { margin: 0 0 8px; padding: 6px 8px; border: 1px dashed var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#intro { position: fixed; inset: 0; z-index: 60; background: radial-gradient(ellipse at 50% 60%, rgba(6, 16, 34, 0.55), rgba(0, 0, 0, 0.92)); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; cursor: pointer; transition: opacity 0.6s; }
+#intro.out { opacity: 0; pointer-events: none; }
+.intro-card { max-width: 560px; text-align: center; }
+.intro-h { font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+.intro-t { font-size: 22px; line-height: 1.45; color: #e8f0fa; text-shadow: 0 2px 12px #000; }
+.intro-title { font-size: 54px; letter-spacing: 0.25em; font-weight: 300; color: #fff; animation: introIn 1.4s ease both; }
+.intro-title span { color: var(--accent); }
+.intro-sub { margin-top: 10px; color: var(--muted); animation: introIn 1.4s 0.6s ease both; }
+.intro-dots { display: flex; gap: 8px; margin-top: 28px; }
+.intro-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
+.intro-dots i.on { background: var(--accent); }
+.intro-skip { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); }
+.intro-logo + .intro-skip { position: static; margin-top: 28px; }
+@keyframes introIn { from { opacity: 0; transform: translateY(14px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@media (max-width: 600px) { .intro-t { font-size: 18px; } .intro-title { font-size: 40px; } }
+#sf-base-mark { color: #ffd070; position: absolute; left: 0; right: 0; top: 3px; text-align: center; }
+.lang-sw { display: flex; gap: 6px; justify-content: center; margin: 8px 0 0; }
+.lang-sw button { padding: 3px 10px; font-size: 12px; opacity: 0.6; }
+.lang-sw button.on { opacity: 1; border-color: var(--accent); color: #fff; }
+.set-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 6px 0 10px; }

@@ -796,7 +796,7 @@ function greebles(g, R, count, mat, region) {
 
 // Базовый радиус модели каждого корабля (модель строится в этих единицах, потом масштабируется)
 const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 90, molot: 160,
-  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300,
+  strizh: 32, sokol: 38, staratel: 48, vihr: 70, piligrim: 110, leviafan: 170, kit: 260, citadel: 260, begemot: 300, flagman: 320,
   gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16,
   merkuriy: 44, prorab: 85, argus: 110, senator: 300, brodyaga: 42, pastuh: 75, kovcheg: 200, taran: 140,
   iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290, serafim: 600, colossus: 1800, wb_gen: 140 };
@@ -1310,6 +1310,32 @@ function buildShip(type, color, faction) {
       for (const [x, y] of [[0.28, 0.1], [-0.28, 0.1], [0.28, -0.16], [-0.28, -0.16]]) addEngine(g, R * x, R * y, -R * 1.32, R * 0.11, eng);
       greebles(g, R, 60, D, [R * 0.7, R * 0.14, R * 1.9]);
       addLights(g, [[R * 0.4, R * 0.12, R * 1.0, R * 0.015], [-R * 0.4, R * 0.12, R * 1.0, R * 0.015]], 0xff3020);
+      break;
+    }
+    case 'flagman': {
+      // флагман звена: стреловидный корпус-клин, две бортовые лётные палубы с посадочными огнями,
+      // высокая командная башня с мостиком, ремонтный док под килем
+      add(lathe(R * 2.4, R * 0.42, [[0, 0.3], [0.12, 0.75], [0.4, 1], [0.75, 0.95], [0.92, 0.7], [1, 0.25]], 8), M, 0, 0, 0, 1.15, 0.55, 1);
+      for (const sd of [1, -1]) {
+        const deck = add(rbox(R * 0.34, R * 0.1, R * 1.75), M, sd * R * 0.62, -R * 0.04, -R * 0.1);
+        deck.rotation.y = -sd * 0.06;
+        add(rbox(R * 0.3, R * 0.02, R * 1.6), D, sd * R * 0.62, R * 0.02, -R * 0.1);
+        for (let i = 0; i < 8; i++) add(rbox(R * 0.03, R * 0.01, R * 0.06), glowMat(0x60ff90, 2.2), sd * R * 0.62, R * 0.035, R * (0.65 - i * 0.2));
+        add(new THREE.PlaneGeometry(R * 0.26, R * 0.09), glowMat(0xffb070, 1.4), sd * R * 0.62, -R * 0.04, R * 0.78);
+        add(rbox(R * 0.06, R * 0.22, R * 0.9), D, sd * R * 0.42, R * 0.02, -R * 0.3);
+      }
+      add(rbox(R * 0.22, R * 0.55, R * 0.42), M, 0, R * 0.38, -R * 0.42);
+      add(rbox(R * 0.34, R * 0.12, R * 0.22), M, 0, R * 0.68, -R * 0.36);
+      add(rbox(R * 0.32, R * 0.035, R * 0.05), glowMat(0x9fd8ff, 2), 0, R * 0.7, -R * 0.24);
+      add(new THREE.CylinderGeometry(R * 0.012, R * 0.012, R * 0.4, 6), D, R * 0.08, R * 0.92, -R * 0.42);
+      add(new THREE.CylinderGeometry(R * 0.008, R * 0.008, R * 0.28, 6), D, -R * 0.06, R * 0.86, -R * 0.46);
+      add(rbox(R * 0.4, R * 0.16, R * 0.7), D, 0, -R * 0.3, -R * 0.2);
+      add(new THREE.TorusGeometry(R * 0.16, R * 0.02, 8, 32), glowMat(0x70ffc0, 1.8), 0, -R * 0.39, -R * 0.2).rotation.x = Math.PI / 2;
+      for (const [x, z] of [[0.24, 0.55], [-0.24, 0.55], [0.18, 0.15], [-0.18, 0.15]]) addTurret(g, R * x, R * 0.2, R * z, R * 0.05, D);
+      add(rbox(R * 0.95, R * 0.4, R * 0.28), M, 0, 0, -R * 1.18);
+      for (const [x, y] of [[0.3, 0.08], [-0.3, 0.08], [0.3, -0.12], [-0.3, -0.12], [0, -0.02]]) addEngine(g, R * x, R * y, -R * 1.34, R * 0.11, eng);
+      greebles(g, R, 70, D, [R * 0.8, R * 0.16, R * 1.9]);
+      addLights(g, [[R * 0.8, -R * 0.04, R * 0.8, R * 0.016], [-R * 0.8, -R * 0.04, R * 0.8, R * 0.016], [0, R * 1.12, -R * 0.42, R * 0.02]], 0xff3020);
       break;
     }
     case 'fortress': {
@@ -2106,6 +2132,26 @@ function gateModel() {
   return g;
 }
 
+// Червоточина: вихрь фиолетового света без конструкций, по краю — тонкое кольцо искажения
+function wormholeModel() {
+  const g = new THREE.Group();
+  const disk = new THREE.Mesh(new THREE.CircleGeometry(2400, 96), logShader({
+    uniforms: { time: GU.time },
+    vertex: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`,
+    fragment: `uniform float time; varying vec2 vUv;
+      void main(){ /*LOGDEPTH*/ vec2 p = vUv * 2.0 - 1.0; float r = length(p); float a = atan(p.y, p.x);
+        float sw = fbm3(vec3(cos(a * 2.0 + r * 7.0 - time * 0.9) * 2.0, sin(a * 2.0 + r * 7.0 - time * 0.9) * 2.0, r * 4.0 - time * 0.4));
+        float edge = smoothstep(1.0, 0.7, r), core = smoothstep(0.35, 0.0, r);
+        vec3 col = mix(vec3(0.35, 0.05, 0.8), vec3(1.0, 0.45, 1.0), sw) * (0.2 + 1.1 * pow(sw, 2.0)) * edge;
+        col = mix(col, vec3(0.02, 0.0, 0.05), core * 0.9) + vec3(0.8, 0.5, 1.0) * pow(r, 8.0) * edge * 2.0;
+        gl_FragColor = vec4(col, 1.0); }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  }));
+  g.add(disk);
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(2420, 24, 8, 128), glowMat(0xc070ff, 3)));
+  return g;
+}
+
 // Ракета: корпус, стабилизаторы, светящийся факел двигателя; торпеда крупнее
 function missileModel(color, torp) {
   const key = 'missile:' + color + ':' + (torp ? 1 : 0);
@@ -2635,10 +2681,20 @@ export function setSystem(sys) {
     if (c.kind === 'sun') obj = c.star === 'blackhole' ? blackHoleModel() : sunModel(c.star);
     else if (c.kind === 'planet') obj = planetModel(c);
     else if (c.kind === 'station') obj = stationModel(c.style);
-    else if (c.kind === 'gate') obj = gateModel();
+    else if (c.kind === 'gate') obj = c.wh ? wormholeModel() : gateModel();
     if (!obj) continue;
     celGroup.add(obj);
     celMeshes.set(c.id, { obj, data: c });
+  }
+}
+// червоточина появилась или исчезла, пока пилот в системе: меняем только её
+export function syncCelestials(sys) {
+  const want = new Set(sys.celestials.map(c => c.id));
+  for (const [id, { obj }] of [...celMeshes]) if (!want.has(id)) { celGroup.remove(obj); celMeshes.delete(id); }
+  for (const c of sys.celestials) {
+    if (celMeshes.has(c.id) || c.kind !== 'gate') continue;
+    const obj = c.wh ? wormholeModel() : gateModel();
+    celGroup.add(obj); celMeshes.set(c.id, { obj, data: c });
   }
 }
 

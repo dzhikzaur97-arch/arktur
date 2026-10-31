@@ -383,7 +383,7 @@ function onMsg(m) {
       if (RC.until) { stopReconnect(); note('Связь восстановлена', 'good'); }
       S.data = m.data; S.name = m.name;
       // приветствие — только новичку (опытному пилоту просто отмечаем, что знакомство было)
-      setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) welcomeOnce(); else try { localStorage.setItem('vf-welcome', '1'); } catch {} }, 1800);
+      setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) introOnce(welcomeOnce); else try { localStorage.setItem('vf-welcome', '1'); } catch {} }, 1800);
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
@@ -401,6 +401,10 @@ function onMsg(m) {
       else if (S.route.includes(m.id)) S.route = S.route.slice(S.route.indexOf(m.id));
       updateSysInfo();
       break;
+    case 'celestials':
+      if (S.sys && S.sys.id === m.sys) { S.sys.celestials = m.celestials; S.celById = Object.fromEntries(m.celestials.map(c => [c.id, c])); R.syncCelestials(S.sys); updateSysInfo(); }
+      break;
+    case 'whState': applyWormholes(m.list); break;
     case 'state': onState(m); break;
     case 'profile': {
       S.prof = m; onProfile();
@@ -450,7 +454,8 @@ function onMsg(m) {
     case 'auto': S.auto = m.on ? m : null; renderAuto(); break;
     case 'surface': enterSurface(m); break;
     case 'surfaceLeft': SF.leave(); S.surface = null; note('Корабль на орбите', 'good'); break;
-    case 'harvested': case 'hunted': case 'fed': case 'discovered': case 'suit': case 'surfRespawn': case 'takeoffFuel': SF.onServer(m); break;
+    case 'harvested': case 'hunted': case 'fed': case 'discovered': case 'suit': case 'surfRespawn': case 'takeoffFuel': case 'outpost': SF.onServer(m); break;
+    case 'outList': S.outList = m.list; if (S.win === 'assets') renderWin(); break;
     case 'aiList': S.aiList = m.list; S.aiListAt = performance.now(); if (S.win === 'pilots') renderWin(); break;
     case 'black': S.black = m; openWin('black', null, true); break;
     case 'route': S.route = m.route; updateSysInfo(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -1629,6 +1634,7 @@ function openWin(name, html, keep) {
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
   if (name === 'bots' && S.win !== 'bots') send({ t: 'botInfo' });
   if (name === 'career' && S.win !== 'career') { send({ t: 'careerInfo' }); send({ t: 'leaders' }); }
+  if (name === 'assets' && S.win !== 'assets') send({ t: 'outList' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1643,7 +1649,7 @@ function renderWin() {
   if (S.win === 'skills') { setHTML(el, skillsHTML()); return updateSkillProgress(); }
   if (S.win === 'missions') return setHTML(el, missionsHTML(false));
   if (S.win === 'assets') return setHTML(el, assetsHTML());
-  if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button></p>` + aboutHTML());
+  if (S.win === 'help') return setHTML(el, (MOBILE ? HELP_MOBILE : '') + HELP + `<p><button data-a="tutorial">Показать обучение «Первые шаги» заново</button> <button data-a="replayIntro">Посмотреть вступление</button></p>` + aboutHTML());
   if (S.win === 'settings') return setHTML(el, settingsHTML());
   if (S.win === 'bench') return setHTML(el, benchHTML());
   if (S.win === 'black') return setHTML(el, blackHTML());
@@ -1893,6 +1899,11 @@ function assetsHTML() {
     const ships = a.ships.map(t => esc(S.data.ships[t].name)).join(', ');
     html += `<div class="mission"><div class="mt">${esc(a.name)}</div>${ships ? `<div>Корабли: ${ships}</div>` : ''}${items ? `<div class="muted">${items}</div>` : ''}</div>`;
   }
+  html += '<h3>Базы на планетах</h3>';
+  const ol = S.outList || [];
+  html += ol.length ? ol.map(o => `<div class="mission"><div class="mt">${esc(o.name)} <span class="muted">· ${esc((S.sysById[o.sys] || {}).name || '')}</span></div>
+    <div class="small">${o.b.pad ? 'площадка · ' : ''}добытчик ур.${o.b.extractor || 0}${o.rate ? ` (${o.rate} ед./ч)` : ''} · склад ур.${o.b.silo || 0} · заполнено ${num(o.used)} / ${num(o.cap)}</div></div>`).join('')
+    : '<div class="muted small">Пока нет. На поверхности планеты: меню костюма (☰ / Tab) → вкладка «База».</div>';
   return html;
 }
 
@@ -2031,20 +2042,65 @@ function checkTutorial() {
   if (S.anoms && S.anoms.some(a => a.akind !== 'black' && a.akind !== 'story' && a.akind !== 'contract' && a.akind !== 'event' && a.akind !== 'fortress' && a.akind !== 'pbase')) markTut('scan');
   renderTutorial();
 }
+// подсветка кнопки, которую нужно нажать на текущем шаге
+function tutTarget(id) {
+  const d = !!S.docked;
+  switch (id) {
+    case 'undock': return d ? '#st-undock' : null;
+    case 'belt': case 'dock': return !d && MOBILE ? '#mbar [data-m=warp]' : null;
+    case 'sell': return d ? (S.stTab === 'market' ? null : '#st-tabs [data-tab=market]') : null;
+    case 'skill': return d ? (S.stTab === 'skills' ? null : '#st-tabs [data-tab=skills]') : null;
+    case 'scan': return d ? null : MOBILE ? '#mbar [data-m=scan]' : '#b-scan';
+  }
+  return null;
+}
+function tutGlow(sel) {
+  if (S.tutGlowSel === sel) return;
+  for (const el of document.querySelectorAll('.tut-glow')) el.classList.remove('tut-glow');
+  S.tutGlowSel = sel;
+  const el = sel && document.querySelector(sel);
+  if (el) el.classList.add('tut-glow');
+}
+// ---------- первые 10 минут: вкладки станции открываются по мере обучения ----------
+const TAB_GATE = { fitting: 'sell', ships: 'sell', agents: 'sell', exchange: 'all', prod: 'all', war: 'all', wing: 'all' };
+const TAB_TITLE = { fitting: 'Оснастка', ships: 'Корабли', agents: 'Агенты', exchange: 'Биржа', prod: 'Производство', war: 'Фронт', wing: 'Напарники' };
+function tabsAllOpen() {
+  const p = S.prof, v = p && p.story;
+  return !!(tut.allTabs || TUT.every(t => tut.done[t[0]]) || (v && v.n > 2) || (p && p.credits > 1500000));
+}
+function tabOpen(t) { const g = TAB_GATE[t]; return !g || tabsAllOpen() || (g === 'sell' && !!tut.done.sell); }
+function applyTabGates() {
+  const fresh = []; let changed = false;
+  tut.tabsSeen = tut.tabsSeen || {};
+  for (const sp of $('#st-tabs').children) {
+    const t = sp.dataset.tab; if (!TAB_GATE[t]) continue;
+    const open = tabOpen(t);
+    sp.classList.toggle('locked', !open);
+    if (open && !tut.tabsSeen[t]) { tut.tabsSeen[t] = true; changed = true; if (tut.gated) fresh.push(TAB_TITLE[t]); }
+  }
+  // «новичок» — тот, у кого при первом показе станции часть вкладок была закрыта; только ему сообщаем об открытии
+  if (!tut.gated && Object.keys(TAB_GATE).some(t => !tabOpen(t))) { tut.gated = true; changed = true; }
+  if (fresh.length) { note(`${fresh.length > 1 ? 'На станции открыты вкладки' : 'На станции открыта вкладка'}: ${fresh.join(', ')}`, 'good'); Sound.beep(520, 880, 0.08); }
+  if (changed) saveTut();
+  if (TAB_GATE[S.stTab] && !tabOpen(S.stTab)) { S.stTab = 'hangar'; for (const sp of $('#st-tabs').children) sp.classList.toggle('on', sp.dataset.tab === 'hangar'); }
+}
 function renderTutorial() {
   const el = $('#tut');
+  if (S.docked && S.prof) applyTabGates();
   const left = TUT.filter(t => !tut.done[t[0]]);
   // «Первые шаги» пройдены — на их месте текущий шаг «Карьеры пилота»
   if (!left.length && !tut.careerHidden && S.career && S.career.step < S.career.total) {
     const c = S.career.steps[S.career.step];
+    tutGlow(null);
     el.classList.remove('hidden');
     setHTML(el, `<div class="ph">Карьера пилота <span>${S.career.step} / ${S.career.total}</span><button class="x" data-tut="hidec" title="Скрыть (вернуть можно в окне «Карьера»)">×</button></div>
       <div class="tut-list"><div class="tut-step cur"><b>›</b><div>${esc(c.title)}<div class="tut-hint">${esc(c.hint)}</div><div class="small isk">Награда: ${isk(c.isk)}${c.extra ? ' ' + esc(c.extra) : ''}</div></div></div></div>`);
     return;
   }
-  if (tut.hidden || !left.length) { el.classList.add('hidden'); return; }
+  if (tut.hidden || !left.length) { el.classList.add('hidden'); tutGlow(null); return; }
   el.classList.remove('hidden');
   const cur = left[0][0];
+  tutGlow(tutTarget(cur));
   setHTML(el, `<div class="ph">Первые шаги <span>${TUT.length - left.length} / ${TUT.length}</span><button class="x" data-tut="hide" title="Скрыть (вернуть можно в «Помощи»)">×</button></div>
     <div class="tut-list">${TUT.map(([id, title, pcHint, mobHint]) => { const hint = MOBILE && mobHint ? mobHint : pcHint; return `<div class="tut-step ${tut.done[id] ? 'done' : id === cur ? 'cur' : ''}"><b>${tut.done[id] ? '✓' : id === cur ? '›' : '·'}</b><div>${esc(title)}${id === cur ? `<div class="tut-hint">${esc(hint)}</div>` : ''}</div></div>`; }).join('')}</div>`);
 }
@@ -2231,7 +2287,15 @@ function factoryHTML() {
 // Живые NPC: реплики пишет Claude (capability `sample` на claude.ai), сервер проверяет сделки
 // ======================================================================
 const TALK = { sample: null };
-(async () => { if (window.claude && window.claude.use) TALK.sample = await window.claude.use('sample').catch(() => null); })();
+(async () => {
+  if (window.claude && window.claude.use) TALK.sample = await window.claude.use('sample').catch(() => null);
+  // английская версия: персонажи и помощник отвечают по-английски
+  if (TALK.sample && window.VF_LANG === 'en') {
+    const s = TALK.sample, NOTE = '\n\nIMPORTANT: the player uses the English version of the game. Write every text for the player in English (keep JSON keys and IDs exactly as specified).';
+    const wrap = (fn) => (msgs, opts) => fn(typeof msgs === 'string' ? msgs + NOTE : msgs.map((m, i) => i === 0 && typeof m.content === 'string' ? { ...m, content: m.content + NOTE } : m), opts);
+    const w = wrap((m, o) => s(m, o)); w.json = wrap((m, o) => s.json(m, o)); TALK.sample = w;
+  }
+})();
 const AGENT_NAMES = ['Ирэн Корса', 'Борис Ладо', 'Мей Тао', 'Оскар Вельд', 'Нина Сорель', 'Кай Дорн', 'Вера Мальм', 'Тим Эрдо', 'Сабина Кейр', 'Лев Остен', 'Юки Самар', 'Глеб Рост'];
 const hashStr = (t) => { let h = 7; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 function sysFaction(sysId) { return (S.war && S.war.owner && S.war.owner[sysId]) || null; }
@@ -2400,8 +2464,9 @@ function speak(text, kind) {
   if (CFG.voice === false || Sound.muted || !window.speechSynthesis || !text) return;
   try {
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/[«»"*_#]/g, '').slice(0, 450));
-    u.lang = 'ru-RU'; if (VOICE.ru) u.voice = VOICE.ru;
+    const en = window.VF_LANG === 'en';
+    const u = new SpeechSynthesisUtterance(String(en ? window.T(text) : text).replace(/[«»"*_#]/g, '').slice(0, 450));
+    u.lang = en ? 'en-US' : 'ru-RU'; if (VOICE.ru && !en) u.voice = VOICE.ru;
     u.pitch = { pirate: 0.6, leader: 0.8, agent: 1.05, assist: 1.15 }[kind] || 1;
     u.rate = kind === 'pirate' ? 0.95 : 1.05; u.volume = Math.min(1, CFG.volume * 1.3 || 0.8);
     speechSynthesis.speak(u);
@@ -2509,6 +2574,34 @@ function aboutHTML() {
     <span class="muted small">${EDITION === 'public' ? 'Бесплатная версия для всех: работает без интернета, сохранения — на вашем устройстве (экспорт в файл — в «Сохранениях»).' : 'Версия на claude.ai: с живыми персонажами, помощником, облачной копией и игрой с друзьями.'}
     3D-графика — three.js (лицензия MIT). Игра бесплатна и не собирает никаких данных.</span></div>`;
 }
+// вступление для нового пилота: несколько кадров истории поверх живого космоса, можно пропустить
+const INTRO = [
+  ['Звёздный узел Арктур', 'Двадцать восемь систем, три фракции и пираты Скверны, которые не признают ничьих законов.'],
+  ['Тишина Предтеч', 'Их машины молчали тысячи лет. Неделю назад на частоте маяков зазвучал чужой сигнал.'],
+  ['Ваш корабль', 'Фрегат «Искра», пустой трюм и лётная лицензия. Добывайте, торгуйте, воюйте — путь выбираете вы.']
+];
+function introOnce(then) {
+  try { if (localStorage.getItem('vf-intro') || localStorage.getItem('vf-welcome')) return then && then(); localStorage.setItem('vf-intro', '1'); } catch { return then && then(); }
+  playIntro(then);
+}
+function playIntro(then) {
+  let el = $('#intro');
+  if (!el) { el = document.createElement('div'); el.id = 'intro'; document.body.appendChild(el); }
+  let i = 0, timer = 0;
+  const finish = () => { clearTimeout(timer); el.classList.add('out'); setTimeout(() => el.remove(), 600); if (then) then(); };
+  const show = () => {
+    if (i >= INTRO.length) {
+      setHTML(el, `<div class="intro-card intro-logo"><div class="intro-title">ARK<span>TUR</span></div><div class="intro-sub">Создатели: ${esc(AUTHORS)} и Claude</div></div><button class="intro-skip primary" data-intro="go">Начать</button>`);
+      timer = setTimeout(finish, 4500); return;
+    }
+    const [h, t] = INTRO[i];
+    setHTML(el, `<div class="intro-card" style="animation:introIn 0.9s ease both"><div class="intro-h">${esc(h)}</div><div class="intro-t">${esc(t)}</div></div>
+      <div class="intro-dots">${INTRO.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div><button class="intro-skip" data-intro="skip">Пропустить</button>`);
+    i++; timer = setTimeout(show, 5200);
+  };
+  el.onclick = (e) => { const b = e.target.closest('[data-intro]'); if (b) { finish(); return; } clearTimeout(timer); show(); };
+  show();
+}
 // первое знакомство: одно короткое приветствие с одной целью
 function welcomeOnce() {
   try { if (localStorage.getItem('vf-welcome')) return; localStorage.setItem('vf-welcome', '1'); } catch { return; }
@@ -2613,7 +2706,7 @@ function renderWing() {
   if (!el) return;
   if (!S.wingReq) { S.wingReq = true; send({ t: 'wingInfo' }); }
   const wg = S.wing, fab = $('#wing-fab');
-  if (!wg || !wg.list.length || S.docked) { el.classList.add('hidden'); fab.classList.add('hidden'); return; }
+  if (!wg || !wg.list.length || S.docked || document.body.classList.contains('on-surface')) { el.classList.add('hidden'); fab.classList.add('hidden'); return; }
   el.classList.remove('hidden'); fab.classList.remove('hidden');
   $('#wing-fab-b').innerHTML = `◆<small>${{ follow: 'за мной', attack: 'атака', mine: 'копать', hold: 'стоять' }[wg.order] || ''}</small>`;
   const ents = [...S.ents.values()].filter(e => e.wg === S.name);
@@ -2840,6 +2933,7 @@ function settingsHTML() {
       <div class="muted small">Музыка адаптивная: спокойная в исследовании и боевая, когда вас атакуют. Важные звуковые сигналы всегда дублируются текстом на экране.</div>
     </div>
     <div class="set-p ${(S.setTab || 0) === 2 ? '' : 'hidden'}">
+      <label class="set-row" data-notr>Язык / Language <select id="cfg-lang"><option value="ru" ${window.VF_LANG !== 'en' ? 'selected' : ''}>Русский</option><option value="en" ${window.VF_LANG === 'en' ? 'selected' : ''}>English</option></select></label>
       ${rng('cfg-ui', 'Масштаб интерфейса', CFG.ui, 0.8, 1.5, 0.05, pct)}
       ${chk('cfg-threats', CFG.threats, 'Стрелки направления угрозы у краёв экрана')}
       ${chk('cfg-cb', CFG.cb, 'Режим для дальтоников: враги — оранжевые с обводкой, свои — синие')}
@@ -3152,7 +3246,9 @@ function showStation() {
   const sys = S.sysById[S.docked.sys];
   $('#st-sys').innerHTML = `<span style="color:${secColor(sys.sec)}">${sys.sec.toFixed(1)}</span> ${esc(sys.name)}`;
   S.market = null; S.agents = null;
+  applyTabGates();
   renderStation();
+  renderTutorial();
 }
 function hideStation() {
   document.body.classList.remove('docked');
@@ -3161,7 +3257,7 @@ function hideStation() {
 }
 $('#st-undock').onclick = () => send({ t: 'undock' });
 $('#st-tabs').onclick = (e) => {
-  const t = e.target.dataset.tab; if (!t) return;
+  const t = e.target.dataset.tab; if (!t || e.target.classList.contains('locked')) return;
   S.stTab = t;
   for (const s of $('#st-tabs').children) s.classList.toggle('on', s.dataset.tab === t);
   if (t === 'market' || t === 'exchange') send({ t: 'market' });
@@ -3181,7 +3277,9 @@ function renderStation() {
   let html = '';
   switch (S.stTab) {
     case 'hangar': {
-      html = `<div class="cols"><div><h3>Активный корабль: ${esc(t.name)} <span class="muted">(${esc(t.cls)})</span></h3>${artImg(p.ship.type, 'ship-art big')}${shipStatsHTML(t, p.shipStats)}
+      const locked = Object.keys(TAB_GATE).filter(t => !tabOpen(t));
+      html = locked.length ? `<div class="tab-lock-note small muted">Закрытых вкладок станции: ${locked.length}. Они откроются по ходу обучения — чтобы не перегружать первые минуты. <button data-a="allTabs">Показать все сейчас</button></div>` : '';
+      html += `<div class="cols"><div><h3>Активный корабль: ${esc(t.name)} <span class="muted">(${esc(t.cls)})</span></h3>${artImg(p.ship.type, 'ship-art big')}${shipStatsHTML(t, p.shipStats)}
         <h3>Трюм</h3>${cargoHTML(false)}<div style="margin-top:6px"><button data-a="unloadAll">Разгрузить всё в ангар</button></div>
         ${droneBayHTML()}</div>
         <div><h3>Ангар станции</h3>${itemsTable(h.items, (id, q) => `${S.data.drones[id] && S.data.ships[p.ship.type].droneBay ? `<button data-a="loadDrone" data-item="${id}">В отсек</button> ` : ''}<button data-a="load" data-item="${id}">В трюм</button>`)}
@@ -3355,6 +3453,8 @@ function onActionClick(e) {
     case 'warDeliver': send({ t: 'warDeliver', id: d.id }); break;
     case 'warBuy': send({ t: 'warBuy', id: d.id }); break;
     case 'wingHire': send({ t: 'wingHire', id: d.id }); break;
+    case 'allTabs': tut.allTabs = true; saveTut(); applyTabGates(); renderStation(); break;
+    case 'replayIntro': closeWin(); playIntro(null); break;
     case 'wingOpen': S.wingOpen = S.wingOpen === d.id ? null : d.id; renderStation(); break;
     case 'wingTrain': send({ t: 'wingTrain', id: d.id }); break;
     case 'wingUp': send({ t: 'wingUpgrade', id: d.id, k: d.k }); break;
@@ -3538,6 +3638,18 @@ $('#map-info').addEventListener('click', (e) => {
 
 // Перерисовка карты не чаще раза за кадр (мышь шлёт десятки событий за кадр); холст пересоздаётся только при смене размера
 let mapQueued = false;
+// червоточины: временные системы появляются на карте, пока открыт проход
+function applyWormholes(list) {
+  if (!S.data) return;
+  S.data.systems = S.data.systems.filter(s => !s.wormhole);
+  S.data.gates = S.data.gates.filter(([a, b]) => !(S.whIds || []).includes(a) && !(S.whIds || []).includes(b));
+  S.whIds = list.map(w => w.id); S.wh = list;
+  for (const w of list) {
+    S.data.systems.push(w.def); S.sysById[w.id] = w.def; S.data.gates.push([w.from, w.id]);
+    S.data.stars[w.id] = w.star; if (S.data.stars2) S.data.stars2[w.id] = w.star2;
+  }
+  if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); }
+}
 function drawMap() {
   if (mapQueued) return;
   mapQueued = true;
@@ -3569,9 +3681,10 @@ function drawMapNow() {
   for (let i = 0; i < S.route.length - 1; i++) routeSet.add([S.route[i], S.route[i + 1]].sort().join('|'));
   for (const [a, b] of S.data.gates) {
     const pa = mapPt(S.sysById[a]), pb = mapPt(S.sysById[b]);
-    const onRoute = routeSet.has([a, b].sort().join('|'));
-    g.strokeStyle = onRoute ? '#ffcc44' : 'rgba(120,170,200,0.35)'; g.lineWidth = onRoute ? 3 : 1.2;
-    g.beginPath(); g.moveTo(...pa); g.lineTo(...pb); g.stroke();
+    const onRoute = routeSet.has([a, b].sort().join('|')), wh = S.sysById[b].wormhole || S.sysById[a].wormhole;
+    g.strokeStyle = onRoute ? '#ffcc44' : wh ? 'rgba(200,120,255,0.8)' : 'rgba(120,170,200,0.35)'; g.lineWidth = onRoute ? 3 : wh ? 1.8 : 1.2;
+    if (wh) g.setLineDash([6, 5]);
+    g.beginPath(); g.moveTo(...pa); g.lineTo(...pb); g.stroke(); g.setLineDash([]);
   }
   for (const s of S.data.systems) {
     const [x, y] = mapPt(s);
@@ -3593,6 +3706,11 @@ function drawMapNow() {
       const k = 0.5 + 0.5 * Math.sin(performance.now() / 300);
       g.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * k})`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 15 + 4 * k, 0, 7); g.stroke();
       g.fillStyle = '#ff7050'; g.font = '600 13px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText('☄ ' + S.wev.name, x, y - 30);
+    }
+    if (s.wormhole) {
+      const w = (S.wh || []).find(x => x.id === s.id), left = w ? Math.max(0, Math.ceil((w.expires - S.serverNow()) / 60000)) : 0;
+      g.strokeStyle = '#c070ff'; g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.arc(x, y, 11, 0, 7); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#d8a0ff'; g.font = '11px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(`червоточина · ${left} мин`, x, y + 34);
     }
     if (S.sys && s.id === S.sys.id) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 12, 0, 7); g.stroke(); }
     if (s.id === map.sel) { g.strokeStyle = '#5fc8e8'; g.setLineDash([4, 3]); g.beginPath(); g.arc(x, y, 17, 0, 7); g.stroke(); g.setLineDash([]); }
@@ -3844,3 +3962,7 @@ function frameBody(now, dt) {
   }
 }
 requestAnimationFrame(loop);
+// язык: настройка и переключатель на экране входа
+document.addEventListener('change', (e) => { if (e.target && e.target.id === 'cfg-lang' && window.VF_SET_LANG) window.VF_SET_LANG(e.target.value); });
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.lang-sw [data-lang]'); if (b && window.VF_SET_LANG && b.dataset.lang !== (window.VF_LANG || 'ru')) window.VF_SET_LANG(b.dataset.lang); });
+{ const sw = document.querySelector('.lang-sw'); if (sw) for (const b of sw.children) b.classList.toggle('on', b.dataset.lang === (window.VF_LANG || 'ru')); }

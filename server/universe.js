@@ -46,8 +46,15 @@ function buildUniverse() {
 
   const systems = {};
   const celestials = {}; // id -> celestial (всех систем)
-  for (const def of SYSTEMS) {
-    const r = rng('sys:' + def.id);
+  for (const def of SYSTEMS) systems[def.id] = buildSystem(def, neighbors, byId, celestials);
+  return { systems, celestials, neighbors, byId };
+}
+
+// Одна система: звезда, планеты, станции, пояса, врата к соседям, второе солнце.
+// seed — для временных систем (червоточины): у каждой своя раскладка
+function buildSystem(def, neighbors, byId, celestials, seed) {
+  {
+    const r = rng('sys:' + (seed || def.id));
     const sys = { def, id: def.id, celestials: [], belts: [], stations: [], gates: [], asteroidSeed: 0 };
     const add = (c) => { c.sys = def.id; sys.celestials.push(c); celestials[c.id] = c; return c; };
 
@@ -102,7 +109,7 @@ function buildUniverse() {
     }
 
     // Звёздные врата — направление совпадает с направлением на карте
-    for (const nb of neighbors[def.id]) {
+    for (const nb of neighbors[def.id] || []) {
       const o = byId[nb];
       const dx = o.x - def.x, dy = o.y - def.y;
       const len = Math.hypot(dx, dy) || 1;
@@ -116,7 +123,7 @@ function buildUniverse() {
     }
     // Второе солнце: каждая система — двойная. Компаньон строится отдельным генератором и добавляется в конец,
     // поэтому раскладка планет, станций и врат (и сохранения игроков) не меняется.
-    const r2 = rng('star2:' + def.id);
+    const r2 = rng('star2:' + (seed || def.id));
     const star2 = pickWeighted(r2, COMPANIONS[star]);
     const sr2 = STAR_SIZE[star2];
     const close = r2() < 0.7; // 70% — тесная пара (два солнца рядом на небе), 30% — далёкий компаньон за орбитами планет
@@ -124,9 +131,8 @@ function buildUniverse() {
     const a2 = r2() * Math.PI * 2;
     add({ id: def.id + ':sun2', kind: 'sun', companion: true, star: star2, name: def.name + ' B — ' + STAR_TYPES[star2].name.toLowerCase(),
       pos: [Math.cos(a2) * d2, (r2() - 0.5) * 0.04 * d2, Math.sin(a2) * d2], radius: (2.5e8 + r2() * 3e8) * sr2, landing: 2e9 * Math.max(1, sr2) });
-    systems[def.id] = sys;
+    return sys;
   }
-  return { systems, celestials, neighbors, byId };
 }
 
 // Создаёт астероид в поясе
@@ -165,4 +171,4 @@ function route(neighbors, from, to) {
   return null;
 }
 
-module.exports = { buildUniverse, makeAsteroid, route, rng };
+module.exports = { buildUniverse, buildSystem, makeAsteroid, route, rng };

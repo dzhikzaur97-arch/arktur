@@ -759,7 +759,8 @@ export function onServer(m) {
       showDiscovery(sp, m);
       break;
     }
-    case 'suit': W.suit = m.suit; W.ls = m.suit.ls; W.hz = m.suit.hz; W.hp = m.suit.hp; break;
+    case 'suit': W.suit = m.suit; W.ls = m.suit.ls; W.hz = m.suit.hz; W.hp = m.suit.hp; if (W.panel) renderPanel(); break;
+    case 'outpost': W.out = m; buildOutpost(); if (W.panel) renderPanel(); break;
     case 'surfRespawn':
       W.suit = m.suit; W.hp = 100; W.ls = m.suit.ls; W.hz = m.suit.hz; W.wanted = 0;
       W.pos.set(W.shipR + 3, PG.height(W.P, W.origin[0] + W.shipR + 3, W.origin[1] + 2) + 0.5, 2); W.vel.set(0, 0, 0);
@@ -1012,6 +1013,8 @@ export function frame(dt, nowMs) {
 
   // ---------- маяк корабля и кольцо сканера ----------
   W.shipBeacon.visible = Math.sin(W.t * 4) > 0;
+  if (W.outG) for (const o of W.outG.userData.spin) o.rotation.y += dt * 2.2;
+  if (W.outG) for (const o of W.outG.userData.blink) o.visible = Math.sin(W.t * 3 + o.userData.ph) > -0.2;
   const sk = W.t - W.scanT;
   if (sk < 1.4) { W.ring.visible = true; W.ring.position.set(W.pos.x, W.pos.y + 0.3, W.pos.z); W.ring.scale.setScalar(2 + sk * 120); W.ring.material.opacity = (1 - sk / 1.4) * 0.8; } else W.ring.visible = false;
 
@@ -1027,7 +1030,7 @@ function buildHud() {
   const h = $('#surf-hud');
   h.innerHTML = `<div id="sf-fade"></div><div id="sf-hurt"></div>
     <div id="sf-info" class="panel"></div>
-    <div id="sf-wanted"></div><div id="sf-compass"><span id="sf-ship-mark">▲ Корабль</span></div>
+    <div id="sf-wanted"></div><div id="sf-compass"><span id="sf-ship-mark">▲ Корабль</span><span id="sf-base-mark"></span></div>
     <div id="sf-cross"></div><div id="sf-target"></div><div id="sf-prompt"></div>
     <div id="sf-bars" class="panel"></div>
     <div id="sf-picks"></div><div id="sf-disc"></div><div id="sf-markers"></div>
@@ -1044,6 +1047,10 @@ function buildHud() {
     else if (a === 'toship') ctx.send({ t: 'suitXfer', item: b.dataset.item, to: 'ship' });
     else if (a === 'allship') for (const k of Object.keys(W.suit.inv)) ctx.send({ t: 'suitXfer', item: k, to: 'ship' });
     else if (a === 'craft') ctx.send({ t: 'craft', recipe: b.dataset.r });
+    else if (a === 'obuild') ctx.send({ t: 'outBuild', k: b.dataset.k });
+    else if (a === 'otake') ctx.send({ t: 'outTake', item: b.dataset.item || null });
+    else if (a === 'oput') ctx.send({ t: 'outPut' });
+    else if (a === 'odemolish') { if (b.dataset.sure) ctx.send({ t: 'outDemolish' }); else { b.dataset.sure = 1; b.textContent = 'Точно разобрать? Нажмите ещё раз'; } }
     else if (a === 'tab') { W.tab = b.dataset.tab; renderPanel(); }
   };
 }
@@ -1065,7 +1072,7 @@ function renderPanel() {
     return;
   }
   const tab = W.tab || (W.panel === 'ship' ? 'ship' : 'inv');
-  const tabs = [['inv', 'Костюм'], ['craft', 'Крафт'], ['disc', 'Открытия'], ...(W.panel === 'ship' || near ? [['ship', 'Корабль']] : [])];
+  const tabs = [['inv', 'Костюм'], ['craft', 'Крафт'], ['base', 'База'], ['disc', 'Открытия'], ...(W.panel === 'ship' || near ? [['ship', 'Корабль']] : [])];
   let body = '';
   if (tab === 'inv') {
     body = `<div class="muted">Заполнено ${used} / ${s.cap} ед. · модулей костюма ${s.ups || 0}/6 (аварийные капсулы)</div><div class="cap-bar"><i style="width:${Math.min(100, used / s.cap * 100)}%"></i></div>
@@ -1079,6 +1086,8 @@ function renderPanel() {
       return `<div class="sf-rec${done ? ' done' : ''}"><div><b>${r.name}</b><div class="muted small">${Object.entries(r.in).map(([k, q]) => `<span class="${have(k) >= q ? 'req-ok' : 'req-no'}">${ITEM(k)} ${have(k)}/${q}</span>`).join(' · ')}</div></div>
         ${done ? '<span class="sk-max">есть</span>' : `<button data-sf="craft" data-r="${id}" ${ok ? '' : 'disabled'}>Создать</button>`}</div>`;
     }).join('') + '<div class="muted small">Рядом с кораблём в рецептах можно тратить и ресурсы трюма.</div>';
+  } else if (tab === 'base') {
+    body = baseHTML();
   } else if (tab === 'disc') {
     const P = W.P;
     body = `<div class="muted">${P.name}: ${P.biomeName.toLowerCase()} планета. Изучено видов: ${P.species.filter(x => W.disc.has(x.idx)).length} / ${P.species.length}. Наведите прицел на животное на 1 с, чтобы изучить.</div>` +
@@ -1089,6 +1098,70 @@ function renderPanel() {
       <div class="btn2"><button class="primary" data-sf="takeoff">⇪ Взлёт</button>${used ? '<button data-sf="allship">Всё из костюма в трюм</button>' : ''}<button data-sf="craft" data-r="launch_fuel">Сделать топливо (40 ди-водорода + 20 феррита)</button></div>`;
   }
   el.innerHTML = `<div class="sf-tabs">${tabs.map(([k, l]) => `<span data-sf="tab" data-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</span>`).join('')}<span data-sf="close" class="x">✕</span></div>${body}`;
+}
+// ---------- база на планете ----------
+function baseDist() { const b = W.out && W.out.base; return b ? Math.hypot(b.x - W.origin[0] - W.pos.x, b.z - W.origin[1] - W.pos.z) : Infinity; }
+function baseHTML() {
+  const o = W.out;
+  if (!o) return '<div class="muted">Связь с базой…</div>';
+  const b = o.base, near = b && baseDist() <= o.range, s = W.suit, have = (k) => (s.inv[k] || 0) + (near && b ? b.store[k] || 0 : 0);
+  const IC = { pad: '⬢', extractor: '⛏', silo: '▣' };
+  let html = b ? `<div class="muted">${near ? 'Вы на базе.' : `База в ${Math.round(baseDist())} м — подойдите ближе ${o.range} м, чтобы строить и забирать добычу.`} Добытчик даёт ${ITEM(o.special)} и ${ITEM(o.metal)}${b.rate ? ` — ${b.rate} и ${b.rate / 2} ед. в час` : ''}, даже пока вас нет.</div>`
+    : `<div class="muted">Заложите базу там, где стоите: добытчик будет сам добывать ${ITEM(o.special)} и ${ITEM(o.metal)}, склад — хранить добычу, площадка — принимать корабль без топлива на взлёт. Баз: ${o.count} из ${o.max}.</div>`;
+  html += Object.entries(o.defs).map(([k, d]) => {
+    const lv = b ? b.b[k] || 0 : 0, n = d.next;
+    const ok = n && (near || !b) && Object.entries(n.cost).every(([r, q]) => have(r) >= q);
+    return `<div class="sf-rec"><div><b>${IC[k]} ${d.name}</b> <span class="muted">${d.max > 1 ? `ур. ${lv}/${d.max}` : lv ? 'построена' : ''}</span><div class="muted small">${d.desc}</div>
+      ${n ? `<div class="small">${Object.entries(n.cost).map(([r, q]) => `<span class="${have(r) >= q ? 'req-ok' : 'req-no'}">${ITEM(r)} ${have(r)}/${q}</span>`).join(' · ')} · ${n.isk.toLocaleString('ru-RU')} CR</div>` : ''}</div>
+      ${n ? `<button data-sf="obuild" data-k="${k}" ${ok ? '' : 'disabled'}>${lv ? 'Улучшить' : b ? 'Построить' : 'Заложить базу'}</button>` : '<span class="sk-max">максимум</span>'}</div>`;
+  }).join('');
+  if (b) {
+    const used = Object.values(b.store).reduce((x, y) => x + y, 0);
+    html += `<h4>Склад базы <span class="muted">${used} / ${b.cap}</span></h4><div class="cap-bar"><i style="width:${Math.min(100, used / b.cap * 100)}%"></i></div>
+      <div class="sf-inv">${Object.entries(b.store).sort((x, y) => y[1] - x[1]).map(([k, q]) => `<div class="sf-it"><span>${ITEM(k)}</span><b>${q}</b>${near ? `<button data-sf="otake" data-item="${k}">В костюм</button>` : ''}</div>`).join('') || '<div class="muted">Пусто</div>'}</div>
+      ${near ? `<div class="btn2"><button data-sf="otake">Забрать всё в костюм</button><button data-sf="oput">Сложить ресурсы костюма на склад</button><button data-sf="odemolish" class="danger">Разобрать базу</button></div>` : ''}`;
+  }
+  return html;
+}
+function buildOutpost() {
+  if (W.outG) { W.scene.remove(W.outG); W.outG.traverse(o => { if (o.geometry) o.geometry.dispose(); }); W.outG = null; }
+  const b = W.out && W.out.base; if (!b) return;
+  const g = new THREE.Group(); g.userData.spin = []; g.userData.blink = [];
+  const metal = new THREE.MeshStandardMaterial({ color: 0x9aa4b0, metalness: 0.75, roughness: 0.35 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3a424c, metalness: 0.6, roughness: 0.55 });
+  const glow = (c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c[0], c[1], c[2]) });
+  const at = (k) => { const [dx, dz] = W.out.layout[k], x = b.x + dx, z = b.z + dz; return [x - W.origin[0], PG.height(W.P, x, z), z - W.origin[1]]; };
+  const lamp = (p, c, ph) => { const l = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), glow(c)); l.position.set(...p); l.userData.ph = ph; g.userData.blink.push(l); g.add(l); };
+  if (b.b.pad) {
+    const [x, y, z] = at('pad');
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(7.5, 8, 3, 8), dark); base.position.set(x, y - 1.3, z); g.add(base);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 7.2, 0.2, 8), metal); top.position.set(x, y + 0.25, z); g.add(top);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.12, 6, 40), glow([0.3, 1.6, 2])); ring.rotation.x = Math.PI / 2; ring.position.set(x, y + 0.4, z); g.add(ring);
+    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; lamp([x + Math.cos(a) * 7, y + 0.5, z + Math.sin(a) * 7], [2, 1.6, 0.4], i * 0.8); }
+  }
+  if (b.b.extractor) {
+    const [x, y, z] = at('extractor'), lv = b.b.extractor, h = 5 + lv * 2;
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 4), dark); foot.position.set(x, y - 0.8, z); g.add(foot);
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.9, h, 8), metal); tower.position.set(x, y + h / 2, z); g.add(tower);
+    const head = new THREE.Group(); head.position.set(x, y + h, z);
+    for (let i = 0; i < 3; i++) { const blade = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.2, 0.5), metal); blade.rotation.y = i * Math.PI / 3; head.add(blade); }
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), glow([1.8, 0.9, 0.3])); head.add(core);
+    g.add(head); g.userData.spin.push(head);
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1.2, 6), glow([1.8, 0.9, 0.3])); pipe.position.set(x, y + 0.2, z); g.add(pipe);
+    lamp([x + 2.1, y + 1.2, z + 2.1], [0.4, 2, 0.8], 1);
+  }
+  if (b.b.silo) {
+    const [x, y, z] = at('silo'), lv = b.b.silo;
+    for (let i = 0; i < lv; i++) {
+      const sx = x + (i - (lv - 1) / 2) * 5;
+      const sy = PG.height(W.P, sx + W.origin[0], z + W.origin[1]);
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 6, 14), metal); tank.position.set(sx, sy + 2, z); g.add(tank);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(2.1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), dark); dome.position.set(sx, sy + 5, z); g.add(dome);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.08, 6, 28), glow([0.3, 1.4, 2])); band.rotation.x = Math.PI / 2; band.position.set(sx, sy + 3.2, z); g.add(band);
+    }
+  }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  W.scene.add(g); W.outG = g;
 }
 const HZ_ICON = { heat: '🔥', cold: '❄', toxic: '☣', rad: '☢' };
 function updateHud(storm, phase, dayK, nearShip) {
@@ -1125,6 +1198,14 @@ function updateHud(storm, phase, dayK, nearShip) {
   const toShip = Math.atan2(-W.pos.x, -W.pos.z), rel = ((toShip - (W.yaw + Math.PI)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
   const dShip = Math.hypot(W.pos.x, W.pos.z);
   const sm = $('#sf-ship-mark'); if (sm) { sm.style.transform = `translateX(${clamp(-rel * 160, -200, 200)}px)`; sm.textContent = `▲ Корабль ${Math.round(dShip)} м`; }
+  const bm = $('#sf-base-mark'), ob = W.out && W.out.base;
+  if (bm) {
+    const bx = ob ? ob.x - W.origin[0] - W.pos.x : 0, bz = ob ? ob.z - W.origin[1] - W.pos.z : 0, dB = Math.hypot(bx, bz);
+    if (ob && dB > 12 && Math.hypot(ob.x - W.origin[0], ob.z - W.origin[1]) > 6) {
+      const relB = ((Math.atan2(bx, bz) - (W.yaw + Math.PI)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+      bm.style.display = ''; bm.style.transform = `translateX(${clamp(-relB * 160, -200, 200)}px)`; bm.textContent = `⌂ База ${Math.round(dB)} м`;
+    } else bm.style.display = 'none';
+  }
   // метки сканера
   const mk = $('#sf-markers');
   if (W.t < W.scanUntil && W.markers.length) {

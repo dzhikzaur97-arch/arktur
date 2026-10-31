@@ -74,7 +74,7 @@ fs.writeFileSync(path.join(OUT, 'index.html'), html);
 
 // 5) описание приложения
 fs.writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
-  name: CFG.title, short_name: CFG.short, description: CFG.desc, lang: 'ru', dir: 'ltr',
+  id: './', name: CFG.title, short_name: CFG.short, description: CFG.desc, lang: 'ru', dir: 'ltr',
   start_url: './', scope: './', display: 'fullscreen', display_override: ['fullscreen', 'standalone'], orientation: 'any',
   background_color: '#02040a', theme_color: '#060c18', categories: ['games'],
   icons: [
@@ -118,6 +118,9 @@ self.addEventListener('fetch', (e) => {
 });
 `);
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
+// подтверждение сайта для приложения в Google Play (см. publish/google-play/README.md)
+const links = path.join(ROOT, 'publish/google-play/assetlinks.json');
+if (fs.existsSync(links)) { fs.mkdirSync(path.join(OUT, '.well-known'), { recursive: true }); fs.copyFileSync(links, path.join(OUT, '.well-known/assetlinks.json')); console.log('assetlinks.json добавлен в .well-known/'); }
 // 8) README для репозитория и лицензия
 fs.writeFileSync(path.join(OUT, 'README.md'), `# ${CFG.title}
 
@@ -129,6 +132,8 @@ ${CFG.desc}
 - **Android (Chrome):** откройте страницу игры → меню ⋮ → «Установить приложение» (или «Добавить на главный экран»).
 - **iPhone / iPad (Safari):** откройте страницу → кнопка «Поделиться» → «На экран Домой».
 - **Компьютер (Chrome, Edge):** значок установки в адресной строке — или просто играйте в браузере.
+
+Языки: **русский и английский** (переключатель на экране входа).
 
 После первого запуска игра работает **без интернета**. Сохранения хранятся на вашем устройстве; их можно выгрузить в файл в меню «Сохранения».
 

@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.YOUR_NICK.arktur",
+      "sha256_cert_fingerprints": [
+        "AA:BB:...:ВАШ_КЛЮЧ_ИЗ_signing-key-info.txt",
+        "CC:DD:...:КЛЮЧ_GOOGLE_ИЗ_PLAY_CONSOLE_(App_signing_key_certificate)"
+      ]
+    }
+  }
+]
