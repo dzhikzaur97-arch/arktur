@@ -425,7 +425,7 @@ class Game {
     if (!e || e.warp) return;
     const t = this.findTarget(e, m.id);
     if (!t) return;
-    this.startAlignWarp(e, t, clamp(+m.range || 0, 0, 100000));
+    this.startAlignWarp(e, t, clamp(+m.range || 0, 0, 500000));
   }
   c_dock(s, m, p, e) {
     if (!e || e.warp) return;
@@ -1787,5 +1787,7 @@ require('./cmissions')(Game);
 require('./dailies')(Game);
 require('./outposts')(Game);
 require('./wormholes')(Game);
+require('./shipyard')(Game);
+require('./marks')(Game);
 
 module.exports = { Game };

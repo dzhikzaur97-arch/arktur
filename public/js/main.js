@@ -442,6 +442,8 @@ function onMsg(m) {
     case 'prod': S.prod = m; S.prodAt = performance.now(); if (S.docked && S.stTab === 'prod') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
     case 'infra': S.infra = m; S.infraAt = performance.now(); if (S.win === 'build') renderWin(); break;
+    case 'yard': S.yard = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
+    case 'marks': S.marks = m.list || []; if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); } break;
     case 'struct':
       S.struct = m; S.structAt = performance.now();
       $('#st-tabs [data-tab=factory]').classList.toggle('hidden', !(S.docked && m.mine && m.mine.id === S.docked.id));
@@ -1139,11 +1141,21 @@ function objMenu(x, y, id) {
   if (['ship', 'asteroid', 'station', 'gate'].includes(o.kind) && distTo(o) < 150000) {
     items.push(['Орбита на 1 / 2.5 / 10 / 20 км…', () => showCtx(x, y, 'Орбита', [1000, 2500, 5000, 10000, 20000].map(r => [`${r / 1000} км`, () => { S.orbitRange = r; act('orbit', id); }]))]);
   }
-  if (distTo(o) > 150000) items.push(['Варп на 10 / 30 / 50 км…', () => showCtx(x, y, 'Варп на дистанцию', [10000, 30000, 50000].map(r => [`${r / 1000} км`, () => send({ t: 'warp', id, range: r })]))]);
+  if (distTo(o) > 150000) items.push(['Варп на 10 / 30 / 50 км…', () => showCtx(x, y, 'Варп на дистанцию', warpRangeItems(id))]);
   if (o.kind === 'gate') items.push(['Проложить маршрут в ' + S.sysById[o.dest].name, () => send({ t: 'autopilot', dest: o.dest })]);
   showCtx(x, y, o.n || o.name, items);
 }
 
+// дистанции варпа: готовые и своя
+function warpRangeItems(id) {
+  return [...[0, 10000, 30000, 50000, 100000].map(r => [r ? `${r / 1000} км` : 'Вплотную', () => send({ t: 'warp', id, range: r })]),
+    ['Своя дистанция…', () => askWarpRange(id)]];
+}
+function askWarpRange(id, pos) {
+  const last = S.lastWarpKm || 20;
+  modal(`<h3>Варп на дистанцию</h3><p class="muted">На каком расстоянии от цели остановиться (0–500 км)</p><input id="wr-km" class="qty" type="number" min="0" max="500" value="${last}" style="width:100px"> км`,
+    [['Отмена', null], ['» Варп', () => { const km = Math.max(0, Math.min(500, +($('#wr-km') || {}).value || 0)); S.lastWarpKm = km; if (pos) send({ t: 'markAdd', pos, warp: km * 1000 }); else send({ t: 'warp', id, range: km * 1000 }); }, 'primary']]);
+}
 function spaceMenu(x, y) {
   if (!S.sys) return;
   const groups = [['Станции', 'station'], ['Звёздные врата', 'gate'], ['Пояса астероидов', 'belt'], ['Аномалии', 'anomaly'], ['Планеты', 'planet'], ['Звезда', 'sun']];
@@ -1156,6 +1168,9 @@ function spaceMenu(x, y) {
       if (kind === 'station') act('dock', c.id); else if (kind === 'gate') act('jump', c.id); else act('warp', c.id);
     }]))]);
   }
+  const marks = (S.marks || []).filter(m => m.sys === S.sys.id);
+  if (marks.length) items.push(['📍 Метки ▸', () => showCtx(x, y, 'Метки', marks.map(m => [m.name, () => showCtx(x, y, m.name, [...warpRangeItems(m.id), ['✕ Удалить метку', () => send({ t: 'markDel', id: m.id })]])]))]);
+  if (!S.docked && S.me) items.push(['📍 Поставить метку здесь', () => send({ t: 'markAdd' })]);
   items.push(['Стоп', () => act('stop')]);
   showCtx(x, y, 'Космос', items);
 }
@@ -2297,6 +2312,30 @@ function factoryHTML() {
       <td class="r"><input class="qty" type="number" min="1" max="${q}" value="${q}" id="rq-${o}"> <button class="primary" data-a="refine" data-item="${o}">Переработать</button></td></tr>`;
   }).join('')}</table>` : '<div class="muted">В ангаре этой станции нет руды. Разгрузите трюм во вкладке «Ангар».</div>';
   html += '<p class="muted">Готовые материалы появятся в ангаре этой станции. Продать их можно на рынке любой станции.</p>';
+  html += yardHTML(h);
+  return html;
+}
+// своя верфь: сборочный цех (детали из материалов) и стапель (корабль из деталей)
+function yardHTML(h) {
+  const y = S.yard; if (!y) return '';
+  const it = (k) => S.data.items[k], have = (k) => h[k] || 0;
+  let html = `<h3>⚙ Сборочный цех — детали кораблей</h3><div class="muted small">Детали делаются из материалов этой станции и стоят дороже них. Каждая деталь тратит ${y.cells} энергоячейку (их даёт солнечная электростанция: ⚒ Стройка → Энергия). Цех работает и без вас в игре.</div>`;
+  if (y.queue.length) html += y.queue.map(j => `<div class="mission"><div>${j.kind === 'ship' ? '⚓ ' + esc(S.data.ships[j.item].name) : esc(it(j.item).name) + ' ×' + j.qty}</div><div class="muted small">готово через ${fmtTime(Math.max(0, (j.end - S.serverNow()) / 1000))}</div></div>`).join('');
+  html += `<table class="tbl"><tr><th>Деталь</th><th>Из чего (на 1 шт.)</th><th class="r">Цена</th><th></th></tr>${Object.entries(y.parts).map(([k, r]) => {
+    const inVal = Object.entries(r.in).reduce((a, [m, q]) => a + q * it(m).base, 0);
+    const can = Object.entries(r.in).every(([m, q]) => have(m) >= q) && have('energy_cell') >= y.cells;
+    return `<tr><td><b>${esc(it(k).name)}</b> <span class="muted small">· в ангаре ${num(have(k))}</span></td><td class="small">${Object.entries(r.in).map(([m, q]) => `<span class="${have(m) >= q ? 'req-ok' : 'req-no'}">${esc(it(m).name)} ${q}</span>`).join(' + ')}</td>
+      <td class="r isk">${isk(it(k).base)} <span class="muted small">(сырьё ${isk(inVal)})</span></td>
+      <td class="r"><input class="qty" type="number" min="1" max="50" value="1" id="pm-${k}"> <button class="primary" data-a="partMake" data-part="${k}" ${can ? '' : 'disabled'}>Сделать</button></td></tr>`;
+  }).join('')}</table>`;
+  html += `<h3>⚓ Стапель — сборка корабля из деталей</h3><div class="muted small">Корабль из своих деталей обходится заметно дешевле покупки. Готовый корабль появится в ангаре этой станции.</div>`;
+  const list = Object.entries(y.ships).sort((a, b) => S.data.ships[a[0]].price - S.data.ships[b[0]].price);
+  html += `<table class="tbl"><tr><th>Корабль</th><th>Детали</th><th class="r">Сбор</th><th></th></tr>${list.map(([t, r]) => {
+    const ok = Object.entries(r.parts).every(([k, q]) => have(k) >= q) && S.prof.credits >= r.fee;
+    return `<tr><td><b>${esc(S.data.ships[t].name)}</b> <span class="muted small">${esc(S.data.ships[t].cls)} · на рынке ${isk(S.data.ships[t].price)}</span></td>
+      <td class="small">${Object.entries(r.parts).map(([k, q]) => `<span class="${have(k) >= q ? 'req-ok' : 'req-no'}">${esc(it(k).name)} ${have(k)}/${q}</span>`).join(' · ')}</td>
+      <td class="r isk">${isk(r.fee)}</td><td class="r"><button class="primary" data-a="yardBuild" data-ship="${t}" ${ok ? '' : 'disabled'}>Собрать</button></td></tr>`;
+  }).join('')}</table>`;
   return html;
 }
 // ======================================================================
@@ -3469,6 +3508,8 @@ function onActionClick(e) {
     case 'warDeliver': send({ t: 'warDeliver', id: d.id }); break;
     case 'warBuy': send({ t: 'warBuy', id: d.id }); break;
     case 'wingHire': send({ t: 'wingHire', id: d.id }); break;
+    case 'partMake': send({ t: 'partMake', part: d.part, runs: +($('#pm-' + d.part) || {}).value || 1 }); break;
+    case 'yardBuild': send({ t: 'yardBuild', ship: d.ship }); break;
     case 'allTabs': tut.allTabs = true; saveTut(); applyTabGates(); renderStation(); break;
     case 'replayIntro': closeWin(); playIntro(null); break;
     case 'wingOpen': S.wingOpen = S.wingOpen === d.id ? null : d.id; renderStation(); break;
@@ -3529,7 +3570,8 @@ mc.addEventListener('pointerup', (e) => {
   if (map.drag && map.drag.moved < 8 && map.mode === 'sys') {
     let best = null, bd = MOBILE ? 26 : 16;
     for (const h of map.hits) { const d = Math.hypot(h.x - e.clientX, h.y - e.clientY) - h.r; if (d < bd) { bd = d; best = h; } }
-    if (best) { map.ssel = best.id; renderMapInfo(); drawMap(); }
+    if (best) { map.ssel = best.id; map.pick = null; renderMapInfo(); drawMap(); }
+    else { map.ssel = null; map.pick = sysMapInv(e.clientX, e.clientY); renderMapInfo(); drawMap(); } // пустое место — точка для метки
   } else if (map.drag && map.drag.moved < 8) {
     const hit = S.data.systems.find(s => Math.hypot(...mapPt(s).map((v, i) => v - [e.clientX, e.clientY][i])) < (MOBILE ? 26 : 14));
     if (hit) { map.sel = hit.id; renderMapInfo(); drawMap(); }
@@ -3558,6 +3600,15 @@ function sysMapPt(pos) {
   const R = Math.min(MOBILE ? innerWidth * 0.45 : innerWidth * 0.32, innerHeight * 0.42) * map.sz / Math.sqrt(Math.max(maxD, 1));
   const r = Math.sqrt(d) * R, a = Math.atan2(dz, dx);
   return [cx + Math.cos(a) * r, cy + Math.sin(a) * r, r, cx, cy];
+}
+// обратное преобразование: точка на карте системы → координаты в космосе (в плоскости звезды)
+function sysMapInv(px, py) {
+  const sun = S.sys.celestials.find(c => c.kind === 'sun' && !c.companion) || S.sys.celestials[0];
+  const maxD = Math.max(...S.sys.celestials.map(c => Math.hypot(c.pos[0] - sun.pos[0], c.pos[2] - sun.pos[2]) / 1.496e11));
+  const cx = (MOBILE ? innerWidth : innerWidth - 340) / 2 + map.sx, cy = (MOBILE ? innerHeight * 0.38 : innerHeight / 2) + map.sy;
+  const R = Math.min(MOBILE ? innerWidth * 0.45 : innerWidth * 0.32, innerHeight * 0.42) * map.sz / Math.sqrt(Math.max(maxD, 1));
+  const dx = px - cx, dy = py - cy, d = Math.pow(Math.hypot(dx, dy) / R, 2) * 1.496e11, a = Math.atan2(dy, dx);
+  return [sun.pos[0] + Math.cos(a) * d, sun.pos[1], sun.pos[2] + Math.sin(a) * d];
 }
 function drawSysMap(g) {
   map.hits = [];
@@ -3614,6 +3665,9 @@ function drawSysMap(g) {
     label(pir ? '☠' : '✧', x, y + 4, pir ? '#ff6050' : '#d0a0ff', 14);
     map.hits.push({ id: a.id, x, y, r: 7 });
   }
+  // метки пилота и точка, выбранная на карте
+  for (const m of (S.marks || []).filter(m => m.sys === S.sys.id)) { const [x, y] = sysMapPt(m.pos); label('📍', x, y + 5, '#ffd060', 14); label(m.name, x, y - 12, '#ffd060', 10); map.hits.push({ id: m.id, x, y, r: 8 }); }
+  if (map.pick) { const [x, y] = sysMapPt(map.pick); g.strokeStyle = '#ffd060'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke(); }
   // мой корабль
   const myPos = S.surface ? (S.celById[S.surface.planet] || {}).pos : S.docked ? (S.celById[S.docked] || {}).pos : S.meRec && S.meRec.dp;
   if (myPos) {
@@ -3627,6 +3681,21 @@ function drawSysMap(g) {
   label(`${S.sys.name} · безопасность ${S.sys.sec.toFixed(1)}`, (MOBILE ? innerWidth : innerWidth - 340) / 2, 78, secColor(S.sys.sec), 18);
 }
 function sysMapInfo() {
+  const here0 = S.meRec && !S.docked && !S.surface;
+  const mk = map.ssel && (S.marks || []).find(m => m.id === map.ssel);
+  if (mk) {
+    const d = here0 ? len(sub(mk.pos, S.meRec.dp)) : null;
+    setHTML($('#map-info'), `<h3>📍 ${esc(mk.name)}</h3><div class="muted">Метка${d !== null ? ' · ' + fmtDist(d) : ''}</div>
+      <div class="btn2">${here0 && d > 150000 ? `<button class="primary" data-mapact="warp" data-id="${mk.id}">» Варп</button><button data-mapact="warpd" data-id="${mk.id}">» Варп на дистанцию…</button>` : ''}<button class="danger" data-mapact="mdel" data-id="${mk.id}">✕ Удалить</button></div>`);
+    return;
+  }
+  if (map.pick && !map.ssel) {
+    const d = here0 ? len(sub(map.pick, S.meRec.dp)) : null;
+    setHTML($('#map-info'), `<h3>Точка на карте</h3><div class="muted">${d !== null ? fmtDist(d) + ' от вас' : ''}</div>
+      <div class="btn2"><button data-mapact="mput">📍 Поставить метку</button>${here0 && d > 150000 ? `<button class="primary" data-mapact="mwarp">» Варп сюда</button><button data-mapact="mwarpd">» Варп на дистанцию…</button>` : ''}</div>
+      <div class="muted small">Расстояния на карте сжаты: точка ставится в плоскости звезды по направлению и удалению от неё.</div>`);
+    return;
+  }
   const id = map.ssel, o = id && (S.celById[id] ? { ...S.celById[id], n: S.celById[id].name } : (S.anoms || []).find(a => a.id === id));
   if (!o) { setHTML($('#map-info'), `<h3>${esc(S.sys ? S.sys.name : '')}</h3><div class="muted">Щёлкните звезду, планету, станцию или врата.</div>`); return; }
   const kind = o.kind === 'anomaly' ? (ANOM_TYPE[o.akind] || 'Аномалия') : (KIND[o.kind] || ['', ''])[1];
@@ -3643,6 +3712,11 @@ $('#map-info').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mapact]'); if (!b) return;
   const id = b.dataset.id, a = b.dataset.mapact;
   if (a === 'warp') send({ t: 'warp', id });
+  else if (a === 'warpd') askWarpRange(id);
+  else if (a === 'mdel') { send({ t: 'markDel', id }); map.ssel = null; }
+  else if (a === 'mput') { send({ t: 'markAdd', pos: map.pick }); map.pick = null; }
+  else if (a === 'mwarp') { send({ t: 'markAdd', pos: map.pick, warp: 0 }); map.pick = null; toggleMap(); }
+  else if (a === 'mwarpd') { const pos = map.pick; map.pick = null; askWarpRange(null, pos); }
   else if (a === 'dock') send({ t: 'dock', id });
   else if (a === 'land') {
     const c = S.celById[id], d = len(sub(c.pos, S.meRec.dp)) - c.radius;
