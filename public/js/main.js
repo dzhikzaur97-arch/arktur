@@ -308,6 +308,7 @@ function playFx(fx) {
   const v = fxVolume(fx);
   if (fx.k === 'beam') { const c = fx.color || 0; ((c >> 16) & 255) > ((c & 255)) ? Sound.laser(v) : Sound.rail(v); }
   else if (fx.k === 'mine') Sound.mine(v * 0.8, Math.min(6, fx.dur || 5));
+  else if (fx.k === 'foundry') { Sound.mine(v * 0.9, Math.min(6, fx.dur || 5)); Sound.whoosh(v * 0.35, false, 2.5); }
   else if (fx.k === 'boom') Sound.boom(v, (fx.size || 0) > 500);
   else if (fx.k === 'jump') Sound.whoosh(v * 0.7, false, 1.5);
   if (fx.k === 'beam' && fx.arc && fx.main) Sound.boom(v * 0.6, false); // раскат грома при залпе «Копья Зари»
@@ -449,6 +450,7 @@ function onMsg(m) {
     case 'yard': S.yard = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
     case 'tech': S.tech = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
     case 'corp': S.corp = m; if (S.win === 'corp') renderWin(); break;
+    case 'refine': S.refine = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
     case 'raid': S.raid = m; renderActHud(); break;
     case 'world': S.world = m; updateWallet(); if (S.win === 'news') renderWin(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'weather': S.wx = m; updateWallet(); break;
@@ -2121,7 +2123,7 @@ function tutGlow(sel) {
   if (el) el.classList.add('tut-glow');
 }
 // ---------- первые 10 минут: вкладки станции открываются по мере обучения ----------
-const TAB_GATE = { fitting: 'sell', ships: 'sell', agents: 'sell', exchange: 'all', prod: 'all', war: 'all', wing: 'all' };
+const TAB_GATE = { refine: 'sell', fitting: 'sell', ships: 'sell', agents: 'sell', exchange: 'all', prod: 'all', war: 'all', wing: 'all' };
 const TAB_TITLE = { fitting: 'Оснастка', ships: 'Корабли', agents: 'Агенты', exchange: 'Биржа', prod: 'Производство', war: 'Фронт', wing: 'Напарники' };
 function tabsAllOpen() {
   const p = S.prof, v = p && p.story;
@@ -3361,6 +3363,7 @@ $('#st-tabs').onclick = (e) => {
   S.stTab = t;
   for (const s of $('#st-tabs').children) s.classList.toggle('on', s.dataset.tab === t);
   if (t === 'market' || t === 'exchange') send({ t: 'market' });
+  if (t === 'refine') send({ t: 'refineInfo' });
   if (t === 'agents') send({ t: 'agents' });
   if (t === 'prod') send({ t: 'prodInfo' });
   if (t === 'war') send({ t: 'warInfo' });
@@ -3411,12 +3414,10 @@ function renderStation() {
       html = `<h3>Продажа из ангара <span class="muted">(налог ${(mk.tax * 100).toFixed(0)}%)</span></h3>
         ${sellRows ? `<table class="tbl"><tr><th>Предмет</th><th class="r">Есть</th><th class="r">Цена за ед.</th><th class="r">Итого</th><th></th></tr>${sellRows}</table>` : '<div class="muted">Нечего продавать. Разгрузите трюм в ангар (вкладка «Ангар»).</div>'}
         <h3>Цены на сырьё в этой системе</h3><div class="kv">${Object.entries(mk.sell).filter(([id]) => S.data.items[id].cat === 'Руда' || S.data.items[id].cat === 'Трофеи').map(([id, pr]) => `<span>${esc(S.data.items[id].name)}</span><span class="isk">${num(pr)} CR</span>`).join('')}</div>
-        <h3>Модули</h3><table class="tbl"><tr><th>Модуль</th><th>Слот</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
-        ${Object.entries(mk.buy).map(([id, pr]) => { const d = S.data.modules[id]; return `<tr><td>${esc(d.name)}</td><td class="muted">${{ high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted">${moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`; }).join('')}</table>
+        ${marketShopHTML(mk)}
         ${mk.consumables ? `<h3>Расходники: энергия, боеприпасы, оборона</h3><table class="tbl"><tr><th>Товар</th><th>Зачем</th><th class="r">Цена</th><th></th></tr>${Object.entries(mk.consumables).map(([id, pr]) => `<tr><td>${esc(S.data.items[id].name)}</td><td class="muted small">${{ energy_cell: 'топливо для прыжков, завода, транспортов и улучшений; вдали от Ядра дороже', msl_std: 'боезапас ракетных установок «Игла» и «Шторм»', msl_torp: 'боезапас торпедного аппарата «Гром»', turret_kit: 'турель в космосе на 15 мин: бьёт пиратов рядом с вами (кнопка «⛫ Турель»)' }[id] || ''}</td><td class="r isk">${num(pr)}</td>
           <td class="r"><input class="qty" type="number" min="1" value="${id === 'turret_kit' ? 1 : 50}" id="cq-${id}"> <button class="primary" data-a="buyCons" data-item="${id}">Купить</button></td></tr>`).join('')}</table>` : ''}
-        <h3>Дроны</h3><table class="tbl"><tr><th>Дрон</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>
-        ${Object.entries(mk.drones || {}).map(([id, pr]) => `<tr><td>${esc(S.data.drones[id].name)}</td><td class="muted">${droneDesc(S.data.drones[id])}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>
+
         <h3>Корабли <span class="muted">— по назначению и классу мощи</span></h3>${shipGroups(Object.keys(mk.ships)).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div><div class="grid-cards">${ids.map((id) => { const pr = mk.ships[id], st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
           return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipFacHTML(id)}${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div>${shipBuyBtns(id, true)}</div>`; }).join('')}</div>`).join('')}`;
       break;
@@ -3439,6 +3440,7 @@ function renderStation() {
     case 'skills': html = skillsHTML(); break;
     case 'ships': html = shipsTabHTML(); break;
     case 'factory': html = factoryHTML(); break;
+    case 'refine': html = refineHTML(h); break;
     case 'prod': html = prodHTML(); break;
     case 'war': html = warHTML(); break;
     case 'wing': html = wingHTML(); break;
@@ -3571,6 +3573,10 @@ function onActionClick(e) {
     case 'corpWithdraw': send({ t: 'corpWithdraw' }); break;
     case 'corpUnload': send({ t: 'corpUnload' }); break;
     case 'wantedPay': send({ t: 'wantedPay' }); break;
+    case 'stRefine': send({ t: 'stRefine', item: d.item, qty: +($('#rf-' + d.item) || {}).value || 0 }); break;
+    case 'compMake': send({ t: 'compMake', id: d.id, qty: +($('#cm-' + d.id) || {}).value || 1 }); break;
+    case 'mkCat': S.mkCat = d.c; renderStation(); break;
+    case 'mkTier': S.mkTier = +d.t || 0; renderStation(); break;
     case 'techStart': send({ t: 'techStart', id: d.id }); break;
     case 'fleetAdd': send({ t: 'fleetAdd', i: +d.i }); break;
     case 'allTabs': tut.allTabs = true; saveTut(); applyTabGates(); renderStation(); break;
@@ -4473,4 +4479,53 @@ function whatsNew() {
       <li>🏆 Новые достижения, звания и цели в «Карьере» — за гонки, зонды, корпорацию, розыск и Архонта.</li>
     </ul>
     <p class="muted small">Корабли — на рынке любой станции, вкладка «Корабли».</p>`, [['Отлично!', null, 'primary']]);
+}
+
+// ======================================================================
+// Рынок: ~300 модулей и дронов — по категориям, классам и с поиском
+// ======================================================================
+const MK_CATS = [['weapon', '🔫 Орудия'], ['launcher', '🚀 Ракеты'], ['miner', '⛏ Добыча'], ['shield', '🛡 Щиты'], ['armor', '🧱 Броня'], ['engine', '🔥 Двигатели'], ['control', '📡 Контроль и ПРО'], ['passive', '⚙ Усилители'], ['drone', '🛸 Дроны']];
+function mkCatOf(d) {
+  if (!d.kind || d.cls) return 'drone';
+  return { weapon: 'weapon', launcher: 'launcher', miner: 'miner', shieldRep: 'shield', armorRep: 'armor', prop: 'engine', scram: 'control', pd: 'control' }[d.kind]
+    || (d.passive && (d.passive.hp) ? 'armor' : d.passive && (d.passive.speed || d.passive.warp || d.passive.capRegen) ? 'engine' : d.passive && d.passive.scan ? 'control' : 'passive');
+}
+function marketShopHTML(mk) {
+  const cat = S.mkCat || 'weapon', tier = S.mkTier || 0, q = (S.mkQ || '').toLowerCase();
+  const rows = [...Object.entries(mk.buy).map(([id, pr]) => [id, pr, S.data.modules[id]]), ...Object.entries(mk.drones || {}).map(([id, pr]) => [id, pr, S.data.drones[id]])]
+    .filter(([, , d]) => d && mkCatOf(d) === cat && (!tier || (d.tier || 1) === tier) && (!q || d.name.toLowerCase().includes(q)))
+    .sort((a, b) => (a[2].tier || 1) - (b[2].tier || 1) || a[1] - b[1]);
+  const counts = Object.fromEntries(MK_CATS.map(([c]) => [c, 0]));
+  for (const [id] of Object.entries(mk.buy)) counts[mkCatOf(S.data.modules[id])]++;
+  counts.drone += Object.keys(mk.drones || {}).length;
+  return `<h3>Модули и дроны <span class="muted">— ${Object.keys(mk.buy).length + Object.keys(mk.drones || {}).length} товаров</span></h3>
+    <div class="mk-cats">${MK_CATS.map(([c, l]) => `<button data-a="mkCat" data-c="${c}" class="${c === cat ? 'on' : ''}">${l} <span class="muted">${counts[c]}</span></button>`).join('')}</div>
+    <div class="mk-tiers">Класс: ${[0, 1, 2, 3, 4, 5].map(t => `<button data-a="mkTier" data-t="${t}" class="${t === tier ? 'on' : ''}">${t ? ROMAN[t] : 'все'}</button>`).join('')}
+      <input id="mk-q" placeholder="поиск: «Векс», «рельсотрон»…" value="${esc(S.mkQ || '')}" style="flex:1;min-width:140px"></div>
+    <div class="muted small">Производители: «Арктур» — сбалансированно, «Векс» — мощнее и прожорливее, «Корвин» — экономно и дешевле, «Орион» — дальнобойно, «Предел» — экзотика Ордена. Любую позицию можно сделать по чертежу (вкладка «Производство»): для классов II–V нужны компоненты из «Переработки».</div>
+    ${rows.length ? `<table class="tbl"><tr><th>Товар</th><th>Слот</th><th>Параметры</th><th class="r">Цена</th><th></th></tr>${rows.map(([id, pr, d]) => `<tr><td>${esc(d.name)}</td><td class="muted">${d.cls ? 'дрон' : { high: 'верх', mid: 'сред', low: 'ниж' }[d.slot]}</td><td class="muted small">${d.cls ? droneDesc(d) : moduleDesc(d)}</td><td class="r isk">${num(pr)}</td><td class="r"><button data-a="buy" data-item="${id}">Купить</button></td></tr>`).join('')}</table>` : '<div class="muted">Ничего не найдено.</div>'}`;
+}
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'mk-q') { S.mkQ = e.target.value; clearTimeout(S.mkQT); S.mkQT = setTimeout(() => { const pos = e.target.selectionStart; renderStation(); const el = $('#mk-q'); if (el) { el.focus(); el.setSelectionRange(pos, pos); } }, 350); } });
+
+// ======================================================================
+// Переработка на любой станции: руда → материалы, материалы → компоненты
+// ======================================================================
+function refineHTML(h) {
+  const R = S.refine; if (!R) return '<div class="muted">Загрузка…</div>';
+  const it = (k) => S.data.items[k] || { name: k, base: 0 };
+  let html = `<div class="chain">⛏ <b>Руда</b> → ♻ <b>Материалы</b> → ⚙ <b>Компоненты</b> → 🔧 <b>Модули, дроны, корабли</b> <span class="muted">(вкладка «Производство»)</span></div>
+    <p class="muted small">Здесь — быстро и на любой станции: выход ${(R.yield * 100).toFixed(0)}% (навык «Производство» +2% за уровень), сбор ${(R.fee * 100).toFixed(0)}% стоимости. Своя станция-завод даёт больше, но работает по времени. «Бегемот» плавит руду прямо в полёте.</p>`;
+  const ores = Object.keys(R.recipes).filter(o => h[o]);
+  html += `<h3>♻ Руда → материалы</h3>` + (ores.length ? `<table class="tbl"><tr><th>Руда</th><th class="r">В ангаре</th><th>Получится</th><th></th></tr>${ores.map(o => { const r = R.recipes[o], out = Math.floor(h[o] * r.ratio * R.yield);
+      return `<tr><td>${esc(it(o).name)}</td><td class="r">${num(h[o])}</td><td>${esc(it(r.out).name)} ×${num(out)} <span class="muted small">(${isk(out * it(r.out).base)} против ${isk(h[o] * it(o).base)} за руду)</span></td>
+      <td class="r"><input class="qty" type="number" min="1" max="${h[o]}" value="${h[o]}" id="rf-${o}"> <button class="primary" data-a="stRefine" data-item="${o}">Переработать</button></td></tr>`; }).join('')}</table>`
+    : '<div class="muted">В ангаре этой станции нет руды. Разгрузите трюм (вкладка «Ангар»).</div>');
+  html += `<h3>⚙ Материалы → компоненты</h3><div class="muted small">Компоненты нужны для чертежей серийных модулей классов II–V и дронов Mk II и выше, а ещё хорошо продаются.</div>
+    <table class="tbl"><tr><th>Компонент</th><th>Из чего</th><th class="r">Можно</th><th></th></tr>${Object.entries(R.comps).map(([id, c]) => { const can = Math.min(...Object.entries(c.mats).map(([k, q]) => Math.floor((h[k] || 0) / q)));
+      return `<tr><td><b>${esc(c.name)}</b><div class="muted small">${esc(c.desc)} · ${isk(it(id).base)}</div></td><td class="small">${Object.entries(c.mats).map(([k, q]) => `<span class="${(h[k] || 0) >= q ? '' : 'bad'}">${esc(it(k).name)} ${q}</span>`).join(' + ')}</td><td class="r">${num(can)}</td>
+      <td class="r"><input class="qty" type="number" min="1" value="${Math.max(1, Math.min(can, 10))}" id="cm-${id}"> <button class="primary" data-a="compMake" data-id="${id}" ${can ? '' : 'disabled'}>Собрать</button></td></tr>`; }).join('')}</table>`;
+  html += `<h3>Куда тратить материалы</h3><div class="kv small"><span>Сталь, керамит</span><span>компоненты «Бронеплита», «Сервопривод», чертежи модулей I–II класса, детали кораблей на своей верфи</span>
+    <span>Кристаллит</span><span>«Линза», «Катушка», модули III класса, исследования в лаборатории</span><span>Нуль-сплав, ксенон-ядро</span><span>«Энергоядро», «Нейрочип», модули IV–V класса, улучшения модулей</span>
+    <span>Гелий-3, плазменный газ</span><span>«Катушка», «Энергоядро», энергоячейки на своей станции</span></div>`;
+  return html;
 }

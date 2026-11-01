@@ -54,6 +54,7 @@ module.exports = function install(Game) {
       const acc = e.foundryAcc || (e.foundryAcc = {});
       const got = {};
       let free = e.stats.cargo - this.cargoUsed(p.ship.cargo), full = false;
+      const eaten = [];
       for (const t of rocks.slice(0, F.maxRocks)) {
         const rec = RECIPES[t.ore];
         let units = Math.min(t.amount, Math.floor(F.perRock * pw * e.stats.mineMul * incomeOf(e.sys) / ITEMS[t.ore].vol));
@@ -68,9 +69,13 @@ module.exports = function install(Game) {
           const n = Math.floor(acc[rec.out]); acc[rec.out] -= n;
           if (n > 0) { p.ship.cargo[rec.out] = (p.ship.cargo[rec.out] || 0) + n; got[rec.out] = (got[rec.out] || 0) + n; free -= n * ITEMS[rec.out].vol; }
         } else { p.ship.cargo[t.ore] = (p.ship.cargo[t.ore] || 0) + units; got[t.ore] = (got[t.ore] || 0) + units; free -= units * ITEMS[t.ore].vol; }
-        this.fxSys(e.sys, null, { k: 'mine', from: e.id, to: t.id, color: 0xff9a40, dur: F.cycle });
+        eaten.push(t.id);
+        // поле притяжения: астероид медленно подтягивается к пасти плавильни
+        { const off = [e.pos[0] - t.pos[0], e.pos[1] - t.pos[1], e.pos[2] - t.pos[2]], d = Math.hypot(...off), keep = e.radius + t.radius + 2500;
+          if (d > keep) { const step = Math.min(d - keep, Math.max(400, d * 0.12)); for (let i = 0; i < 3; i++) t.pos[i] += off[i] / d * step; } }
         if (t.amount <= 0) this.depleteAsteroid(t);
       }
+      if (eaten.length) this.fxSys(e.sys, null, { k: 'foundry', from: e.id, rocks: eaten, dur: F.cycle });
       const parts = Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`);
       if (parts.length) this.notify(s, 'Литейный цех: ' + parts.join(', '), 'mine');
       if (full) { this.notify(s, 'Трюм «Бегемота» полон — литейный цех остановлен.', 'warn'); e.nextFoundry = this.now + 20000; }

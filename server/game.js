@@ -1800,5 +1800,6 @@ require('./tech')(Game);
 require('./raid')(Game);
 require('./world')(Game);
 require('./newships')(Game);
+require('./refine')(Game);
 
 module.exports = { Game };

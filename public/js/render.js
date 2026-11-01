@@ -1381,6 +1381,7 @@ const DESIGN = {
   begemot(K) { // индустриальный дредноут: носовая «пасть» плавильни, трубы, конвейерные галереи
     K.loft([[-1.0, 0.5, 0.36], [-0.5, 0.6, 0.42, 0.02], [0.4, 0.62, 0.42, 0.02], [0.75, 0.56, 0.38]], 'box');
     const maw = add2(K, new THREE.TorusGeometry(K.s(0.36), K.s(0.09), 12, 40), K.D, 0, 0, 0.85);
+    { const mw = new THREE.Object3D(); mw.position.set(0, 0, K.s(0.9)); mw.userData.maw = K.s(0.34); K.g.add(mw); }
     add2(K, new THREE.CircleGeometry(K.s(0.3), 32), glowMat(0xff7020, 2.2), 0, 0, 0.84);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; const t = add2(K, new THREE.ConeGeometry(K.s(0.04), K.s(0.22), 6), K.D, Math.cos(a) * 0.36, Math.sin(a) * 0.36, 1.0); t.rotation.x = Math.PI / 2; }
     for (const [x, z] of [[-0.3, -0.3], [0, -0.4], [0.3, -0.3]]) {
@@ -3724,7 +3725,17 @@ export function frame(view, dt, time) {
       setEngines(rec.obj, 1.2, time);
       if (quality !== 'low' && Math.hypot(...rel) < 80000 * distK()) updateTrail(e.id, e.dp, e.dh || e.h || [0, 0, 1], e.tp ? 14 : 8, 1, e.c || 0xffa040, origin, time, false);
     } else if (e.k === 't') { const head = rec.obj.userData.head; if (head) head.rotation.y = time * 0.6; setEngines(rec.obj, 0.2, time); }
-    else if (e.k === 'a') rec.obj.rotation.y += rec.obj.userData.spin * dt;
+    else if (e.k === 'a') {
+      const ud = rec.obj.userData, eat = FOUNDRY_ROCKS.get(e.id) || 0;
+      if (ud.s0 == null) { ud.s0 = rec.obj.scale.x; ud.am0 = e.am || 1; }
+      ud.am0 = Math.max(ud.am0, e.am || 0);
+      rec.obj.rotation.y += ud.spin * dt * (eat > time ? 6 : 1);
+      if (eat > time) {
+        const k = 0.35 + 0.65 * Math.sqrt(Math.max(0, e.am || 0) / ud.am0), j = (e.r || 100) * 0.03;
+        rec.obj.scale.setScalar(ud.s0 * k); rec.obj.position.x += (Math.random() - 0.5) * j; rec.obj.position.y += (Math.random() - 0.5) * j; rec.obj.position.z += (Math.random() - 0.5) * j;
+        rec.obj.rotation.x += dt * 1.3;
+      }
+    }
     else if (e.k === 'w') { const fl = rec.obj.userData.flicker; if (fl && fl.material) fl.material.opacity = e.rv ? 0.75 + 0.25 * Math.sin(time * 3) : 0.5 + 0.5 * Math.random(); if (e.rv) setEngines(rec.obj, 0.2, time); }
   }
   for (const [id, rec] of [...entMeshes]) if (!rec.seen) removeEnt(id);
@@ -3732,6 +3743,7 @@ export function frame(view, dt, time) {
   sweepTrails();
   updateDust(origin, view.me);
   updateFx(view, dt, origin);
+  updateFoundry(view, dt);
   updateWarp(view, dt);
   composer.render();
 }
@@ -3970,7 +3982,8 @@ export function addFx(fx, view) {
         else if (fx.k === 'beam' && quality !== 'low') hullSparks(fx.to, entRadius(view, fx.to), fx.color);
       }
     }
-  } else if (fx.k === 'boom') explosion(fx.pos, fx.size || 300);
+  } else if (fx.k === 'foundry') foundryFx(view, fx);
+  else if (fx.k === 'boom') explosion(fx.pos, fx.size || 300);
   else if (fx.k === 'jump') {
     const s = sprite(0x60b0ff, 3); fxGroup.add(s);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x80c8ff).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -4058,7 +4071,126 @@ function explosion(pos, size) {
   fxList.push({ kind: 'boom', abs: pos, t: 0, dur: 3.5, size, flash, parts, sparks, vel, wave, debris });
 }
 
+// ======================================================================
+// «Бегемот»: воронка плавильни перед носом, поле притяжения и потоки обломков от астероидов в пасть
+// ======================================================================
+const FOUNDRY = new Map();        // id корабля → { until, vortex }
+const FOUNDRY_ROCKS = new Map();  // id астероида → время (в секундах кадра), до которого его поглощают
+let swirlTex = null;
+function swirlTexture() {
+  if (swirlTex) return swirlTex;
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const g = x.createRadialGradient(128, 128, 0, 128, 128, 128); g.addColorStop(0, 'rgba(255,250,230,1)'); g.addColorStop(0.18, 'rgba(255,200,120,0.95)'); g.addColorStop(0.5, 'rgba(255,120,40,0.45)'); g.addColorStop(1, 'rgba(255,60,10,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  x.globalCompositeOperation = 'lighter'; x.lineCap = 'round';
+  for (let arm = 0; arm < 5; arm++) { // спиральные рукава
+    x.beginPath();
+    for (let i = 0; i <= 60; i++) { const t = i / 60, a = arm * Math.PI * 2 / 5 + t * 4.2, r = 10 + t * 112; const px = 128 + Math.cos(a) * r, py = 128 + Math.sin(a) * r; i ? x.lineTo(px, py) : x.moveTo(px, py); }
+    x.strokeStyle = 'rgba(255,170,80,0.55)'; x.lineWidth = 7; x.stroke(); x.strokeStyle = 'rgba(255,240,200,0.6)'; x.lineWidth = 2; x.stroke();
+  }
+  swirlTex = new THREE.CanvasTexture(c); swirlTex.colorSpace = THREE.SRGBColorSpace;
+  return swirlTex;
+}
+function shipObjOf(view, id) { if (view.me && id === view.me.id) return myShip; const r = entMeshes.get(id); return r ? r.obj : null; }
+function mawOf(obj) {
+  if (!obj) return null;
+  if (obj.userData.mawObj === undefined) { obj.userData.mawObj = null; obj.traverse(o => { if (o.userData.maw) obj.userData.mawObj = o; }); }
+  return obj.userData.mawObj;
+}
+function makeVortex() {
+  const g = new THREE.Group();
+  const add = (m) => { g.add(m); return m; };
+  const disc = add(new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: swirlTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })));
+  const disc2 = add(new THREE.Mesh(new THREE.CircleGeometry(1.25, 48), disc.material.clone())); disc2.material.opacity = 0.5;
+  const rings = [0, 1, 2].map(() => add(new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(2.2), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }))));
+  const gc = document.createElement('canvas'); gc.width = 4; gc.height = 128; const gx = gc.getContext('2d'), gr = gx.createLinearGradient(0, 0, 0, 128);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 4, 128);
+  const cone = add(new THREE.Mesh(new THREE.ConeGeometry(1, 1, 48, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a30).multiplyScalar(0.9), alphaMap: new THREE.CanvasTexture(gc), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false })));
+  cone.geometry.translate(0, -0.5, 0); cone.geometry.rotateX(-Math.PI / 2); // вершина в пасти, раструб — вперёд
+  const N = 160, pos = new Float32Array(N * 3), seed = Array.from({ length: N }, () => [Math.random(), Math.random() * Math.PI * 2, 0.4 + Math.random() * 0.6]);
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const inflow = add(new THREE.Points(pg, new THREE.PointsMaterial({ color: new THREE.Color(0xffb060).multiplyScalar(2.4), size: 3.4, sizeAttenuation: false, map: TEX.glowHard, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+  inflow.frustumCulled = false;
+  const light = new THREE.PointLight(0xff8a30, 0, 0, 1.6); g.add(light);
+  g.userData = { disc, disc2, rings, cone, inflow, seed, light, fade: 0 };
+  fxGroup.add(g);
+  return g;
+}
+function foundryFx(view, fx) {
+  const now = clockNow();
+  const st = FOUNDRY.get(fx.from) || {}; st.until = now + (fx.dur || 6) + 0.6; st.range = 25000; FOUNDRY.set(fx.from, st);
+  for (const id of fx.rocks || []) {
+    FOUNDRY_ROCKS.set(id, now + (fx.dur || 6) + 0.4);
+    if (fxList.some(f => f.kind === 'fstream' && f.rock === id && f.ship === fx.from && f.t < f.dur - 1)) continue;
+    const N = 54, pp = new Float32Array(N * 3), col = new Float32Array(N * 3), pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(pp, 3)); pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const sparks = new THREE.Points(pg, new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, map: TEX.glowHard, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    sparks.frustumCulled = false; fxGroup.add(sparks);
+    const M = 16, cp = new Float32Array(M * 3), cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.BufferAttribute(cp, 3));
+    const chunks = new THREE.Points(cg, new THREE.PointsMaterial({ color: 0x8a6a4a, size: 8, sizeAttenuation: false, map: TEX.glowHard, transparent: true, opacity: 0.9, depthWrite: false }));
+    chunks.frustumCulled = false; fxGroup.add(chunks);
+    const ph = Array.from({ length: N + M }, () => [Math.random(), Math.random() * Math.PI * 2, Math.random(), (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2]);
+    fxList.push({ kind: 'fstream', rock: id, ship: fx.from, sparks, chunks, ph, t: 0, dur: (fx.dur || 6) + 0.5, last: null });
+  }
+}
+const clockNow = () => performance.now() / 1000;
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpU = new THREE.Vector3(), tmpW = new THREE.Vector3(), tmpF = new THREE.Vector3();
+function updateFoundry(view, dt) {
+  const now = clockNow();
+  for (const [id, until] of FOUNDRY_ROCKS) if (until < now - 2) FOUNDRY_ROCKS.delete(id);
+  for (const [id, st] of FOUNDRY) {
+    const obj = shipObjOf(view, id), maw = mawOf(obj);
+    const on = !!maw && st.until > now;
+    if (!st.vortex && on) st.vortex = makeVortex();
+    const v = st.vortex; if (!v) { if (st.until < now - 2) FOUNDRY.delete(id); continue; }
+    const u = v.userData;
+    u.fade += ((on ? 1 : 0) - u.fade) * (1 - Math.exp(-dt * (on ? 2.5 : 1.5)));
+    if (!on && u.fade < 0.02) { fxGroup.remove(v); v.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); FOUNDRY.delete(id); continue; }
+    if (!maw) continue;
+    maw.getWorldPosition(tmpA); obj.getWorldDirection(tmpF); // вперёд (+Z модели)
+    const ws = new THREE.Vector3(); maw.getWorldScale(ws); const R = maw.userData.maw * ws.x, f = u.fade, t = now;
+    v.position.copy(tmpA); v.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tmpF);
+    u.disc.scale.setScalar(R * (0.95 + 0.05 * Math.sin(t * 6))); u.disc.rotation.z = -t * 2.2; u.disc.material.opacity = f;
+    u.disc2.scale.setScalar(R * 1.05); u.disc2.rotation.z = t * 1.3; u.disc2.material.opacity = 0.45 * f;
+    u.rings.forEach((r, i) => { const k = (t * 0.55 + i / 3) % 1; r.scale.setScalar(R * (1.1 + k * 2.2)); r.position.z = R * (0.2 + k * 3.5); r.material.opacity = (1 - k) * 0.85 * f; });
+    const L = Math.min(st.range, R * 40); u.cone.scale.set(R * 6, R * 6, L); u.cone.material.opacity = 0.06 * f * (0.8 + 0.2 * Math.sin(t * 3)); u.cone.material.alphaMap.offset.y = (-t * 0.15) % 1;
+    const arr = u.inflow.geometry.attributes.position.array;
+    u.seed.forEach(([p0, a0, rr], i) => { // частицы по спирали втягиваются в пасть
+      const k = 1 - ((t * 0.35 * rr + p0) % 1), rad = R * (0.3 + k * 6) * rr, a = a0 + (1 - k) * 7 + t * 1.5;
+      arr[i * 3] = Math.cos(a) * rad; arr[i * 3 + 1] = Math.sin(a) * rad; arr[i * 3 + 2] = R * 0.2 + k * k * L * 0.35;
+    });
+    u.inflow.geometry.attributes.position.needsUpdate = true; u.inflow.material.opacity = f;
+    u.light.intensity = 6 * f * (0.85 + 0.15 * Math.sin(t * 9)); u.light.distance = R * 30; u.light.position.set(0, 0, R * 0.6);
+  }
+}
+function updateFstream(f, view, origin, k) {
+  const obj = shipObjOf(view, f.ship), maw = mawOf(obj), rk = entRel(view, f.rock, origin);
+  if (!maw) { f.t = f.dur; return; }
+  maw.getWorldPosition(tmpB);
+  if (rk) f.last = rk.clone(); const A = f.last; if (!A) { f.t = f.dur; return; }
+  const rock = view.ents.get(f.rock), rr = rock && rock.r ? rock.r : 300;
+  tmpU.subVectors(tmpB, A); const D = tmpU.length() || 1; tmpU.divideScalar(D);
+  tmpW.set(0, 1, 0).cross(tmpU); if (tmpW.lengthSq() < 1e-4) tmpW.set(1, 0, 0); tmpW.normalize();
+  const tmpV2 = new THREE.Vector3().crossVectors(tmpU, tmpW);
+  const fadeIn = Math.min(1, f.t * 2), fadeOut = Math.min(1, (f.dur - f.t) * 1.5), vis = fadeIn * fadeOut;
+  const sp = f.sparks.geometry.attributes.position.array, sc = f.sparks.geometry.attributes.color.array, cp = f.chunks.geometry.attributes.position.array;
+  const N = sp.length / 3, M = cp.length / 3, t = clockNow();
+  for (let i = 0; i < N + M; i++) {
+    const [p0, a0, w, jx, jy] = f.ph[i], speed = i < N ? 0.45 : 0.25;
+    const u = (t * speed + p0) % 1;                     // 0 — у астероида, 1 — в пасти
+    const ease = u * u * (3 - 2 * u), swirl = a0 + u * 9 + t * 0.8, rad = (rr * (0.9 - 0.8 * u) + D * 0.06 * Math.sin(Math.PI * u)) * (0.4 + w * 0.6);
+    const x = A.x + tmpU.x * D * ease + (tmpW.x * Math.cos(swirl) + tmpV2.x * Math.sin(swirl)) * rad + jx * rr * 0.3 * (1 - u);
+    const y = A.y + tmpU.y * D * ease + (tmpW.y * Math.cos(swirl) + tmpV2.y * Math.sin(swirl)) * rad + jy * rr * 0.3 * (1 - u);
+    const z = A.z + tmpU.z * D * ease + (tmpW.z * Math.cos(swirl) + tmpV2.z * Math.sin(swirl)) * rad;
+    if (i < N) { sp[i * 3] = x; sp[i * 3 + 1] = y; sp[i * 3 + 2] = z; const h = Math.pow(u, 1.5); sc[i * 3] = (0.9 + h * 1.6) * vis; sc[i * 3 + 1] = (0.35 + h * 1.4) * vis; sc[i * 3 + 2] = (0.1 + h * 1.1) * vis; }
+    else { const j = i - N; cp[j * 3] = x; cp[j * 3 + 1] = y; cp[j * 3 + 2] = z; }
+  }
+  f.sparks.geometry.attributes.position.needsUpdate = true; f.sparks.geometry.attributes.color.needsUpdate = true; f.chunks.geometry.attributes.position.needsUpdate = true;
+  f.chunks.material.opacity = 0.85 * vis;
+}
+
 function disposeFx(f) {
+  if (f.chunks) { fxGroup.remove(f.chunks); f.chunks.geometry.dispose(); f.chunks.material.dispose(); }
   if (f.bolts) { fxGroup.remove(f.bolts.mesh); f.bolts.mesh.geometry.dispose(); f.bolts.mesh.material.dispose(); }
   if (f.segs) { for (const [g, c] of f.segs) fxGroup.remove(g, c); f.gm.dispose(); f.cm.dispose(); }
   for (const k of ['glow', 'core', 'muzzle', 'sprite', 'ring', 'shield', 'flash', 'sparks', 'wave']) if (f[k]) { fxGroup.remove(f[k]); if (f[k].material) f[k].material.dispose(); if (f[k].geometry && f[k].geometry !== beamGeo) f[k].geometry.dispose(); }
@@ -4164,6 +4296,8 @@ function updateFx(view, dt, origin) {
       const c = new THREE.Vector3(f.abs[0] - origin[0], f.abs[1] - origin[1], f.abs[2] - origin[2]);
       f.sprite.position.copy(c); f.sprite.scale.setScalar(f.size * (0.3 + k)); f.sprite.material.opacity = 1 - k;
       f.ring.position.copy(c); f.ring.lookAt(camera.position); f.ring.scale.setScalar(f.size * 0.3 * (0.2 + k * 2)); f.ring.material.opacity = 1 - k;
+    } else if (f.kind === 'fstream') {
+      updateFstream(f, view, origin, k);
     } else if (f.kind === 'hsp') {
       const p = entRel(view, f.follow, origin);
       if (p) {

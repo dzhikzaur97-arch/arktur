@@ -413,6 +413,10 @@ Object.assign(MODULES, {
   pd_2:     { name: 'Тяжёлая ПРО «Купол»', slot: 'mid', kind: 'pd', price: 90000, cycle: 1.2, cap: 8, range: 12000, shots: 2, vol: 15 }
 });
 
+// ---------- Серийный каталог: ~300 модулей и дронов по семействам, классам и производителям (server/catalog.js) ----------
+const CATALOG_DRONES = {};
+require('./catalog')(MODULES, CATALOG_DRONES);
+
 // ---------- Улучшение модулей до 5 уровня ----------
 // Каждый уровень — отдельный предмет «<id>_l<N>»: его можно ставить, хранить, продавать и выставлять на биржу,
 // поэтому весь остальной код работает с ним как с обычным модулем.
@@ -440,6 +444,7 @@ function upgradeCost(id) {
 }
 for (const [id, m] of Object.entries({ ...MODULES })) {
   m.base = id; m.lv = 1;
+  if (m.series) continue; // серийные модули не улучшаются — у них уже есть классы I–V
   const P = MOD_UPGRADE.per;
   for (let L = 2; L <= MOD_UPGRADE.maxLv; L++) {
     const f = (k) => 1 + P[k] * (L - 1);
@@ -457,7 +462,7 @@ for (const [id, m] of Object.entries({ ...MODULES })) {
 }
 
 // нагрев за выстрел: лазеры греются сильнее рельсотронов, мощные орудия — сильнее слабых
-for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') ? 0.09 : m.arc ? 0.07 : 0.12) * 10) / 10;
+for (const [id, m] of Object.entries(MODULES)) if (m.kind === 'weapon') m.heatPerShot = Math.round(m.dmg * (m.base.startsWith('rail') || m.fam === 'rg' || m.fam === 'ion' ? 0.09 : m.fam === 'ac' ? 0.06 : m.arc ? 0.07 : 0.12) * 10) / 10;
 for (const [id, m] of Object.entries(MODULES)) ITEMS[id] = { name: m.name, cat: m.artifact ? 'Артефакты Предтеч' : m.trophy ? 'Трофеи мировых событий' : m.elite ? 'Элитные модули' : 'Модули', vol: m.vol, base: m.price, module: true, elite: m.elite, lv: m.lv };
 
 // ---------- Дроны ----------
@@ -487,6 +492,7 @@ const DRONES = {
   drone_mine2:    { name: 'Тяжёлый шахтёрский дрон «Бур»', kind: 'mining', cls: 'mining', price: 60000, vol: 25, yield: 85, cycle: 6, range: 1800, speed: 700, hp: 1200, sig: 50, r: 12, resist: 0.2, color: 0x60e070 },
   drone_x:        { name: 'Дрон-призрак «Мираж»', kind: 'combat', cls: 'medium', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, sig: 22, r: 8, pd: 0.5, color: 0xd060ff, elite: true }
 };
+Object.assign(DRONES, CATALOG_DRONES);
 for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite };
 // Планетарные ресурсы: добываются мультитулом на поверхности планет (см. server/surface.js, public/js/planetgen.js)
 Object.assign(ITEMS, {
@@ -707,6 +713,20 @@ const BP_TIERS = [
 ];
 // энергоячеек в производстве нет: это товар для торговли между регионами, его цена зависит от спроса
 const BP_BATCH = { msl_std: 20, msl_torp: 10, turret_kit: 1 };
+// Компоненты — второй передел: материалы (и газ) → детали для серийных модулей классов II–V и дронов
+const COMPONENTS = {
+  comp_plate: { name: 'Бронеплита', mats: { mat_steel: 20, mat_ceramite: 8 }, desc: 'для брони, переборок и ремонтников' },
+  comp_servo: { name: 'Сервопривод', mats: { mat_steel: 15, mat_crystal: 3 }, desc: 'для буров, пусковых установок и дронов' },
+  comp_lens:  { name: 'Фокусирующая линза', mats: { mat_crystal: 8, mat_ceramite: 4 }, desc: 'для лазеров' },
+  comp_coil:  { name: 'Сверхпроводящая катушка', mats: { mat_crystal: 6, gas_h3: 4 }, desc: 'для рельсотронов, щитов, ПРО и сенсоров' },
+  comp_core:  { name: 'Энергоядро', mats: { mat_nullalloy: 3, gas_plasma: 4 }, desc: 'для плазмомётов, двигателей и накопителей' },
+  comp_chip:  { name: 'Нейрочип', mats: { mat_nullalloy: 2, mat_xcore: 1 }, desc: 'для усилителей урона, дронов и управления' }
+};
+for (const [id, c] of Object.entries(COMPONENTS)) ITEMS[id] = { name: c.name, cat: 'Компоненты', vol: 0.5, base: Math.round(Object.entries(c.mats).reduce((a, [k, q]) => a + (ITEMS[k] ? ITEMS[k].base : 100) * q, 0) * 1.3), desc: c.desc };
+// какой компонент нужен семейству серийного модуля
+const COMP_OF = { pl: 'comp_lens', bl: 'comp_lens', rg: 'comp_coil', ion: 'comp_coil', ac: 'comp_servo', pt: 'comp_core', ml: 'comp_servo', tl: 'comp_servo',
+  dr: 'comp_servo', gh: 'comp_servo', sb: 'comp_coil', ar: 'comp_plate', ab: 'comp_core', sc: 'comp_coil', pd: 'comp_coil', da: 'comp_chip', rf: 'comp_chip', cx: 'comp_plate',
+  od: 'comp_core', mu: 'comp_servo', hp: 'comp_plate', cr: 'comp_core', wa: 'comp_core', dl: 'comp_chip', ss: 'comp_coil' };
 const BLUEPRINTS = {};
 function addBlueprint(out, kind, price, rare) {
   const qty = BP_BATCH[out] || 1, value = price * qty;
@@ -714,6 +734,12 @@ function addBlueprint(out, kind, price, rare) {
   const matValue = value * (rare ? 0.35 : 0.5);
   for (const [it, f] of Object.entries(share)) mats[it] = Math.max(1, Math.ceil(matValue * f / ITEMS[it].base));
   if (rare) { mats.salv_core = Math.max(1, Math.ceil(value / 150000)); if (value >= 400000) mats.salv_relic = Math.ceil(value / 600000); }
+  // серийные модули классов II–V и дроны Mk II+ требуют компонентов: 40% стоимости материалов — компонентами
+  const src = kind === 'module' ? MODULES[out] : kind === 'drone' ? DRONES[out] : null;
+  if (src && src.series && (src.tier || 1) >= 2) {
+    const comp = kind === 'drone' ? (src.kind === 'mining' ? 'comp_servo' : 'comp_chip') : COMP_OF[src.fam];
+    if (comp) { for (const k of Object.keys(mats)) mats[k] = Math.max(1, Math.ceil(mats[k] * 0.6)); mats[comp] = Math.max(1, Math.ceil(matValue * 0.4 / ITEMS[comp].base)); }
+  }
   const id = 'bp_' + out;
   BLUEPRINTS[id] = { out, kind, qty, mats, fee: Math.round(value * 0.05), time: Math.round(Math.min(900, Math.max(20, 15 + Math.sqrt(value) * 0.6))),
     price: rare ? 0 : Math.round(Math.max(15000, kind === 'ship' ? price * 1.2 : value * 3)), rare: !!rare };
@@ -734,4 +760,4 @@ const incomeOf = (sysId) => { const s = SYSTEMS.find(x => x.id === sysId) || EXT
 
 const STATION_NAMES = ['Торговый узел', 'Шахтёрская платформа', 'Верфь', 'Аванпост', 'Научная станция', 'Перевалочная база'];
 
-module.exports = { EXTRA_SYS, AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel, BLUEPRINTS, RARE_BLUEPRINTS, INDUSTRY };
+module.exports = { COMPONENTS, EXTRA_SYS, AU, SHIPS, SHIP_ROLES, FACTION_INFO, REP_NEED, MODULES, DRONES, DRONE_CLASSES, ITEMS, NPCS, SKILLS, SKILL_TIME, SYSTEMS, GATES, STATION_NAMES, oresForSec, REGIONS, STAR_TYPES, incomeOf, RECIPES, REFINERY , MOD_UPGRADE, upgradeCost, modBase, modLevel, BLUEPRINTS, RARE_BLUEPRINTS, INDUSTRY };
