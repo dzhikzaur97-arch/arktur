@@ -26,7 +26,21 @@ const CORP = {
 
 module.exports = function install(Game) {
   const P = Game.prototype;
-  const baseSlow = P.slowTick;
+  const baseSlow = P.slowTick, baseLogin = P.login;
+  // корпорации, основанные по старой цене (1 млн CR), получают разницу обратно — один раз
+  P.corpRefund = function (p) {
+    const c = p && p.corp; if (!c || c.paid) return 0;
+    c.paid = CORP.cost;
+    const back = 1000000 - CORP.cost; if (back <= 0) return 0;
+    p.credits += back; this.corpLog(p, `Возврат разницы в цене основания: ${fmt(back)} CR`);
+    return back;
+  };
+  P.login = function (sess, name, pass) {
+    const r = baseLogin.apply(this, arguments);
+    const back = sess.player ? this.corpRefund(sess.player) : 0;
+    if (back) { this.notify(sess, `🏛 Основание корпорации подешевело до ${fmt(CORP.cost)} CR — разница ${fmt(back)} CR возвращена вам`, 'good'); this.sendProfile(sess); this.save(); }
+    return r;
+  };
 
   P.corpSlots = function (p) { const c = p.corp; return c ? CORP.levels[c.level].slots + (this.techHas && this.techHas(p, 'corp1') ? 5 : 0) : 0; };
   P.corpView = function (p) {
@@ -46,7 +60,7 @@ module.exports = function install(Game) {
     if (p.credits < CORP.cost) return this.notify(s, `Нужно ${fmt(CORP.cost)} CR`, 'warn');
     p.credits -= CORP.cost;
     p.corp = { name, tag, emblem: CORP.emblems.includes(m.emblem) ? m.emblem : CORP.emblems[0], color: CORP.colors.includes(m.color) ? m.color : CORP.colors[0],
-      level: 1, treasury: 0, hangar: {}, members: [], log: [], at: this.now, founded: this.now };
+      level: 1, treasury: 0, hangar: {}, members: [], log: [], at: this.now, founded: this.now, paid: CORP.cost };
     this.corpLog(p, `Корпорация «${name}» [${tag}] основана`);
     this.notify(s, `🏛 Корпорация «${name}» [${tag}] основана! Нанимайте пилотов — они будут работать на казну`, 'good');
     this.sendProfile(s); s.send(this.corpView(p)); this.save();
