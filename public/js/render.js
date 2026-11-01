@@ -2756,6 +2756,50 @@ function placeFar(obj, rel, radius, isUnit) {
 // ======================================================================
 // Кадр
 // ======================================================================
+// Кольца дальности вокруг своего корабля: тонкий пунктир в плоскости системы и подписи в км.
+// Неяркие и не перекрывают обзор; подписи всегда сбоку от корабля (со стороны правого края экрана).
+const RING_KM = [5, 10, 15, 20, 50, 100];
+let rangeRings = null;
+function makeRangeRings() {
+  const g = new THREE.Group(); g.userData.labels = [];
+  for (const km of RING_KM) {
+    const r = km * 1000, N = km >= 50 ? 256 : 160, pts = [];
+    for (let i = 0; i <= N; i++) { const a = i / N * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r)); }
+    const far = km >= 50;
+    const mat = new THREE.LineDashedMaterial({ color: far ? 0x6f9fc0 : 0x9fd8ff, transparent: true, opacity: far ? 0.16 : 0.22, dashSize: r * 0.018, gapSize: r * 0.012, depthWrite: false, fog: false, toneMapped: false });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+    line.computeLineDistances(); line.renderOrder = 2; line.frustumCulled = false; g.add(line);
+    const c = document.createElement('canvas'); c.width = 160; c.height = 56;
+    const x = c.getContext('2d'); x.font = '600 28px Segoe UI, Inter, sans-serif'; x.textAlign = 'center'; x.lineWidth = 5;
+    x.strokeStyle = 'rgba(0,8,20,0.65)'; x.fillStyle = far ? 'rgba(150,195,225,0.8)' : 'rgba(180,228,255,0.85)';
+    const txt = km + ' км'; x.strokeText(txt, 80, 38); x.fillText(txt, 80, 38);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, sizeAttenuation: false, opacity: 0.85, toneMapped: false, fog: false }));
+    sp.scale.set(0.13, 0.045, 1); sp.renderOrder = 3; sp.userData.r = r; g.add(sp); g.userData.labels.push(sp);
+  }
+  return g;
+}
+function updateRangeRings(view) {
+  const on = !!view.rings && !view.docked;
+  if (!on) { if (rangeRings) rangeRings.visible = false; return; }
+  if (!rangeRings) { rangeRings = makeRangeRings(); scene.add(rangeRings); }
+  rangeRings.visible = true;
+  // подпись каждого кольца — в видимой его части, ближе к правому нижнему краю экрана (там меньше всего интерфейса)
+  camera.updateMatrixWorld();
+  for (const sp of rangeRings.userData.labels) {
+    let best = null, bs = -1e9;
+    for (let i = 0; i < 48; i++) {
+      const a = i / 48 * Math.PI * 2;
+      tmpV.set(Math.cos(a) * sp.userData.r, 0, Math.sin(a) * sp.userData.r).project(camera);
+      if (tmpV.z > 1 || Math.abs(tmpV.x) > 0.82 || tmpV.y < -0.7 || tmpV.y > 0.75) continue;
+      const sc = tmpV.x * 0.8 - tmpV.y * 0.6;
+      if (sc > bs) { bs = sc; best = a; }
+    }
+    sp.visible = best !== null;
+    if (best !== null) sp.position.set(Math.cos(best) * sp.userData.r, 0, Math.sin(best) * sp.userData.r);
+  }
+}
+
 export function frame(view, dt, time) {
   renderer.info.reset(); // счётчики за весь кадр (все проходы композитора), для оверлея производительности
   if (contextLost) return;
@@ -2778,6 +2822,7 @@ export function frame(view, dt, time) {
   if (starField) starField.position.copy(camera.position);
   if (skyDome) skyDome.position.copy(camera.position);
 
+  updateRangeRings(view);
   if (view.docked) { godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; stationFrame(view, dt, time); return; }
   if (stationView) { scene.remove(stationView); stationView = null; celGroup.visible = entGroup.visible = true; dust.visible = true; }
 

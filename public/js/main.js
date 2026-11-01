@@ -553,7 +553,8 @@ function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ghosts.size ? new Map([...S.ents, ...ghostStep()]) : S.ents, data: S.data, docked: S.docked,
     dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null,
-    roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0
+    roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0,
+    rings: CFG.rings !== false && !!S.me && !document.body.classList.contains('photo')
   };
 }
 
@@ -752,6 +753,7 @@ window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент �
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
 window.__VF_SF = SF; // отладка мира поверхности
+window.__VF_CAM = R.cam; // отладка камеры (тесты)
 window.__VF_SCENE = R.debugScene; // отладка сцены космоса
 // потеря WebGL-контекста: сообщаем, снижаем качество (обычно причина — нехватка видеопамяти) и восстанавливаемся
 R.onContext(() => note('Видеокарта сбросила графику — восстанавливаю…', 'warn'), () => {
@@ -2977,6 +2979,7 @@ function settingsHTML() {
     ${MOBILE ? chk('cfg-battery', CFG.battery !== false, 'Экономия батареи: на станции и в карте 30 кадров/с, под открытыми окнами космос почти не рисуется') : ''}
     ${'vibrate' in navigator ? chk('cfg-haptics', CFG.haptics !== false, 'Вибрация при попаданиях и взрывах') : ''}
     ${chk('cfg-awake', CFG.awake !== false, 'Не выключать экран, пока игра открыта')}
+    ${chk('cfg-rings', CFG.rings !== false, 'Кольца дальности вокруг корабля: 5, 10, 15, 20, 50, 100 км')}
     ${document.fullscreenEnabled ? '<p><button data-a="fullscreen">Во весь экран</button></p>' : ''}
     ${chk('cfg-voice', CFG.voice !== false, 'Озвучивать реплики персонажей встроенным голосом устройства (бесплатно, лимиты Claude не тратит)')}
     ${!CLAUDE_OK ? '' : chk('cfg-liveNpc', CFG.liveNpc, 'Claude в игре: живые разговоры (агенты, пираты, лидеры фракций), бортовой помощник и особые задания. Каждый ответ расходует лимиты вашего аккаунта Claude; работает, когда игра открыта на claude.ai')}
@@ -3193,7 +3196,7 @@ $('#win-body').addEventListener('input', (e) => {
   if (id === 'cfg-fpsCap') CFG.fpsCap = +e.target.value;
   const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1), 'cfg-fov': (v) => v + '°' }[id] || ((v) => Math.round(v * 100) + '%');
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
-  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake', 'rings']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
   if (id === 'cfg-awake') keepAwake(CFG.awake);
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
