@@ -1045,6 +1045,7 @@ const PROFS = {
   cath: [[1, -0.3], [0.62, 0.32], [0.2, 1], [-0.2, 1], [-0.62, 0.32], [-1, -0.3], [-0.6, -0.85], [0.6, -0.85]],
   flat: [[1, 0.1], [0.8, 0.55], [-0.8, 0.55], [-1, 0.1], [-1, -0.2], [-0.75, -0.5], [0.75, -0.5], [1, -0.2]],
   blade: [[1, 0], [0.3, 1], [-0.3, 1], [-1, 0], [-0.3, -1], [0.3, -1]],
+  oct: Array.from({ length: 8 }, (_, i) => [Math.cos(i / 8 * Math.PI * 2 + Math.PI / 8) / Math.cos(Math.PI / 8), Math.sin(i / 8 * Math.PI * 2 + Math.PI / 8) / Math.cos(Math.PI / 8)]),
   round: Array.from({ length: 20 }, (_, i) => [Math.cos(i / 20 * Math.PI * 2), Math.sin(i / 20 * Math.PI * 2)])
 };
 // Лофт: сечения [z, w, h, y = 0, x = 0], одинаковый профиль; гранёный (плоские нормали) или гладкий
@@ -1082,7 +1083,7 @@ function creaseNormals(g, deg = 38) {
   }
   g.setAttribute('normal', new THREE.BufferAttribute(out, 3));
 }
-function loftGeo(secs, prof = 'hex', smooth = false) {
+function loftGeo(secs, prof = 'hex', smooth = false, caps = true) {
   secs = smoothSecs(secs, smooth ? 4 : 3);
   const P = PROFS[prof] || PROFS.hex, n = P.length, rings = secs.map(([z, w, h, y = 0, x = 0]) => P.map(([px, py]) => [x + px * w, y + py * h, z]));
   const tri = [];
@@ -1092,11 +1093,29 @@ function loftGeo(secs, prof = 'hex', smooth = false) {
     push(a, c, d); push(a, b, c); // обход — наружу (нос по +Z)
   }
   const cap = (ring, rev) => { const c = ring.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n, s[2] + p[2] / n], [0, 0, 0]); for (let k = 0; k < n; k++) rev ? push(c, ring[k], ring[(k + 1) % n]) : push(c, ring[(k + 1) % n], ring[k]); };
-  cap(rings[0], false); cap(rings[rings.length - 1], true);
+  if (caps) { cap(rings[0], false); cap(rings[rings.length - 1], true); }
   let g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
   if (smooth) { g = mergeVertices(g, 1e-4); g.computeVertexNormals(); }
   else creaseNormals(g);
   return g;
+}
+// ширина профиля на высоте yf (доля полувысоты, −1…1): пересечение горизонтали с многоугольником
+function profWidthAt(prof, yf) {
+  const P = PROFS[prof] || PROFS.hex; let w = 0;
+  for (let i = 0; i < P.length; i++) { const [x1, y1] = P[i], [x2, y2] = P[(i + 1) % P.length]; if ((y1 - yf) * (y2 - yf) > 0 || y1 === y2) continue; const x = x1 + (x2 - x1) * (yf - y1) / (y2 - y1); w = Math.max(w, Math.abs(x)); }
+  return w;
+}
+// ряды светящихся окон по бортам главного корпуса: тонкий пояс поверх корпуса с текстурой иллюминаторов
+function autoWindows(K) {
+  const H = K.main; if (!H || K.R < 40) return;
+  const rows = K.R >= 150 ? [-0.25, 0.2] : K.R >= 80 ? [-0.15, 0.25] : [0];
+  const mat = cachedMat('winBand', () => { const m = new THREE.MeshStandardMaterial({ color: 0x0a0c10, emissive: 0xdff0ff, emissiveMap: sharedTextures().windowsDense, emissiveIntensity: 2.2, metalness: 0.4, roughness: 0.5, transparent: true, alphaMap: sharedTextures().windowsDense, polygonOffset: true, polygonOffsetFactor: -2 }); m.userData.boxUV = true; return m; });
+  for (const yf of rows) {
+    const wf = profWidthAt(H.prof, yf); if (wf < 0.3) continue;
+    const secs = H.secs.slice(1, -1).filter(([z, w, h]) => w > 0.12 && h > 0.08); if (secs.length < 2) continue;
+    const band = K.loft(secs.map(([z, w, h, y = 0]) => [z, w * wf * 1.012, Math.max(0.014, h * 0.085), y + h * yf]), 'box', mat);
+    band.userData.uvTile = 0.6; band.renderOrder = 2;
+  }
 }
 function shipKit(g, R, M, D, eng, faction, add) {
   const s = (v) => v * R;
@@ -1105,7 +1124,7 @@ function shipKit(g, R, M, D, eng, faction, add) {
     G: goldMat(), C: crystalMat(), glass: glassMat(),
     glow: (c, k = 2.6) => glowMat(c, k),
     // корпус по сечениям: значения — в долях R
-    loft(secs, prof = 'hex', mat = M, smooth = false) { const m = add(loftGeo(secs.map(([z, w, h, y = 0, x = 0]) => [s(z), s(w), s(h), s(y), s(x)]), prof, smooth), mat); m.userData.uvTile = 2.2; return m; },
+    loft(secs, prof = 'hex', mat = M, smooth = false, caps = true) { const m = add(loftGeo(secs.map(([z, w, h, y = 0, x = 0]) => [s(z), s(w), s(h), s(y), s(x)]), prof, smooth, caps), mat); m.userData.uvTile = 2.2; if (!K.main && mat === M && secs.length >= 3 && !secs.some(q => q[4])) K.main = { secs, prof }; return m; },
     mirror(fn) { fn(1); fn(-1); },
     box(w, h, d, x = 0, y = 0, z = 0, mat = M) { return add(rbox(s(w), s(h), s(d)), mat, s(x), s(y), s(z)); },
     rod(a, b, r, mat = D) { return g.add(rod(a.map(s), b.map(s), s(r), mat)); },
@@ -1378,24 +1397,38 @@ const DESIGN = {
     K.greeb(24, 1.0, -0.15, 1.7);
     K.lights([[0.7, 0.3, 0.9], [-0.7, 0.3, 0.9]], 0x9fe060);
   },
-  begemot(K) { // индустриальный дредноут: носовая «пасть» плавильни, трубы, конвейерные галереи
-    K.loft([[-1.0, 0.5, 0.36], [-0.5, 0.6, 0.42, 0.02], [0.4, 0.62, 0.42, 0.02], [0.75, 0.56, 0.38]], 'box');
-    const maw = add2(K, new THREE.TorusGeometry(K.s(0.36), K.s(0.09), 12, 40), K.D, 0, 0, 0.85);
-    { const mw = new THREE.Object3D(); mw.position.set(0, 0, K.s(0.9)); mw.userData.maw = K.s(0.34); K.g.add(mw); }
-    add2(K, new THREE.CircleGeometry(K.s(0.3), 32), glowMat(0xff7020, 2.2), 0, 0, 0.84);
-    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; const t = add2(K, new THREE.ConeGeometry(K.s(0.04), K.s(0.22), 6), K.D, Math.cos(a) * 0.36, Math.sin(a) * 0.36, 1.0); t.rotation.x = Math.PI / 2; }
-    for (const [x, z] of [[-0.3, -0.3], [0, -0.4], [0.3, -0.3]]) {
-      add2(K, new THREE.CylinderGeometry(K.s(0.06), K.s(0.08), K.s(0.5), 12), K.D, x, 0.6, z);
-      add2(K, new THREE.CircleGeometry(K.s(0.05), 12), glowMat(0xff8030, 2), x, 0.86, z).rotation.x = -Math.PI / 2;
-    }
+  begemot(K) { // индустриальный дредноут: широкий бронированный корпус и восьмигранная многоступенчатая пасть плавильни
+    const D = K.D, M = K.M;
+    // корпус: широкий, плоский, с наслоенными скошенными плитами; спереди — открытый воротник пасти
+    K.loft([[-1.05, 0.5, 0.26], [-0.7, 0.66, 0.34, 0.02], [0.1, 0.72, 0.38, 0.02], [0.5, 0.7, 0.42], [0.62, 0.66, 0.44]], 'box');
+    K.loft([[-0.85, 0.42, 0.12, 0.36], [0.1, 0.5, 0.13, 0.4], [0.5, 0.46, 0.12, 0.42], [0.6, 0.3, 0.06, 0.4]], 'flat', D);
+    K.loft([[0.6, 0.66, 0.5], [0.8, 0.68, 0.52], [0.98, 0.64, 0.48]], 'oct', M, false, false); // воротник (без торцов)
     K.mirror(sd => {
-      K.box(0.16, 0.16, 1.4, 0.66 * sd, 0.12, -0.1);
-      for (let i = 0; i < 7; i++) K.trim(0.01, 0.06, 0.1, 0.745 * sd, 0.12, 0.5 - i * 0.2, 0xffa040, 2);
-      K.eng(0.32 * sd, 0.12, -1.07, 0.14); K.eng(0.32 * sd, -0.18, -1.07, 0.14);
-      K.windows(0.61, -0.15, -0.1, 1.1, 0.06, sd, true);
+      for (let i = 0; i < 4; i++) K.loft([[0.45 - i * 0.36 - 0.15, 0.05, 0.3, 0.06, (0.7 + (i % 2) * 0.02) * sd], [0.45 - i * 0.36 + 0.15, 0.04, 0.26, 0.04, (0.72 + (i % 2) * 0.02) * sd]], 'box', i % 2 ? D : M); // бортовые плиты
+      K.loft([[-1.1, 0.13, 0.13, 0.05, 0.9 * sd], [-0.5, 0.16, 0.16, 0.05, 0.92 * sd], [0.1, 0.12, 0.12, 0.05, 0.9 * sd], [0.3, 0.05, 0.05, 0.05, 0.86 * sd]], 'oct'); // мотогондолы
+      K.box(0.22, 0.05, 0.3, 0.8 * sd, 0.05, -0.2, D);
+      K.eng(0.9 * sd, 0.05, -1.15, 0.12); K.eng(0.32 * sd, 0.1, -1.12, 0.13); K.eng(0.32 * sd, -0.16, -1.12, 0.11);
+      K.fin(0.42 * sd, 0.48, -0.55, 0.22, 0.32, 0.22, 0.03, D, -0.25 * sd);
+      K.windows(0.73, -0.02, -0.15, 1.3, 0.035, sd, true); K.windows(0.73, 0.16, -0.15, 1.1, 0.03, sd, true);
     });
-    K.greeb(40, 1.0, 0.43, 1.4, -0.1);
-    K.lights([[0.75, 0.3, 0.6], [-0.75, 0.3, 0.6]], 0xffa020);
+    // пасть: внутри воротника — четыре утопленные восьмигранные рамы, раскалённые стенки и горн в глубине
+    const fr = [[0.6, 0.97, 0.06], [0.52, 0.88, 0.05], [0.44, 0.79, 0.045], [0.37, 0.7, 0.04]];
+    fr.forEach(([r, z, t], i) => { const ring = add2(K, new THREE.TorusGeometry(K.s(r), K.s(t), 4, 8), i % 2 ? D : M, 0, 0, z); ring.rotation.z = Math.PI / 8; ring.scale.set(1.0, 0.75, 1.8); });
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; K.trim(0.05, 0.012, 0.03, Math.cos(a) * 0.52, Math.sin(a) * 0.52 * 0.75, 0.9, 0xffffff, 1.8); } // огни на рамах
+    const hot = cachedMat('forgeHot', () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a30).multiplyScalar(2.4), toneMapped: false }));
+    const deep = cachedMat('forgeDeep', () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd890).multiplyScalar(3.2), toneMapped: false }));
+    const wall = cachedMat('forgeWall', () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a20).multiplyScalar(1.2), side: THREE.BackSide, toneMapped: false }));
+    const inner = add2(K, new THREE.CylinderGeometry(K.s(0.58), K.s(0.34), K.s(0.36), 8, 1, true), wall, 0, 0, 0.8);
+    inner.rotation.x = Math.PI / 2; inner.rotation.y = Math.PI / 8; inner.scale.set(1, 1, 0.75);
+    add2(K, new THREE.CircleGeometry(K.s(0.34), 8), hot, 0, 0, 0.625, 1, 0.75, 1).rotation.z = Math.PI / 8;
+    add2(K, new THREE.CircleGeometry(K.s(0.14), 8), deep, 0, 0, 0.63, 1, 0.75, 1).rotation.z = Math.PI / 8;
+    { const mw = new THREE.Object3D(); mw.position.set(0, 0, K.s(0.95)); mw.userData.maw = K.s(0.48); K.g.add(mw); }
+    // надстройка: рубка, антенны, трубы
+    K.box(0.34, 0.14, 0.3, 0, 0.56, -0.25); K.canopy(0, 0.6, -0.1, 0.12, 0.035, 0.05);
+    K.mirror(sd => { K.rod([0.12 * sd, 0.62, -0.3], [0.14 * sd, 0.85, -0.32], 0.008); K.lights([[0.14 * sd, 0.86, -0.32, 0.012]], 0xff3030); });
+    for (const x of [-0.3, 0.3]) add2(K, new THREE.CylinderGeometry(K.s(0.05), K.s(0.07), K.s(0.26), 8), D, x, 0.55, -0.7);
+    K.greeb(36, 0.9, 0.48, 1.3, -0.2);
+    K.lights([[0.95, 0.12, 0.25], [-0.95, 0.12, 0.25]], 0xffa020);
   },
   flagman(K) { // флагман звена: длинный стремительный корпус, крылья-пилоны, командная башня, лётная палуба
     K.loft([[-1.05, 0.3, 0.24], [-0.5, 0.42, 0.3, 0.02], [0.4, 0.36, 0.26, 0.03], [0.95, 0.14, 0.1], [1.25, 0.02, 0.02]], 'wedge');
@@ -1600,7 +1633,7 @@ function buildShip(type, color, faction) {
   const eng = LK.engine != null ? LK.engine : own ? FAC_ENGINE[DF] : faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
   const R = SHIP_BASE_R[type] || 50;
   const add = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
-  if (DESIGN[type]) DESIGN[type](shipKit(g, R, M, D, eng, faction, add));
+  if (DESIGN[type]) { const K = shipKit(g, R, M, D, eng, faction, add); DESIGN[type](K); autoWindows(K); }
   else switch (type) {
     case 'iskra': {
       add(lathe(R * 1.9, R * 0.32, [[0, 0.55], [0.1, 0.8], [0.45, 1], [0.75, 0.8], [0.92, 0.4], [1, 0.05]]), M, 0, 0, 0, 1, 0.7, 1);
@@ -3730,6 +3763,9 @@ export function frame(view, dt, time) {
       if (ud.s0 == null) { ud.s0 = rec.obj.scale.x; ud.am0 = e.am || 1; }
       ud.am0 = Math.max(ud.am0, e.am || 0);
       rec.obj.rotation.y += ud.spin * dt * (eat > time ? 6 : 1);
+      const heatWant = eat > time ? Math.min(1, 0.45 + (ROCK_HEAT.get(e.id) || 0)) : 0;
+      if (heatWant > 0 && !ud.crack) { const src = rec.obj.levels && rec.obj.levels[1] ? rec.obj.levels[1].object : null; if (src) { ud.crack = new THREE.Mesh(src.geometry, crackMaterial()); ud.crack.scale.setScalar(1.02); rec.obj.add(ud.crack); } }
+      if (ud.crack) { ud.heat = (ud.heat || 0) + (heatWant - (ud.heat || 0)) * Math.min(1, dt * 2); ud.crack.material.uniforms.heat.value = ud.heat; ud.crack.material.uniforms.time.value = time; ud.crack.visible = ud.heat > 0.02; }
       if (eat > time) {
         const k = 0.35 + 0.65 * Math.sqrt(Math.max(0, e.am || 0) / ud.am0), j = (e.r || 100) * 0.03;
         rec.obj.scale.setScalar(ud.s0 * k); rec.obj.position.x += (Math.random() - 0.5) * j; rec.obj.position.y += (Math.random() - 0.5) * j; rec.obj.position.z += (Math.random() - 0.5) * j;
@@ -4102,7 +4138,7 @@ function makeVortex() {
   const add = (m) => { g.add(m); return m; };
   const disc = add(new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: swirlTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })));
   const disc2 = add(new THREE.Mesh(new THREE.CircleGeometry(1.25, 48), disc.material.clone())); disc2.material.opacity = 0.5;
-  const rings = [0, 1, 2].map(() => add(new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(2.2), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }))));
+  const rings = [0, 1, 2, 3, 4].map(() => add(new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(2.2), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }))));
   const gc = document.createElement('canvas'); gc.width = 4; gc.height = 128; const gx = gc.getContext('2d'), gr = gx.createLinearGradient(0, 0, 0, 128);
   gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 4, 128);
   const cone = add(new THREE.Mesh(new THREE.ConeGeometry(1, 1, 48, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a30).multiplyScalar(0.9), alphaMap: new THREE.CanvasTexture(gc), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false })));
@@ -4116,8 +4152,47 @@ function makeVortex() {
   fxGroup.add(g);
   return g;
 }
+// лавовые трещины по объёму камня: светящиеся прожилки из «гребневого» шума, ярче по мере нагрева
+function crackMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { heat: { value: 0 }, time: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `varying vec3 vP; uniform float heat; uniform float time;
+      float h(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+      float n(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(h(i), h(i + vec3(1,0,0)), f.x), mix(h(i + vec3(0,1,0)), h(i + vec3(1,1,0)), f.x), f.y), mix(mix(h(i + vec3(0,0,1)), h(i + vec3(1,0,1)), f.x), mix(h(i + vec3(0,1,1)), h(i + vec3(1,1,1)), f.x), f.y), f.z); }
+      void main(){ vec3 p = vP * 3.2;
+        float r = 1.0 - abs(n(p) * 2.0 - 1.0), r2 = 1.0 - abs(n(p * 2.3 + 7.0) * 2.0 - 1.0);
+        float c = pow(r, 8.0) + 0.7 * pow(r2, 11.0);
+        float flick = 0.85 + 0.15 * sin(time * 7.0 + vP.x * 9.0);
+        vec3 col = mix(vec3(1.0, 0.25, 0.02), vec3(1.0, 0.85, 0.45), clamp(c * heat * 1.4, 0.0, 1.0));
+        gl_FragColor = vec4(col * c * heat * 4.5 * flick, clamp(c * heat * 2.0, 0.0, 1.0)); }`
+  });
+}
+const ROCK_HEAT = new Map(); // id астероида → дополнительный нагрев во время прогрева лучом и взрыва
+let lavaTex = null, chunkGeoS = null;
+function lavaChunk() {
+  if (!lavaTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, 128, 128);
+    const r = seeded(77); x.lineCap = 'round';
+    for (let i = 0; i < 26; i++) { let px = r() * 128, py = r() * 128; x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 6; k++) { px += (r() - 0.5) * 40; py += (r() - 0.5) * 40; x.lineTo(px, py); } x.strokeStyle = `rgba(255,${120 + r() * 100 | 0},40,1)`; x.lineWidth = 1 + r() * 2.5; x.stroke(); }
+    lavaTex = new THREE.CanvasTexture(c); lavaTex.colorSpace = THREE.SRGBColorSpace;
+    chunkGeoS = new THREE.IcosahedronGeometry(1, 0); const p = chunkGeoS.attributes.position, rr = seeded(11);
+    for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * (0.7 + rr() * 0.5), p.getY(i) * (0.6 + rr() * 0.5), p.getZ(i) * (0.7 + rr() * 0.5));
+    chunkGeoS.computeVertexNormals();
+  }
+  return new THREE.Mesh(chunkGeoS, cachedMat('lavaChunk', () => new THREE.MeshStandardMaterial({ color: 0x2c241e, roughness: 0.9, metalness: 0.05, emissive: 0xff6a18, emissiveMap: lavaTex, emissiveIntensity: 2.2 })));
+}
+function absOf(view, id) { if (view.me && id === view.me.id) return view.me.p; const e = view.ents.get(id); return e ? e.dp : null; }
 function foundryFx(view, fx) {
   const now = clockNow();
+  for (const id of fx.fresh || []) { // первое касание: луч прогревает камень, тот взрывается и разлетается кусками
+    if (fxList.some(f => f.kind === 'fburst' && f.rock === id)) continue;
+    const gm = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x70b8ff).multiplyScalar(1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const cm = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xe8f6ff).multiplyScalar(2.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const glow = new THREE.Mesh(beamGeo, gm), core = new THREE.Mesh(beamGeo, cm), hit = sprite(0x9fd8ff, 3); fxGroup.add(glow, core, hit);
+    fxList.push({ kind: 'fburst', rock: id, ship: fx.from, bglow: glow, bcore: core, bspr: hit, t: 0, dur: 1.5 + Math.random() * 0.5, boomed: false });
+  }
   const st = FOUNDRY.get(fx.from) || {}; st.until = now + (fx.dur || 6) + 0.6; st.range = 25000; FOUNDRY.set(fx.from, st);
   for (const id of fx.rocks || []) {
     FOUNDRY_ROCKS.set(id, now + (fx.dur || 6) + 0.4);
@@ -4152,8 +4227,8 @@ function updateFoundry(view, dt) {
     v.position.copy(tmpA); v.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tmpF);
     u.disc.scale.setScalar(R * (0.95 + 0.05 * Math.sin(t * 6))); u.disc.rotation.z = -t * 2.2; u.disc.material.opacity = f;
     u.disc2.scale.setScalar(R * 1.05); u.disc2.rotation.z = t * 1.3; u.disc2.material.opacity = 0.45 * f;
-    u.rings.forEach((r, i) => { const k = (t * 0.55 + i / 3) % 1; r.scale.setScalar(R * (1.1 + k * 2.2)); r.position.z = R * (0.2 + k * 3.5); r.material.opacity = (1 - k) * 0.85 * f; });
-    const L = Math.min(st.range, R * 40); u.cone.scale.set(R * 6, R * 6, L); u.cone.material.opacity = 0.06 * f * (0.8 + 0.2 * Math.sin(t * 3)); u.cone.material.alphaMap.offset.y = (-t * 0.15) % 1;
+    u.rings.forEach((r, i) => { const k = (t * 0.55 + i / u.rings.length) % 1; r.scale.setScalar(R * (1.1 + k * 2.2)); r.position.z = R * (0.2 + k * 3.5); r.material.opacity = (1 - k) * 0.85 * f; });
+    const L = Math.min(st.range, R * 40); u.cone.visible = false; u.cone.scale.set(R * 6, R * 6, L); u.cone.material.opacity = 0.06 * f * (0.8 + 0.2 * Math.sin(t * 3)); u.cone.material.alphaMap.offset.y = (-t * 0.15) % 1;
     const arr = u.inflow.geometry.attributes.position.array;
     u.seed.forEach(([p0, a0, rr], i) => { // частицы по спирали втягиваются в пасть
       const k = 1 - ((t * 0.35 * rr + p0) % 1), rad = R * (0.3 + k * 6) * rr, a = a0 + (1 - k) * 7 + t * 1.5;
@@ -4190,6 +4265,8 @@ function updateFstream(f, view, origin, k) {
 }
 
 function disposeFx(f) {
+  if (f.kind === 'fburst') { ROCK_HEAT.delete(f.rock); for (const k of ['bglow', 'bcore', 'bspr']) if (f[k]) { fxGroup.remove(f[k]); f[k].material.dispose(); } }
+  if (f.pieces) for (const pc of f.pieces) fxGroup.remove(pc.m);
   if (f.chunks) { fxGroup.remove(f.chunks); f.chunks.geometry.dispose(); f.chunks.material.dispose(); }
   if (f.bolts) { fxGroup.remove(f.bolts.mesh); f.bolts.mesh.geometry.dispose(); f.bolts.mesh.material.dispose(); }
   if (f.segs) { for (const [g, c] of f.segs) fxGroup.remove(g, c); f.gm.dispose(); f.cm.dispose(); }
@@ -4208,7 +4285,7 @@ function updateFx(view, dt, origin) {
   }
   for (let i = fxList.length - 1; i >= 0; i--) {
     const f = fxList[i];
-    f.t += dt;
+    f.t += dt * (window.__VF_FXSLOW || 1); // замедление эффектов — только для проверки кадров
     const k = f.t / f.dur;
     if (k >= 1) { disposeFx(f); fxList.splice(i, 1); continue; }
     if (f.kind === 'seraph') {
@@ -4298,6 +4375,34 @@ function updateFx(view, dt, origin) {
       f.ring.position.copy(c); f.ring.lookAt(camera.position); f.ring.scale.setScalar(f.size * 0.3 * (0.2 + k * 2)); f.ring.material.opacity = 1 - k;
     } else if (f.kind === 'fstream') {
       updateFstream(f, view, origin, k);
+    } else if (f.kind === 'fburst') {
+      const obj = shipObjOf(view, f.ship), maw = mawOf(obj), rk = entRel(view, f.rock, origin), rock = view.ents.get(f.rock), rr = rock && rock.r ? rock.r : 300;
+      if (!maw || !rk) { f.t = f.dur; continue; }
+      maw.getWorldPosition(tmpB);
+      const d = tmpB.distanceTo(rk), mid = tmpB.clone().add(rk).multiplyScalar(0.5), w = Math.max(rr * 0.06, cam.dist * 0.0016), pulse = 0.75 + 0.25 * Math.sin(f.t * 40);
+      for (const [m, ww, op] of [[f.bglow, w * 3, 0.45], [f.bcore, w * 0.8, 1]]) { m.position.copy(mid); m.lookAt(rk); m.rotateX(Math.PI / 2); m.scale.set(ww * pulse, d, ww * pulse); m.material.opacity = op * Math.min(1, f.t * 4); }
+      f.bspr.position.copy(rk.clone().lerp(tmpB, rr * 0.9 / Math.max(d, 1))); f.bspr.scale.setScalar(rr * (1.2 + 0.4 * Math.sin(f.t * 30))); f.bspr.material.opacity = 0.9;
+      ROCK_HEAT.set(f.rock, Math.min(0.9, k * 1.1));
+      if (k > 0.97 && !f.boomed) { // взрыв: огненный шар и разлёт раскалённых кусков
+        f.boomed = true; ROCK_HEAT.set(f.rock, 0.4);
+        const A = absOf(view, f.rock); if (A) explosion(A.slice(), rr * 1.4);
+        const N = 14, pieces = [];
+        for (let i = 0; i < N; i++) { const m = lavaChunk(); const sz = rr * (0.12 + Math.random() * 0.22); m.scale.setScalar(sz); fxGroup.add(m);
+          pieces.push({ m, sz, v: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(rr * (1.5 + Math.random() * 2.5)), spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(4), delay: Math.random() * 0.6 }); }
+        fxList.push({ kind: 'fchunks', rock: f.rock, ship: f.ship, pieces, origin0: A ? A.slice() : null, t: 0, dur: 4.2 });
+      }
+    } else if (f.kind === 'fchunks') {
+      const obj = shipObjOf(view, f.ship), maw = mawOf(obj);
+      if (!maw || !f.origin0) { f.t = f.dur; continue; }
+      maw.getWorldPosition(tmpB);
+      const C = new THREE.Vector3(f.origin0[0] - origin[0], f.origin0[1] - origin[1], f.origin0[2] - origin[2]);
+      for (const pc of f.pieces) {
+        const tt = Math.max(0, f.t - pc.delay), out = Math.min(tt, 0.9), P = C.clone().addScaledVector(pc.v, out * (1 - out * 0.45)); // разлёт с торможением
+        const u = Math.min(1, Math.max(0, (tt - 0.7) / 2.6)), e2 = u * u * (3 - 2 * u);                                                   // затем — затягивание в пасть по спирали
+        if (u > 0) { const sw = (1 - e2) * pc.sz * 3, a = tt * 5 + pc.delay * 10; P.lerp(tmpB, e2); P.x += Math.cos(a) * sw; P.y += Math.sin(a) * sw; }
+        pc.m.position.copy(P); pc.m.rotation.set(pc.spin.x * tt, pc.spin.y * tt, pc.spin.z * tt);
+        pc.m.scale.setScalar(pc.sz * (u > 0.85 ? Math.max(0.05, (1 - u) / 0.15) : 1)); pc.m.visible = u < 0.995;
+      }
     } else if (f.kind === 'hsp') {
       const p = entRel(view, f.follow, origin);
       if (p) {

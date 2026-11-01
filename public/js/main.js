@@ -451,6 +451,7 @@ function onMsg(m) {
     case 'tech': S.tech = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
     case 'corp': S.corp = m; if (S.win === 'corp') renderWin(); break;
     case 'refine': S.refine = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
+    case 'foundryUp': S.fup = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
     case 'raid': S.raid = m; renderActHud(); break;
     case 'world': S.world = m; updateWallet(); if (S.win === 'news') renderWin(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'weather': S.wx = m; updateWallet(); break;
@@ -3363,7 +3364,7 @@ $('#st-tabs').onclick = (e) => {
   S.stTab = t;
   for (const s of $('#st-tabs').children) s.classList.toggle('on', s.dataset.tab === t);
   if (t === 'market' || t === 'exchange') send({ t: 'market' });
-  if (t === 'refine') send({ t: 'refineInfo' });
+  if (t === 'refine') { send({ t: 'refineInfo' }); send({ t: 'foundryInfo' }); }
   if (t === 'agents') send({ t: 'agents' });
   if (t === 'prod') send({ t: 'prodInfo' });
   if (t === 'war') send({ t: 'warInfo' });
@@ -3575,6 +3576,7 @@ function onActionClick(e) {
     case 'wantedPay': send({ t: 'wantedPay' }); break;
     case 'stRefine': send({ t: 'stRefine', item: d.item, qty: +($('#rf-' + d.item) || {}).value || 0 }); break;
     case 'compMake': send({ t: 'compMake', id: d.id, qty: +($('#cm-' + d.id) || {}).value || 1 }); break;
+    case 'foundryUp': send({ t: 'foundryUp', k: d.k }); break;
     case 'mkCat': S.mkCat = d.c; renderStation(); break;
     case 'mkTier': S.mkTier = +d.t || 0; renderStation(); break;
     case 'techStart': send({ t: 'techStart', id: d.id }); break;
@@ -4515,6 +4517,13 @@ function refineHTML(h) {
   const it = (k) => S.data.items[k] || { name: k, base: 0 };
   let html = `<div class="chain">⛏ <b>Руда</b> → ♻ <b>Материалы</b> → ⚙ <b>Компоненты</b> → 🔧 <b>Модули, дроны, корабли</b> <span class="muted">(вкладка «Производство»)</span></div>
     <p class="muted small">Здесь — быстро и на любой станции: выход ${(R.yield * 100).toFixed(0)}% (навык «Производство» +2% за уровень), сбор ${(R.fee * 100).toFixed(0)}% стоимости. Своя станция-завод даёт больше, но работает по времени. «Бегемот» плавит руду прямо в полёте.</p>`;
+  const U = S.fup;
+  if (U && U.has) {
+    const cr = (S.prof || {}).credits || 0, stars = (n) => '<span class="isk">' + '●'.repeat(n) + '</span><span class="muted">' + '○'.repeat(U.max - n) + '</span>';
+    html += `<h3>🔥 Плавильня «Бегемота» — улучшения</h3><div class="muted small">Сейчас: цикл ${U.now.cycle} с · радиус ${num(U.now.range / 1000)} км · до ${U.now.rocks} астероидов сразу · выход слитков ${U.now.refine}% · двойная плавка ${U.now.dbl}%</div>`
+      + Object.entries(U.defs).map(([k, d]) => `<div class="slot-row"><span class="sm"><b>${esc(d.name)}</b> ${stars(U.lv[k])} <span class="muted">— ${esc(d.desc)}</span>${d.cost ? `<div class="small muted">${isk(d.cost)} + ${Object.entries(d.mats).map(([it, q]) => `<span class="${(h[it] || 0) >= q ? '' : 'bad'}">${esc((S.data.items[it] || {}).name || it)} ${q}</span>`).join(', ')}</div>` : ''}</span>
+        ${d.cost ? `<button class="primary" data-a="foundryUp" data-k="${k}" ${cr < d.cost ? 'disabled' : ''}>Улучшить</button>` : '<span class="sk-max">максимум</span>'}</div>`).join('');
+  }
   const ores = Object.keys(R.recipes).filter(o => h[o]);
   html += `<h3>♻ Руда → материалы</h3>` + (ores.length ? `<table class="tbl"><tr><th>Руда</th><th class="r">В ангаре</th><th>Получится</th><th></th></tr>${ores.map(o => { const r = R.recipes[o], out = Math.floor(h[o] * r.ratio * R.yield);
       return `<tr><td>${esc(it(o).name)}</td><td class="r">${num(h[o])}</td><td>${esc(it(r.out).name)} ×${num(out)} <span class="muted small">(${isk(out * it(r.out).base)} против ${isk(h[o] * it(o).base)} за руду)</span></td>

@@ -41,46 +41,77 @@ module.exports = function install(Game) {
       const F = SHIPS[e.shipType].foundry;
       if (!F || p.foundryOff) continue;
       if (this.now < (e.nextFoundry || 0)) continue;
-      e.nextFoundry = this.now + F.cycle * 1000;
+      const U = this.foundryLv(p), cyc = F.cycle * (1 - 0.12 * U.suck), range = F.range * (1 + 0.12 * U.suck), maxRocks = F.maxRocks + 3 * U.suck, refine = Math.min(1.05, F.refine + 0.05 * U.forge);
+      e.nextFoundry = this.now + cyc * 1000;
       // литейный цех питается энергоячейками из трюма: 1 за цикл, без них — половинная производительность
       const powered = (p.ship.cargo.energy_cell || 0) > 0;
       if (powered) { p.ship.cargo.energy_cell--; if (!p.ship.cargo.energy_cell) delete p.ship.cargo.energy_cell; }
       else if (!e.foundryWarn || this.now - e.foundryWarn > 60000) { e.foundryWarn = this.now; this.notify(s, 'Литейному цеху не хватает энергоячеек — работает вполсилы', 'warn'); }
       const pw = powered ? 1 : 0.5;
       const rocks = [];
-      for (const t of this.ents.values()) if (t.type === 'asteroid' && t.sys === e.sys && this.surfaceDist(e, t) <= F.range) rocks.push(t);
+      for (const t of this.ents.values()) if (t.type === 'asteroid' && !t.gas && t.sys === e.sys && this.surfaceDist(e, t) <= range) rocks.push(t);
       if (!rocks.length) continue;
       rocks.sort((a, b) => this.surfaceDist(e, a) - this.surfaceDist(e, b));
       const acc = e.foundryAcc || (e.foundryAcc = {});
       const got = {};
       let free = e.stats.cargo - this.cargoUsed(p.ship.cargo), full = false;
       const eaten = [];
-      for (const t of rocks.slice(0, F.maxRocks)) {
+      e.fdSeen = e.fdSeen || new Set(); const fresh = [];
+      for (const t of rocks.slice(0, maxRocks)) {
         const rec = RECIPES[t.ore];
         let units = Math.min(t.amount, Math.floor(F.perRock * pw * e.stats.mineMul * incomeOf(e.sys) / ITEMS[t.ore].vol));
         if (rec) { // не берём больше, чем влезет слитков
-          const outVol = ITEMS[rec.out].vol * rec.ratio * F.refine;
+          const outVol = ITEMS[rec.out].vol * rec.ratio * refine * 2;
           units = Math.min(units, Math.floor(free / outVol));
         } else units = Math.min(units, Math.floor(free / ITEMS[t.ore].vol));
         if (units <= 0) { full = true; break; }
         t.amount -= units; p.stats.mined += units;
         if (rec) {
-          acc[rec.out] = (acc[rec.out] || 0) + units * rec.ratio * F.refine;
+          const dbl = Math.random() < 0.06 * U.forge ? 2 : 1; // кузнечная удача: двойная плавка партии
+          acc[rec.out] = (acc[rec.out] || 0) + units * rec.ratio * refine * dbl;
           const n = Math.floor(acc[rec.out]); acc[rec.out] -= n;
           if (n > 0) { p.ship.cargo[rec.out] = (p.ship.cargo[rec.out] || 0) + n; got[rec.out] = (got[rec.out] || 0) + n; free -= n * ITEMS[rec.out].vol; }
         } else { p.ship.cargo[t.ore] = (p.ship.cargo[t.ore] || 0) + units; got[t.ore] = (got[t.ore] || 0) + units; free -= units * ITEMS[t.ore].vol; }
-        eaten.push(t.id);
+        eaten.push(t.id); if (!e.fdSeen.has(t.id)) { e.fdSeen.add(t.id); fresh.push(t.id); }
         // поле притяжения: астероид медленно подтягивается к пасти плавильни
         { const off = [e.pos[0] - t.pos[0], e.pos[1] - t.pos[1], e.pos[2] - t.pos[2]], d = Math.hypot(...off), keep = e.radius + t.radius + 2500;
-          if (d > keep) { const step = Math.min(d - keep, Math.max(400, d * 0.12)); for (let i = 0; i < 3; i++) t.pos[i] += off[i] / d * step; } }
+          if (d > keep) { const step = Math.min(d - keep, Math.max(400, d * (0.12 + 0.04 * U.suck))); for (let i = 0; i < 3; i++) t.pos[i] += off[i] / d * step; } }
         if (t.amount <= 0) this.depleteAsteroid(t);
       }
-      if (eaten.length) this.fxSys(e.sys, null, { k: 'foundry', from: e.id, rocks: eaten, dur: F.cycle });
+      if (eaten.length) this.fxSys(e.sys, null, { k: 'foundry', from: e.id, rocks: eaten, fresh, dur: cyc, suck: U.suck, forge: U.forge });
+      if (e.fdSeen.size > 200) e.fdSeen = new Set(eaten);
       const parts = Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`);
       if (parts.length) this.notify(s, 'Литейный цех: ' + parts.join(', '), 'mine');
       if (full) { this.notify(s, 'Трюм «Бегемота» полон — литейный цех остановлен.', 'warn'); e.nextFoundry = this.now + 20000; }
       this.sendProfile(s);
     }
+  };
+  // Улучшения плавильни (у каждого корабля с плавильней — свои): «Всасывание» и «Ковка», по 4 ступени сверх базовой
+  const FUP = {
+    suck: { name: 'Всасывание', desc: 'циклы на 12% чаще, радиус +12%, на 3 астероида больше, притяжение сильнее', cost: [0, 1500000, 3000000, 6000000, 12000000], mats: [null, { comp_servo: 6 }, { comp_servo: 12, comp_coil: 4 }, { comp_servo: 20, comp_coil: 10 }, { comp_core: 12, comp_coil: 16 }] },
+    forge: { name: 'Ковка', desc: 'выход слитков +5% и шанс двойной плавки +6% за ступень', cost: [0, 1200000, 2500000, 5000000, 10000000], mats: [null, { comp_plate: 8 }, { comp_plate: 14, comp_core: 2 }, { comp_plate: 20, comp_core: 6 }, { comp_core: 12, comp_chip: 4 }] }
+  };
+  P.foundryLv = function (p) { const u = (p.ship && p.ship.fu) || {}; return { suck: u.suck || 0, forge: u.forge || 0 }; };
+  P.foundryView = function (p) {
+    const F = SHIPS[p.ship.type].foundry; if (!F) return { t: 'foundryUp', has: false };
+    const U = this.foundryLv(p);
+    return { t: 'foundryUp', has: true, lv: U, max: 4, defs: Object.fromEntries(Object.entries(FUP).map(([k, d]) => [k, { name: d.name, desc: d.desc, cost: d.cost[U[k] + 1] || null, mats: d.mats[U[k] + 1] || null }])),
+      now: { cycle: +(F.cycle * (1 - 0.12 * U.suck)).toFixed(2), range: Math.round(F.range * (1 + 0.12 * U.suck)), rocks: F.maxRocks + 3 * U.suck, refine: Math.round(Math.min(1.05, F.refine + 0.05 * U.forge) * 100), dbl: 6 * U.forge } };
+  };
+  P.c_foundryInfo = function (s, m, p) { s.send(this.foundryView(p)); };
+  P.c_foundryUp = function (s, m, p) {
+    const st = this.requireDocked(s); if (!st) return;
+    const D = FUP[m.k]; if (!D || !SHIPS[p.ship.type].foundry) return;
+    const U = this.foundryLv(p), L = U[m.k] + 1;
+    if (L > 4) return this.notify(s, `«${D.name}» уже на максимуме`, 'warn');
+    if (p.credits < D.cost[L]) return this.notify(s, `Нужно ${D.cost[L].toLocaleString('ru-RU')} CR`, 'warn');
+    const h = this.hangar(p, st).items, miss = Object.entries(D.mats[L]).filter(([k, q]) => (h[k] || 0) < q);
+    if (miss.length) return this.notify(s, `Не хватает в ангаре станции: ${miss.map(([k, q]) => `${ITEMS[k].name} ${h[k] || 0}/${q}`).join(', ')} — компоненты собираются во вкладке «Переработка»`, 'warn');
+    for (const [k, q] of Object.entries(D.mats[L])) { h[k] -= q; if (!h[k]) delete h[k]; }
+    p.credits -= D.cost[L];
+    p.ship.fu = Object.assign({}, p.ship.fu, { [m.k]: L });
+    this.notify(s, `⚙ Плавильня: «${D.name}» — ступень ${L} из 4`, 'good');
+    this.sendProfile(s); s.send(this.foundryView(p)); this.save();
   };
   P.c_foundry = function (s, m, p) {
     p.foundryOff = !p.foundryOff;
