@@ -37,7 +37,7 @@ const WING = {
   orders: { follow: 'Следовать', attack: 'Атаковать мою цель', mine: 'Копать', hold: 'Стоять', goto: 'В точку' },
   fleetMax: 3, fleetRevive: 10 * 60000, gotoMax: 100000
 };
-const fleetMaxOf = (g, p) => WING.fleetMax + (g.techHas && g.techHas(p, 'fleet1') ? 1 : 0);
+const fleetMaxOf = (g, p) => WING.fleetMax + (g.techHas && g.techHas(p, 'fleet1') ? 1 : 0) + (g.hasHQ && g.hasHQ(p) ? 1 : 0);
 const shipFor = (role, lv) => { const l = WING.roles[role].ships; return l[Math.min(l.length - 1, lv - 1)]; };
 // флагман «Командор» усиливает звено
 const flagOf = (p) => (p && p.ship && SHIPS[p.ship.type] && SHIPS[p.ship.type].wingBonus) || null;
@@ -192,7 +192,7 @@ module.exports = function install(Game) {
     const a = (i / 3) * Math.PI * 2 + Math.random();
     e.pos = add(oe.pos, [Math.cos(a) * 3000, rnd(-500, 500), Math.sin(a) * 3000]); e.vel = oe.vel.slice();
     e.civ = 'wing'; e.wingOf = p.name; e.wingId = w.id; e.goal = null;
-    e.wingPow = (1 + ((flagOf(p) || {}).power || 0)) * (w.fleet ? 1.4 : 1);
+    e.wingPow = (1 + ((flagOf(p) || {}).power || 0)) * (w.fleet ? 1.4 : 1) * (w.fleet && (SHIPS[p.ship.type] || {}).corpHQ ? 1.25 : 1);
     if (w.fleet) e.name = `${w.name} · эскорт`;
     const k = (1 + 0.15 * (w.lv - 1)) * (1 + 0.2 * upOf(w, 'arm')) * e.wingPow * (w.fleet && this.techHas && this.techHas(p, 'wing1') ? 1.15 : 1);
     for (const f of ['shield', 'armor', 'hull']) { e.stats[f] = Math.round(e.stats[f] * k * 1.3); e[f] = e.stats[f]; }

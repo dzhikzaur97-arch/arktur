@@ -786,3 +786,15 @@ body.photo #ui, body.photo #brackets, body.photo #surf-hud { display: none !impo
 .tac-top button, .tac-bot button { padding: 4px 8px; font-size: 12px; }
 .tac-top button.on, .tac-bot button.on { border-color: #60e0ff; color: #60e0ff; }
 .flag.wx { background: rgba(60,110,170,.35); border-color: #5fa8e8; color: #bfe0ff; }
+/* меню по группам: на компьютере — тонкие разделители, на телефоне — панель-сетка с заголовками */
+#neocom { overflow-y: auto; }
+#neocom .nc-g { height: 1px; background: var(--line); margin: 4px 8px; font-size: 0; flex: none; }
+#neocom .nc-g:first-child { display: none; }
+body.mobile #neocom { width: min(340px, calc(100vw - 24px)); flex-direction: row; flex-wrap: wrap; padding: 4px 6px 8px; gap: 2px; background: rgba(5,10,14,0.96); }
+body.mobile.menu-open #neocom { display: flex; }
+body.mobile #neocom .nc-g { display: block; height: auto; background: none; flex: 0 0 100%; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 4px 2px; }
+body.mobile #neocom button { flex: 0 0 calc(25% - 2px); padding: 8px 0 6px; font-size: 22px; border-radius: 8px; }
+body.mobile #neocom button small { font-size: 10px; margin-top: 2px; }
+.news-ships { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 10px; }
+.news-ships > div { display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 12px; gap: 2px; }
+.news-ships .ship-thumb { width: 100%; }

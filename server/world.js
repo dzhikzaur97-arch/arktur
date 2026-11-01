@@ -7,7 +7,7 @@
 //    ваши преступления ставят награду и на вашу голову — за вами приходят охотники; долг можно погасить на станции.
 'use strict';
 const crypto = require('crypto');
-const { SYSTEMS, ITEMS, NPCS, incomeOf } = require('./data');
+const { SYSTEMS, ITEMS, NPCS, SHIPS, incomeOf } = require('./data');
 const { rng } = require('./universe');
 
 const uid = () => crypto.randomBytes(5).toString('hex');
@@ -88,7 +88,8 @@ module.exports = function install(Game) {
     const w = this.weatherOf(e.sys) || 'calm';
     if (e.stats.__wx === w) return;
     const st = this.calcStats(p, p.ship);
-    if (w === 'ion') { st.lockRange *= 0.7; st.maxLocks = Math.max(1, st.maxLocks - 1); }
+    if ((SHIPS[p.ship.type] || {}).stormproof) { if (w !== 'calm') { st.dmgMul *= 1.2; st.maxSpeed *= 1.15; } }
+    else if (w === 'ion') { st.lockRange *= 0.7; st.maxLocks = Math.max(1, st.maxLocks - 1); }
     else if (w === 'flare') { st.shield *= 0.8; st.capRegen *= 1.3; }
     else if (w === 'magnet') st.warpSpeed *= 0.6;
     else if (w === 'nebula') { st.lockRange *= 0.8; st.maxSpeed *= 0.9; st.mineMul *= 1.15; }
@@ -112,7 +113,7 @@ module.exports = function install(Game) {
     return { id: 'wb_' + uid(), name: `${pick(WANTED.first)} ${pick(WANTED.last)}`, sys: s.id, lv: 1, born: this.now, back: 0,
       ship: pick(['strazh', 'molot', 'vihr', 'citadel']), pos: [sun[0] + Math.cos(a) * d, sun[1], sun[2] + Math.sin(a) * d] };
   };
-  P.wantedBounty = function (b) { return Math.round(120000 * Math.pow(b.lv, 1.5) * (0.7 + 0.3 * incomeOf(b.sys))); };
+  P.wantedBounty = function (b) { return Math.round(60000 * Math.pow(b.lv, 1.4) * (0.75 + 0.25 * incomeOf(b.sys))); };
   P.wantedTick = function () {
     if (!this.db.wanted) this.wantedInit();
     if (!this.anoms) return;
@@ -143,7 +144,7 @@ module.exports = function install(Game) {
     const b = t.wantedId && this.db.wanted && this.db.wanted.bosses.find(x => x.id === t.wantedId);
     if (b) {
       const name = killer && (killer.owner || (this.wevAttacker && this.wevAttacker(killer)));
-      const p = name && this.db.players[name], prize = this.wantedBounty(b);
+      const p = name && this.db.players[name], prize = Math.round(this.wantedBounty(b) * (1 + ((p && SHIPS[p.ship.type] || {}).bountyBonus || 0)));
       const r = baseDestroy.call(this, t, killer);
       if (p) { p.credits += prize; p.stats.wantedKills = (p.stats.wantedKills || 0) + 1; }
       for (const s of this.sessions) { s.send({ t: 'chat', ch: 'global', from: '*', text: `☠ Розыск закрыт: «${b.name}» (ур. ${b.lv}) сбит${p ? ` пилотом ${p.name}` : ''}! Награда ${fmt(prize)} CR` }); if (s.player === p) { this.notify(s, `☠ Награда за «${b.name}»: +${fmt(prize)} CR`, 'good'); this.sendProfile(s); } }

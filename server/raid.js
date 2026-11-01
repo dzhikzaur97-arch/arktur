@@ -15,7 +15,7 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
-const RAID = { sys: 'kray', startR: 30000, fightR: 200000, duration: 25 * 60000, cooldown: 2 * 3600000, hp: 9, pool: 6000000,
+const RAID = { sys: 'kray', startR: 30000, fightR: 200000, duration: 25 * 60000, cooldown: 2 * 3600000, hp: 9, pool: 4000000,
   phases: [0.66, 0.33], adds: [['shard', 'shard', 'sentinel', 'sentinel'], ['sentinel', 'sentinel', 'sentinel', 'shard', 'shard', 'shard']],
   trophies: ['ev_core', 'ev_aegis', 'ev_cannon', 'ev_warden'] };
 

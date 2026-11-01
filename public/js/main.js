@@ -383,7 +383,7 @@ function onMsg(m) {
       if (RC.until) { stopReconnect(); note('Связь восстановлена', 'good'); }
       S.data = m.data; S.name = m.name;
       // приветствие — только новичку (опытному пилоту просто отмечаем, что знакомство было)
-      setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) introOnce(welcomeOnce); else try { localStorage.setItem('vf-welcome', '1'); } catch {} }, 1800);
+      setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) { introOnce(welcomeOnce); try { localStorage.setItem('vf-news', NEWS_VER); } catch {} } else { try { localStorage.setItem('vf-welcome', '1'); } catch {} setTimeout(whatsNew, 1500); } }, 1800);
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
@@ -561,7 +561,7 @@ function sample(rec, rt) {
 function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ghosts.size ? new Map([...S.ents, ...ghostStep()]) : S.ents, data: S.data, docked: S.docked,
-    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null, dockedLook: S.prof && S.prof.ship ? S.prof.ship.look : null,
+    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null, dockedLook: S.prof && S.prof.ship ? S.prof.ship.look : null, myLook: S.prof && S.prof.ship ? S.prof.ship.look : null,
     roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0,
     rings: CFG.rings !== false && !!S.me && !document.body.classList.contains('photo')
   };
@@ -660,6 +660,7 @@ function act(a, id) {
       break;
     }
     case 'desel': S.sel = null; break;
+    case 'fight': startFight(id); break;
     case 'smart': {
       if (!o) return;
       const d = distTo(o);
@@ -668,6 +669,7 @@ function act(a, id) {
       else if (o.kind === 'gate') act('jump', id);
       else if (d > 150000) act('warp', id);
       else if (o.kind === 'wreck') act('loot', id);
+      else if (canFight(o)) act('fight', id);
       else act('approach', id);
       break;
     }
@@ -717,6 +719,7 @@ function actionsFor(o) {
     }
   }
   if (o.dl || (o.kind === 'anomaly' && o.akind === 'black')) A.unshift(['black', '¤', 'Торговать', '']);
+  if (canFight(o) && !far) A.unshift(['fight', '⚔', S.fightId === o.id ? 'В бою' : 'В бой', 'двойной тап']);
   if (['ship', 'asteroid', 'wreck'].includes(o.kind) && !o.dl) {
     if (S.me && (S.me.locks.includes(o.id) || S.me.locking.some(l => l[0] === o.id))) A.push(['unlock', '⊗', 'Снять захват', '']);
     else A.push(['lock', '⌖', 'Захват', 'Ctrl']);
@@ -1194,7 +1197,9 @@ function spaceMenu(x, y) {
 const brackets = new Map();
 const brRoot = $('#brackets');
 function clearBrackets() { brRoot.innerHTML = ''; brackets.clear(); }
-brRoot.addEventListener('click', (e) => { const b = e.target.closest('.br'); if (b) select(b.dataset.id, e); });
+let brTap = { id: null, at: 0 };
+brRoot.addEventListener('click', (e) => { const b = e.target.closest('.br'); if (!b) return; const id = b.dataset.id, now = performance.now();
+  if (MOBILE && brTap.id === id && now - brTap.at < 380) { brTap = { id: null, at: 0 }; act('smart', id); return; } brTap = { id, at: now }; select(id, e); });
 brRoot.addEventListener('dblclick', (e) => { const b = e.target.closest('.br'); if (b) act('smart', b.dataset.id); });
 brRoot.addEventListener('contextmenu', (e) => { const b = e.target.closest('.br'); if (b) { e.preventDefault(); objMenu(e.clientX, e.clientY, b.dataset.id); } });
 
@@ -1980,6 +1985,7 @@ function ownsShip(type) {
 function shipLockReason(type) {
   const t = S.data.ships[type], f = shipFaction(type);
   if (t && t.unique && ownsShip(type)) return 'уникальный корабль: у вас он уже есть';
+  if (t && t.needStat && (((S.prof || {}).stats || {})[t.needStat.stat] || 0) < t.needStat.n) return t.needStat.text;
   if (!f) return null;
   const st = S.docked && S.stationById ? S.stationById[S.docked.id] : null, sys = st && S.sysById ? S.sysById[st.sys] : null;
   const region = (sys && sys.region) || (S.sys && S.sys.region);
@@ -1991,6 +1997,7 @@ function shipLockReason(type) {
 function shipFacHTML(type) {
   const t = S.data.ships[type], f = shipFaction(type);
   if (t && t.unique) return `<div class="fac-tag" style="--fc:#ffd27a"><b>Уникальный</b> · один на пилота · ${esc(t.maker || '')}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
+  if (!f && t && t.guild) return `<div class="fac-tag" style="--fc:#9fd0ff"><b>${esc(t.guild)}</b> · вольная верфь${t.needStat ? ' · ' + esc(t.needStat.text) : ''}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
   if (!f) return '';
   return `<div class="fac-tag" style="--fc:${f.color}"><b>${esc(f.short)}</b> · ${esc(f.shipyard)} · репутация: ${esc(REP_NAME(t.rep || 0))}</div>${t.lore ? `<div class="lore">${esc(t.lore)}</div>` : ''}`;
 }
@@ -4202,7 +4209,7 @@ function renderActHud() {
   const rd = S.raid;
   if (rd && (rd.active || rd.near)) {
     html += rd.active ? `<div><b>⛬ Архонт Края</b> · фаза ${rd.phase + 1}/3 · ${(rd.hp * 100).toFixed(1)}% · ⏱ ${fmtTime(rd.left / 1000)}</div><div class="cap-bar"><i style="width:${(rd.hp * 100).toFixed(1)}%;background:#ff70d0"></i></div><div class="muted small">${rd.shield ? '<span class="bad">Щит поднят — сбейте стражей!</span>' : 'Щит снят — огонь по Архонту!'} · ваш вклад ${rd.share}%</div>`
-      : `<div><b>⛬ Врата за Край</b>${rd.best ? ` · побед над Архонтом: ${rd.best}` : ''}</div><div class="muted small">Финальный рейд: Архонт Края с фазами щита и стражами. Награда до 6 млн CR по вкладу.</div>${rd.cd ? `<div class="muted small">Врата восстановятся через ${fmtTime(rd.cd / 1000)}</div>` : '<button class="danger" data-a="raidStart">⛬ Открыть Врата</button>'}`;
+      : `<div><b>⛬ Врата за Край</b>${rd.best ? ` · побед над Архонтом: ${rd.best}` : ''}</div><div class="muted small">Финальный рейд: Архонт Края с фазами щита и стражами. Награда до 4 млн CR по вкладу.</div>${rd.cd ? `<div class="muted small">Врата восстановятся через ${fmtTime(rd.cd / 1000)}</div>` : '<button class="danger" data-a="raidStart">⛬ Открыть Врата</button>'}`;
   }
   el.classList.toggle('hidden', !html);
   setHTML(el, html);
@@ -4419,4 +4426,50 @@ async function pasteSaveCode(raw) {
     const r = window.VF_SAVES.importText(text);
     if (!r.ok) note('Не удалось загрузить: ' + r.msg, 'bad');
   } catch (e) { note('Код повреждён или обрезан: ' + ((e && e.message) || ''), 'bad'); }
+}
+
+// ======================================================================
+// «В бой»: захват, орбита на дальности орудий и огонь из всех стволов одной кнопкой (и двойным тапом по врагу)
+// ======================================================================
+function canFight(o) { return !!(o && o.kind === 'ship' && !o.gh && o.wg !== S.name && !o.civ && (isHostile(o) || o.ol || o.tg)); }
+function myWeapons() { return (S.me ? S.me.mods : []).map((m, i) => [m, i]).filter(([m]) => m && ['weapon', 'launcher'].includes(S.data.modules[m.id].kind)); }
+function startFight(id) {
+  const o = getObj(id); if (!o || !S.me) return;
+  S.sel = id; S.fightId = id; S.fightAt = performance.now();
+  const ws = myWeapons().map(([m]) => S.data.modules[m.id]), opt = ws.length ? Math.min(...ws.map(d => d.optimal || d.range || 10000)) : 10000;
+  S.orbitRange = Math.max(1000, Math.round(opt * 0.7 / 500) * 500);
+  if (!S.me.locks.includes(id) && !S.me.locking.some(l => l[0] === id)) send({ t: 'lock', id });
+  send({ t: 'orbit', id, range: S.orbitRange });
+  if (S.wing && S.wing.list.length) send({ t: 'wingOrder', order: 'attack', target: id });
+  note(`⚔ В бой: орбита ${S.orbitRange / 1000} км, огонь — как только цель будет захвачена`, 'info');
+  buzz(25);
+}
+setInterval(() => {
+  const id = S.fightId; if (!id) return;
+  const o = S.ents.get(id);
+  if (!o || !S.me || S.docked || o.w || performance.now() - S.fightAt > 180000) { S.fightId = null; return; }
+  if (!S.me.locks.includes(id)) { if (!S.me.locking.some(l => l[0] === id) && performance.now() - (S.fightLockAt || 0) > 2500) { S.fightLockAt = performance.now(); send({ t: 'lock', id }); } return; }
+  S.active = id;
+  S.fireAt = S.fireAt || {};
+  for (const [m, slot] of myWeapons()) if (!m.a && performance.now() - (S.fireAt[slot] || 0) > 1600) { S.fireAt[slot] = performance.now(); send({ t: 'module', slot, target: id }); }
+}, 400);
+
+// ======================================================================
+// «Что нового» — один раз после обновления (новичкам не показываем: у них вступление)
+// ======================================================================
+const NEWS_VER = '55';
+function whatsNew() {
+  try { if (localStorage.getItem('vf-news') === NEWS_VER) return; localStorage.setItem('vf-news', NEWS_VER); } catch { return; }
+  if (S.surface || !$('#modal').classList.contains('hidden')) return;
+  const ships = ['kometa', 'meduza', 'peleng', 'avrora', 'gonchaya', 'burevestnik', 'veche', 'porog'].filter(t => S.data.ships[t]);
+  modal(`<h3>Что нового в Arktur</h3>
+    <p><b>8 кораблей вольных гильдий</b> — у каждого своя история и особое умение:</p>
+    <div class="news-ships">${ships.map(t => `<div>${artImg(t, 'ship-thumb')}<b>${esc(S.data.ships[t].name)}</b><span class="muted small">${esc(S.data.ships[t].cls)}</span></div>`).join('')}</div>
+    <ul class="small">
+      <li>⚔ <b>«В бой»</b> одной кнопкой (или двойной тап по врагу): захват, орбита на дальности орудий и огонь из всех стволов.</li>
+      <li>🔥 Дым и огонь на повреждённых кораблях, искры при попаданиях по броне.</li>
+      <li>☰ Меню разбито на группы: Пилот, Мир, Хозяйство, Прочее.</li>
+      <li>🏆 Новые достижения, звания и цели в «Карьере» — за гонки, зонды, корпорацию, розыск и Архонта.</li>
+    </ul>
+    <p class="muted small">Корабли — на рынке любой станции, вкладка «Корабли».</p>`, [['Отлично!', null, 'primary']]);
 }

@@ -4,7 +4,7 @@
 //  · Арена: в Люмене и Мирре — арена Скверны. Волны пиратов одна сильнее другой; за каждую отбитую волну — награда,
 //    лучший результат — в таблице рекордов. Покинули арену или погибли — забег окончен.
 'use strict';
-const { incomeOf } = require('./data');
+const { incomeOf, SHIPS } = require('./data');
 const { rng } = require('./universe');
 const fmt = (n) => Math.round(n).toLocaleString('ru-RU');
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -92,6 +92,7 @@ module.exports = function install(Game) {
     if (!prev) { prize += 20000; why.push('первый финиш'); }
     if (!prev || t < prev) { p.races[tr.id] = t; if (prev) { prize += 10000; why.push('личный рекорд'); } }
     if (!rec || t < rec.t) { prize += 30000; why.push('рекорд трассы'); }
+    { const rb = (SHIPS[p.ship.type] || {}).raceBonus; if (rb && prize) { prize = Math.round(prize * (1 + rb)); why.push('бонус «Кометы»'); } }
     p.credits += prize; p.stats.races = (p.stats.races || 0) + 1;
     s.race = null;
     this.notify(s, `🏁 Финиш! ${tr.name}: ${(t / 1000).toFixed(1)} с${prize ? ` · +${fmt(prize)} CR (${why.join(', ')})` : ''}`, 'good');

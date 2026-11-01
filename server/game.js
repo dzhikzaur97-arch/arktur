@@ -1019,9 +1019,10 @@ class Game {
     const roll = Math.random();
     const role = opts.role || (sys.def.sec < 0.8 && Math.random() < 0.28 ? 'hunter' : roll < 0.4 && sys.belts.length ? 'miner' : roll < 0.75 ? 'hauler' : 'traveler');
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
-    let shipType = opts.shipType || (role === 'hunter' ? pick(['klinok', 'strazh', 'vihr', 'molot', 'piligrim', 'strizh']) : role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan'])
-      : role === 'hauler' ? pick(['tyagach', 'tyagach', 'tyagach', 'kit'])
-      : pick(['klinok', 'strazh', 'iskra', 'strizh', 'sokol', 'vihr', 'piligrim', 'molot', 'citadel']));
+    let shipType = opts.shipType || (role === 'hunter' ? pick(['klinok', 'strazh', 'vihr', 'molot', 'piligrim', 'strizh', 'gonchaya', 'burevestnik']) : role === 'miner' ? pick(['burlak', 'burlak', 'staratel', 'staratel', 'iskra', 'leviafan', 'meduza'])
+      : role === 'hauler' ? pick(['tyagach', 'tyagach', 'tyagach', 'kit', 'avrora'])
+      : pick(['klinok', 'strazh', 'iskra', 'strizh', 'sokol', 'vihr', 'piligrim', 'molot', 'citadel', 'kometa', 'peleng']));
+    if (!SHIPS[shipType]) shipType = 'iskra'; // корабли гильдий подключаются модулем newships
     // в регионах фракций часть пилотов летает на кораблях своей фракции
     let facTag = '';
     const fac = !opts.shipType && Object.keys(D.FACTION_INFO).find(f => D.FACTION_INFO[f].regions.includes(sys.def.region));
@@ -1798,5 +1799,6 @@ require('./corp')(Game);
 require('./tech')(Game);
 require('./raid')(Game);
 require('./world')(Game);
+require('./newships')(Game);
 
 module.exports = { Game };

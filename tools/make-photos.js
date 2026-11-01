@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { SHIPS } = require('../server/data');
+require('../server/newships'); // корабли вольных гильдий
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'public/img/photos');

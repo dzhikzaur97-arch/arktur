@@ -3,7 +3,7 @@
 // вдвое дольше срока — заказ сорван. В пути бывают засады: пираты знают, кто везёт ценный груз.
 'use strict';
 const crypto = require('crypto');
-const { ITEMS, incomeOf } = require('./data');
+const { ITEMS, SHIPS, incomeOf } = require('./data');
 const { route } = require('./universe');
 const uid = () => crypto.randomBytes(6).toString('hex');
 const fmt = (n) => Math.round(n).toLocaleString('ru-RU');
@@ -68,7 +68,7 @@ module.exports = function install(Game) {
       if (ms.dest !== s.docked) continue;
       this.taxiDrop(p, ms);
       const left = ms.deadline - this.now, k = late > 0 ? 0.5 : 1 + 0.5 * Math.min(1, left / (ms.mins * 60000));
-      ms.reward = Math.round(ms.reward * k);
+      ms.reward = Math.round(ms.reward * k * (1 + ((SHIPS[p.ship.type] || {}).taxiBonus || 0)));
       p.stats.taxi = (p.stats.taxi || 0) + 1;
       this.completeMission(p, ms, s);
       this.notify(s, late > 0 ? `Опоздание на ${Math.ceil(late / 60000)} мин — заплатили половину` : `Успели с запасом ${Math.floor(left / 60000)} мин — бонус за скорость`, late > 0 ? 'warn' : 'good');
@@ -79,7 +79,7 @@ module.exports = function install(Game) {
   P.jump = function (e, gate) {
     const r = baseJump.call(this, e, gate);
     const s = e.session, p = s && s.player;
-    if (p && (p.missions || []).some(m => m.type === 'taxi') && this.U.byId[e.sys].sec < 0.8 && Math.random() < 0.22) {
+    if (p && (p.missions || []).some(m => m.type === 'taxi') && this.U.byId[e.sys].sec < 0.8 && Math.random() < 0.22 / ((SHIPS[p.ship.type] || {}).taxiBonus ? 2 : 1)) {
       const sec = this.U.byId[e.sys].sec;
       for (const k of sec > 0.4 ? ['raider', 'raider'] : ['raider', 'hunter', 'reaper']) {
         const n = this.spawnNpc(k, e.sys, [e.pos[0] + rnd(-9000, 9000), e.pos[1], e.pos[2] + rnd(-9000, 9000)]); n.npcTarget = e.id;

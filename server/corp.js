@@ -1,4 +1,4 @@
-// Своя корпорация: пилот основывает её (1 млн CR), выбирает название, тег и герб, нанимает ИИ-пилотов.
+// Своя корпорация: пилот основывает её (500 000 CR), выбирает название, тег и герб, нанимает ИИ-пилотов.
 // Участники сами копают, торгуют и охотятся — каждый час приносят в казну CR (шахтёры — ещё и руду на общий склад,
 // охотники — трофеи). Растут в уровне, иногда попадают в беду (ранены, сбиты — выбывают на время).
 // Казну можно забрать себе, общий склад — выгрузить в ангар любой станции. Уровень корпорации даёт больше мест.
@@ -10,12 +10,12 @@ const uid = () => crypto.randomBytes(5).toString('hex');
 const fmt = (n) => Math.round(n).toLocaleString('ru-RU');
 
 const CORP = {
-  cost: 1000000,
+  cost: 500000,
   levels: [null, { slots: 5, cost: 0 }, { slots: 10, cost: 3000000 }, { slots: 20, cost: 10000000 }],
   roles: {
-    miner:  { name: 'Шахтёр', cr: 7000, risk: 0.02, ore: true },
-    trader: { name: 'Торговец', cr: 10000, risk: 0.03 },
-    hunter: { name: 'Охотник', cr: 12000, risk: 0.06, loot: true }
+    miner:  { name: 'Шахтёр', cr: 3000, risk: 0.02, ore: true },
+    trader: { name: 'Торговец', cr: 4000, risk: 0.03 },
+    hunter: { name: 'Охотник', cr: 5000, risk: 0.06, loot: true }
   },
   emblems: ['✦', '◆', '⬢', '☄', '⚔', '♜', '✪', '☀', '❖', '⚓', '♛', '✹'],
   colors: ['#5fc8e8', '#ffb040', '#ff6a50', '#8ae08a', '#c080ff', '#ffd860', '#e0e0e0', '#ff7ab0'],
@@ -35,7 +35,7 @@ module.exports = function install(Game) {
     const cands = Array.from({ length: 6 }, (_, i) => { const role = ['miner', 'trader', 'hunter'][i % 3]; const lv = 1 + Math.floor(r() * 3);
       return { id: hour + ':' + i, role, lv, name: CORP.first[Math.floor(r() * CORP.first.length)] + ' ' + CORP.last[Math.floor(r() * CORP.last.length)], fee: CORP.hireFee * lv * lv }; })
       .filter(x => !(c && c.members.some(m => m.cand === x.id)));
-    return { t: 'corp', corp: c ? { ...c, slots: this.corpSlots(p), next: CORP.levels[c.level + 1] || null, rateH: c.members.reduce((a, m) => a + (m.downUntil > this.now ? 0 : CORP.roles[m.role].cr * m.lv), 0) } : null,
+    return { t: 'corp', corp: c ? { ...c, slots: this.corpSlots(p), next: CORP.levels[c.level + 1] || null, rateH: Math.round(c.members.reduce((a, m) => a + (m.downUntil > this.now ? 0 : CORP.roles[m.role].cr * m.lv), 0) * (this.hasHQ && this.hasHQ(p) ? 1.3 : 1)), hq: !!(this.hasHQ && this.hasHQ(p)) } : null,
       cost: CORP.cost, roles: CORP.roles, emblems: CORP.emblems, colors: CORP.colors, cands, now: this.now };
   };
   P.c_corpInfo = function (s, m, p) { s.send(this.corpView(p)); };
@@ -109,7 +109,7 @@ module.exports = function install(Game) {
     const events = [];
     for (const mb of c.members) {
       if (mb.downUntil > this.now) continue;
-      const R = CORP.roles[mb.role], cr = R.cr * mb.lv * mins / 60;
+      const R = CORP.roles[mb.role], cr = R.cr * mb.lv * mins / 60 * (this.hasHQ && this.hasHQ(p) ? 1.3 : 1);
       c.treasury += cr; mb.earned = (mb.earned || 0) + cr;
       if (R.ore) { const ore = mb.lv >= 3 ? 'ore_arkselit' : 'ore_korundit'; c.hangar[ore] = (c.hangar[ore] || 0) + Math.round(12 * mb.lv * mins / 60); }
       if (R.loot && Math.random() < 0.05 * mins / 60 * mb.lv) { c.hangar.salv_core = (c.hangar.salv_core || 0) + 1; events.push(`${mb.name} принёс трофей: пиратское ядро`); }
