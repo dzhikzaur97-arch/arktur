@@ -355,7 +355,7 @@ function plumeTexture() {
 // анизотропная фильтрация — максимум видеокарты (16× на современных), на низком качестве 4×
 const maxAniso = () => renderer ? Math.min(texLevel === 'low' ? 4 : 16, renderer.capabilities.getMaxAnisotropy()) : 8;
 const hullShared = new Map();
-function hullSet(paint, accent, faction, seed) {
+function hullSet(paint, accent, faction, seed, second) {
   // рисуем в логических координатах 512×512, холсты — в разрешении уровня качества (512 / 1024 / 2048)
   const W = 512, RES = texRes(), r = seeded(seed), shared = hullShared.get(faction + ':' + accent + ':' + seed);
   const mk = (size = RES, read = false) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d', read ? { willReadFrequently: true } : undefined); g.setTransform(size / W, 0, 0, size / W, 0, 0); return [c, g]; };
@@ -382,7 +382,7 @@ function hullSet(paint, accent, faction, seed) {
     else { const k = h * (0.3 + r() * 0.4); split(x, y, w, k, d + 1, zone); split(x, y + k, w, h - k, d + 1, zone); }
   };
   split(0, 0, W, W, 0, 0);
-  const S2 = P.clone().lerp(new THREE.Color(0.72, 0.74, 0.77), 0.55), BARE = new THREE.Color(0.5, 0.52, 0.55), DARK = new THREE.Color(0.16, 0.17, 0.19);
+  const S2 = second != null ? new THREE.Color(second) : P.clone().lerp(new THREE.Color(0.72, 0.74, 0.77), 0.55), BARE = new THREE.Color(0.5, 0.52, 0.55), DARK = new THREE.Color(0.16, 0.17, 0.19);
   for (const [x, y, w, h, zone] of panels) {
     const gap = 0.9, X = x + gap, Y = y + gap, Wd = w - gap * 2, Hd = h - gap * 2;
     const kind = r() < 0.9 ? zone : (r() < 0.8 ? 2 : 3); // изредка — панель другого типа внутри зоны
@@ -709,10 +709,10 @@ function buildSky(sysId, sec, region) {
 const shipCache = new Map();
 const matCache = new Map();
 const FACTION_ACCENT = { player: 0x2a8fd0, pirate: 0xb01818, guard: 0x2060c0, dark: 0x8a6a2a, station: 0xd08a30, cons: 0xc89a38, liga: 0xd07020, orden: 0x8a5cff, seraph: 0xd8a842 };
-function pbrMat(paint, faction, opts = {}) {
-  const key = paint + ':' + faction;
+function pbrMat(paint, faction, opts = {}, accent = null, second = null) {
+  const key = paint + ':' + faction + ':' + (accent == null ? '' : accent) + ':' + (second == null ? '' : second);
   if (matCache.has(key)) return matCache.get(key);
-  const set = hullSet(paint, FACTION_ACCENT[faction] || 0x2a8fd0, faction, strSeed(faction) >>> 0);
+  const set = hullSet(paint, accent != null ? accent : FACTION_ACCENT[faction] || 0x2a8fd0, faction, strSeed(faction) >>> 0, second);
   const m = new THREE.MeshPhysicalMaterial({
     map: set.map, normalMap: set.normalMap, normalScale: new THREE.Vector2(1.1, 1.1),
     roughnessMap: set.ormMap, metalnessMap: set.ormMap, roughness: 1, metalness: 1,
@@ -1032,8 +1032,9 @@ function buildSerafim(g, R) {
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
   const DF = DESIGN_FAC[type], own = DF && faction !== 'pirate' && faction !== 'guard'; // фракционный корабль в своей окраске
-  const M = own ? pbrMat(color, DF) : hullMat(color, faction), D = darkMetal();
-  const eng = own ? FAC_ENGINE[DF] : faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
+  const LK = LOOK || {}, custom = LK.accent != null || LK.second != null;
+  const M = own ? pbrMat(color, DF, {}, LK.accent, LK.second) : custom ? pbrMat(color, faction, {}, LK.accent, LK.second) : hullMat(color, faction), D = darkMetal();
+  const eng = LK.engine != null ? LK.engine : own ? FAC_ENGINE[DF] : faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
   const R = SHIP_BASE_R[type] || 50;
   const add = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
   switch (type) {
@@ -1720,6 +1721,7 @@ function buildShip(type, color, faction) {
     }
     default: add(new THREE.SphereGeometry(R * 0.5, 16, 12), M);
   }
+  if (LK.emblem) addEmblem(g, R, LK.emblem, LK.emc);
   if (faction === 'pirate' && type !== 'pbase' && type !== 'pdrone' && type !== 'pdrone_h' && type !== 'colossus' && type !== 'wb_gen') { // шипы на пиратских кораблях
     const r = seeded(type.length * 31);
     for (let i = 0; i < 8; i++) {
@@ -1829,9 +1831,30 @@ function droneModel(item, def = {}) {
   return shipCache.get(key).clone();
 }
 
-function shipModel(type, color, radius, faction) {
-  const key = type + color + faction;
-  if (!shipCache.has(key)) shipCache.set(key, buildShip(type, color, faction));
+// внешний вид корабля игрока: второй цвет ливреи, цвет полос, цвет пламени двигателей, герб на корпусе
+let LOOK = null;
+const lookKey = (l) => l ? [l.second, l.accent, l.engine, l.emblem, l.emc].map(v => v == null ? '' : v).join('|') : '';
+function addEmblem(g, R, ch, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const col = '#' + ((color == null ? 0xffffff : color) >>> 0).toString(16).padStart(6, '0');
+  x.beginPath(); x.arc(64, 64, 56, 0, 7); x.fillStyle = 'rgba(10,14,20,0.55)'; x.fill(); x.lineWidth = 7; x.strokeStyle = col; x.stroke();
+  x.fillStyle = col; x.font = '700 70px "Segoe UI Symbol", "Noto Sans Symbols 2", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(ch, 64, 70);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.6, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -4, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 });
+  mat.userData.owned = true;
+  g.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(g), size = Math.min(R * 0.55, (box.max.x - box.min.x) * 0.4);
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+  top.rotation.x = -Math.PI / 2; top.position.set(0, box.max.y * 0.92 + R * 0.01, (box.min.z + box.max.z) / 2 - R * 0.15); top.renderOrder = 3; g.add(top);
+  for (const sd of [1, -1]) { // и по бортам
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(size * 0.7, size * 0.7), mat);
+    side.rotation.y = sd * Math.PI / 2; side.position.set(sd * box.max.x * 0.9, 0, (box.min.z + box.max.z) / 2 - R * 0.2); side.renderOrder = 3; g.add(side);
+  }
+}
+function shipModel(type, color, radius, faction, look) {
+  if (type === 'archon') type = 'colossus'; // Архонт Края — та же машина Предтеч, крупнее
+  const key = type + color + faction + lookKey(look);
+  if (!shipCache.has(key)) { LOOK = look || null; try { shipCache.set(key, buildShip(type, color, faction)); } finally { LOOK = null; } }
   const m = shipCache.get(key).clone();
   const base = SHIP_BASE_R[type] || 50;
   m.scale.setScalar(radius / base);
@@ -2709,7 +2732,7 @@ function makeEnt(e, data) {
     const col = e.gd ? 0xd8e4f0 : e.rl ? 0x2a2438 : e.npc ? 0x4a3a38 : e.pc != null ? e.pc : t.color; // pc — покраска корабля друга
     obj = shipModel(e.st, col, e.r || t.radius, faction);
   } else if (e.k === 'd') obj = droneModel(e.item, data.drones[e.item]);
-  else if (e.k === 'a') obj = asteroidModel(e.r, e.sd, e.ore);
+  else if (e.k === 'a') obj = e.ore && e.ore.startsWith('gas_') ? gasCloudModel(e.r, e.sd, e.ore) : asteroidModel(e.r, e.sd, e.ore);
   else if (e.k === 'w') obj = e.rv ? relicModel(e.rv, e.r || 120) : wreckModel(e.r || 60);
   else if (e.k === 'm') obj = missileModel(e.c || 0xffa040, e.tp);
   else if (e.k === 't') obj = turretModel();
@@ -2732,14 +2755,14 @@ function removeEnt(id) {
 }
 
 let myShip = null, myShipType = null;
-export function setMyShip(type, data, paint) {
-  const key = type && type + ':' + (paint == null ? '' : paint);
+export function setMyShip(type, data, paint, look) {
+  const key = type && type + ':' + (paint == null ? '' : paint) + ':' + lookKey(look);
   if (myShip && myShipType === key) return;
   if (myShip) entGroup.remove(myShip);
   myShipType = key;
   if (!type) { myShip = null; return; }
   const t = data.ships[type];
-  myShip = shipModel(type, paint == null ? t.color : paint, t.radius, 'player');
+  myShip = shipModel(type, paint == null ? t.color : paint, t.radius, 'player', look);
   cam.target = cam.dist = t.radius * 9;
   entGroup.add(myShip);
 }
@@ -2756,6 +2779,49 @@ function placeFar(obj, rel, radius, isUnit) {
 // ======================================================================
 // Кадр
 // ======================================================================
+// Газовое облако: несколько мягких светящихся клубов (спрайты), медленно вращаются
+let gasTex = null;
+function gasCloudModel(radius, seed, ore) {
+  if (!gasTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.35, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128); gasTex = new THREE.CanvasTexture(c);
+  }
+  const col = ore === 'gas_plasma' ? new THREE.Color(1.4, 0.55, 1.1) : new THREE.Color(0.55, 1.2, 1.5);
+  const grp = new THREE.Group(); let s = seed;
+  const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: gasTex, color: col, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const k = radius * (1.2 + r() * 1.4); sp.scale.set(k, k, 1); sp.position.set((r() - 0.5) * radius * 1.6, (r() - 0.5) * radius * 0.8, (r() - 0.5) * radius * 1.6);
+    grp.add(sp);
+  }
+  grp.userData.spin = 0.02;
+  return grp;
+}
+// Кольца-ворота гоночной трассы: следующие — яркие, пройденные гаснут
+let raceGroup = null, raceData = null;
+export function setRace(cps, next) {
+  raceData = cps && cps.length ? { cps, next } : null;
+  if (raceGroup) { scene.remove(raceGroup); raceGroup = null; }
+  if (!raceData) return;
+  raceGroup = new THREE.Group();
+  cps.forEach((p, i) => {
+    const on = i === next, done = i < next;
+    const m = new THREE.Mesh(new THREE.TorusGeometry(1500, on ? 70 : 40, 8, 64), glowMat(done ? 0x304050 : on ? 0xffd040 : 0x40c8ff, on ? 3 : 1.4));
+    m.userData.p = p; m.visible = !done; raceGroup.add(m);
+  });
+  scene.add(raceGroup);
+}
+function updateRace(view) {
+  if (!raceGroup) return;
+  const o = view.origin;
+  raceGroup.visible = !view.docked;
+  raceGroup.children.forEach((m, i) => {
+    const p = m.userData.p; m.position.set(p[0] - o[0], p[1] - o[1], p[2] - o[2]);
+    const q = raceData.cps[i + 1] || raceData.cps[i - 1] || p; m.lookAt(q[0] - o[0], q[1] - o[1], q[2] - o[2]);
+  });
+}
+
 // Кольца дальности вокруг своего корабля: тонкий пунктир в плоскости системы и подписи в км.
 // Неяркие и не перекрывают обзор; подписи всегда сбоку от корабля (со стороны правого края экрана).
 const RING_KM = [5, 10, 15, 20, 50, 100];
@@ -2823,6 +2889,7 @@ export function frame(view, dt, time) {
   if (skyDome) skyDome.position.copy(camera.position);
 
   updateRangeRings(view);
+  updateRace(view);
   if (view.docked) { godRays.uniforms.l0.value.z = godRays.uniforms.l1.value.z = 0; stationFrame(view, dt, time); return; }
   if (stationView) { scene.remove(stationView); stationView = null; celGroup.visible = entGroup.visible = true; dust.visible = true; }
 
@@ -3025,11 +3092,11 @@ function stationFrame(view, dt, time) {
     scene.add(stationView);
     celGroup.visible = entGroup.visible = false; dust.visible = false;
   }
-  const dkey = view.dockedShip && view.dockedShip + ':' + (view.dockedPaint == null ? '' : view.dockedPaint);
+  const dkey = view.dockedShip && view.dockedShip + ':' + (view.dockedPaint == null ? '' : view.dockedPaint) + ':' + lookKey(view.dockedLook);
   if (view.dockedShip && stationView.userData.shipType !== dkey) {
     if (stationView.userData.ship) stationView.remove(stationView.userData.ship);
     const t = view.data.ships[view.dockedShip];
-    const sh = shipModel(view.dockedShip, view.dockedPaint == null ? t.color : view.dockedPaint, 900, 'player');
+    const sh = shipModel(view.dockedShip, view.dockedPaint == null ? t.color : view.dockedPaint, 900, 'player', view.dockedLook);
     sh.position.set(2200, -1200, 5200);
     stationView.add(sh); stationView.userData.ship = sh; stationView.userData.shipType = dkey;
   }

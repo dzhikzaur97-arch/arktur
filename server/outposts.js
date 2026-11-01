@@ -36,13 +36,13 @@ module.exports = function install(Game) {
   const resolve = (k, prof) => k === 'METAL' ? prof.metal : k === 'SPECIAL' ? prof.special : k;
   P.outOf = function (p, planet) { return (p.outposts || {})[planet] || null; };
   // добыча за прошедшее время (в том числе пока пилот был не в сети)
-  P.outAccrue = function (o, planet) {
-    const lv = o.b.extractor || 0, now = this.now;
+  P.outAccrue = function (o, planet, p) {
+    const lv = o.b.extractor || 0, now = this.now, tk = p && this.techHas && this.techHas(p, 'base1') ? 1.3 : 1;
     if (!lv) { o.at = now; return; }
     const prof = this.surfProfile(planet); if (!prof) return;
     const h = Math.max(0, (now - (o.at || now)) / 3600000);
     o.at = now; o.frac = o.frac || {};
-    for (const [item, per] of [[prof.special, OUT.rate[lv]], [prof.metal, OUT.rate[lv] / 2]]) {
+    for (const [item, per] of [[prof.special, OUT.rate[lv] * tk], [prof.metal, OUT.rate[lv] / 2 * tk]]) {
       const v = (o.frac[item] || 0) + per * h, n = Math.floor(v);
       o.frac[item] = v - n;
       const room = capOf(o) - used(o), add = Math.max(0, Math.min(n, room));
@@ -58,7 +58,7 @@ module.exports = function install(Game) {
     return { t: 'outpost', planet, base, defs, layout: OUT.layout, range: OUT.range, special: prof && prof.special, metal: prof && prof.metal,
       count: Object.keys(p.outposts || {}).length, max: OUT.maxBases };
   };
-  P.outSend = function (s) { if (s.surf) { const o = this.outOf(s.player, s.surf.planet); if (o) this.outAccrue(o, s.surf.planet); s.send(this.outView(s.player, s.surf.planet)); } };
+  P.outSend = function (s) { if (s.surf) { const o = this.outOf(s.player, s.surf.planet); if (o) this.outAccrue(o, s.surf.planet, s.player); s.send(this.outView(s.player, s.surf.planet)); } };
   const nearBase = (s, o) => !!o && dist2([s.surf.pos[0], s.surf.pos[2]], [o.x, o.z]) <= OUT.range;
 
   // сколько ресурса доступно для стройки: костюм + склад базы (рядом с базой) + трюм (рядом с кораблём)
@@ -83,7 +83,7 @@ module.exports = function install(Game) {
     const draft = o || { x: Math.round(u.pos[0]), z: Math.round(u.pos[2]), b: {}, store: {}, at: this.now, since: this.now };
     if (o && !nearBase(s, o)) return this.notify(s, `Подойдите к базе (ближе ${OUT.range} м)`, 'warn');
     if (!o && prof.liquidY !== null && u.pos[1] < prof.liquidY + 1) return this.notify(s, 'Здесь не построить — нужна твёрдая земля', 'warn');
-    if (o) this.outAccrue(o, u.planet);
+    if (o) this.outAccrue(o, u.planet, p);
     const lv = draft.b[m.k] || 0;
     if (lv >= d.max) return this.notify(s, `${d.name}: уже максимальный уровень`, 'warn');
     const cost = Object.entries(d.cost[lv]).map(([r, q]) => [resolve(r, prof), q]), isk = d.isk[lv];
@@ -101,7 +101,7 @@ module.exports = function install(Game) {
   P.c_outTake = function (s, m, p) {
     const u = s.surf; if (!u) return;
     const o = this.outOf(p, u.planet); if (!nearBase(s, o)) return this.notify(s, 'Подойдите к базе', 'warn');
-    this.outAccrue(o, u.planet);
+    this.outAccrue(o, u.planet, p);
     let moved = 0;
     for (const [k, q] of Object.entries(o.store)) {
       if (m.item && m.item !== k) continue;
@@ -115,7 +115,7 @@ module.exports = function install(Game) {
   P.c_outPut = function (s, m, p) {
     const u = s.surf; if (!u) return;
     const o = this.outOf(p, u.planet); if (!nearBase(s, o)) return this.notify(s, 'Подойдите к базе', 'warn');
-    this.outAccrue(o, u.planet);
+    this.outAccrue(o, u.planet, p);
     const suit = this.suitOf(p);
     let moved = 0;
     for (const [k, q] of Object.entries(suit.inv)) {
@@ -146,14 +146,14 @@ module.exports = function install(Game) {
     const p = s.player, loc = p.loc, o = loc && this.outOf(p, loc.surface);
     if (!restore && o && o.b.pad) { loc.site = [o.x, o.z]; loc.ship = [o.x, o.z]; }
     const r = baseEnter.call(this, s, restore);
-    if (o) { this.outAccrue(o, loc.surface); if (!restore && o.b.pad) this.notify(s, 'Посадка на площадку вашей базы', 'good'); }
+    if (o) { this.outAccrue(o, loc.surface, p); if (!restore && o.b.pad) this.notify(s, 'Посадка на площадку вашей базы', 'good'); }
     if (s.surf) s.send(this.outView(p, loc.surface));
     return r;
   };
   // список баз (окно «Имущество»)
   P.c_outList = function (s, m, p) {
     const list = Object.entries(p.outposts || {}).map(([planet, o]) => {
-      this.outAccrue(o, planet);
+      this.outAccrue(o, planet, p);
       const c = this.U.celestials[planet];
       return { planet, name: c ? c.name : planet, sys: c && c.sys, b: o.b, used: used(o), cap: capOf(o), rate: OUT.rate[o.b.extractor || 0] };
     });

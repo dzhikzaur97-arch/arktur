@@ -12,7 +12,9 @@ const PARTS = {
   part_engine:  { in: { mat_steel: 20, mat_crystal: 6 }, time: 30 },
   part_control: { in: { mat_ceramite: 20, mat_crystal: 4 }, time: 30 },
   part_reactor: { in: { mat_crystal: 10, mat_nullalloy: 3 }, time: 60 },
-  part_warp:    { in: { mat_nullalloy: 6, mat_xcore: 1 }, time: 90 }
+  part_warp:    { in: { mat_nullalloy: 6, mat_xcore: 1 }, time: 90 },
+  part_fusion:  { in: { gas_h3: 30, mat_crystal: 4 }, time: 40 },
+  cells_gas:    { in: { gas_h3: 10 }, out: 'energy_cell', qty: 6, time: 10, noCells: true }   // гелий-3 → энергоячейки
 };
 const YARD = { maxQueue: 4, maxRuns: 50, cells: 1, fee: 0.2, partsShare: 0.55, bigShip: 1500000 };
 // доля деталей по назначению корабля (по стоимости)
@@ -59,14 +61,15 @@ module.exports = function install(Game) {
     if (st.asm.length >= YARD.maxQueue) return this.notify(s, `В очереди цеха не больше ${YARD.maxQueue} заказов`, 'warn');
     const runs = Math.max(1, Math.min(YARD.maxRuns, Math.floor(+m.runs) || 1));
     const h = this.hangar(p, st.id).items;
-    const need = Object.assign({}, ...Object.entries(R.in).map(([k, q]) => ({ [k]: q * runs })), { energy_cell: YARD.cells * runs });
+    const need = Object.assign({}, ...Object.entries(R.in).map(([k, q]) => ({ [k]: q * runs })), R.noCells ? {} : { energy_cell: YARD.cells * runs });
     const lack = Object.entries(need).filter(([k, q]) => (h[k] || 0) < q);
     if (lack.length) return this.notify(s, `Не хватает в ангаре станции: ${lack.map(([k, q]) => `${ITEMS[k].name} ${h[k] || 0}/${q}`).join(', ')}`, 'warn');
     for (const [k, q] of Object.entries(need)) { h[k] -= q; if (!h[k]) delete h[k]; }
     const lv = require('./data').REFINERY.levels[st.level] || { speed: 1 };
     const start = queueEnd(st, this.now), dur = R.time * runs / lv.speed * 1000;
-    st.asm.push({ kind: 'part', item: m.part, qty: runs, start, end: start + dur });
-    this.notify(s, `Цех: ${ITEMS[m.part].name} ×${runs} — готово через ${fmt(Math.ceil((start + dur - this.now) / 60000))} мин`, 'good');
+    const out = R.out || m.part, outQty = (R.qty || 1) * runs;
+    st.asm.push({ kind: 'part', item: out, qty: outQty, start, end: start + dur });
+    this.notify(s, `Цех: ${ITEMS[out].name} ×${outQty} — готово через ${fmt(Math.ceil((start + dur - this.now) / 60000))} мин`, 'good');
     this.sendProfile(s); this.c_structInfo(s, m, p); this.save(true);
   };
   // стапель: корабль из деталей

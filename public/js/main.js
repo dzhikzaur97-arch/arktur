@@ -442,7 +442,16 @@ function onMsg(m) {
     case 'prod': S.prod = m; S.prodAt = performance.now(); if (S.docked && S.stTab === 'prod') renderStation(); break;
     case 'anoms': S.anoms = m.list; break;
     case 'infra': S.infra = m; S.infraAt = performance.now(); if (S.win === 'build') renderWin(); break;
+    case 'race': S.race = m; R.setRace(m.active && m.track ? m.track.cps : null, m.next); renderActHud(); break;
+    case 'arena': S.arena = m; renderActHud(); break;
+    case 'probe': S.probe = Object.assign(S.probe || {}, { hits: m.hits, total: m.total, at: performance.now() }); if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); }
+      if (m.hits.some(h => h.found)) { S.probe.hits = []; } break;
     case 'yard': S.yard = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
+    case 'tech': S.tech = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
+    case 'corp': S.corp = m; if (S.win === 'corp') renderWin(); break;
+    case 'raid': S.raid = m; renderActHud(); break;
+    case 'world': S.world = m; updateWallet(); if (S.win === 'news') renderWin(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
+    case 'weather': S.wx = m; updateWallet(); break;
     case 'marks': S.marks = m.list || []; if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); } break;
     case 'struct':
       S.struct = m; S.structAt = performance.now();
@@ -505,7 +514,7 @@ function onState(m) {
   if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel]) && !(S.anoms && S.anoms.some(a => a.id === S.sel))) S.sel = null;
   if (S.active && !me.locks.includes(S.active)) S.active = me.locks[0] || null;
   if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); damageNumber(fx); }
-  R.setMyShip(me.st, S.data, S.prof && S.prof.ship.paint);
+  R.setMyShip(me.st, S.data, S.prof && S.prof.ship.paint, S.prof && S.prof.ship.look);
 }
 
 // ---------- плавное движение: буфер снимков и интерполяция по кривой Эрмита ----------
@@ -552,7 +561,7 @@ function sample(rec, rt) {
 function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ghosts.size ? new Map([...S.ents, ...ghostStep()]) : S.ents, data: S.data, docked: S.docked,
-    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null,
+    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null, dockedLook: S.prof && S.prof.ship ? S.prof.ship.look : null,
     roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0,
     rings: CFG.rings !== false && !!S.me && !document.body.classList.contains('photo')
   };
@@ -578,10 +587,11 @@ function distTo(o) {
 }
 const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
+  gasfield: ['☁', 'Газовое облако'], race: ['🏁', 'Гоночная трасса'], arena: ['⚔', 'Арена'], raid: ['⛬', 'Врата за Край'],
   asteroid: ['◆', 'Астероид'], wreck: ['⌧', 'Обломки'], drone: ['•', 'Дрон'], anomaly: ['✧', 'Аномалия'], missile: ['➹', 'Ракета'], turret: ['⛫', 'Турель']
 };
 const ANOM_TYPE = { fortress: 'Пиратская крепость', pbase: 'Пиратская база', contract: 'Точка контракта', story: 'Сюжетная точка', event: 'Событие',  combat: 'Боевая аномалия', ore: 'Рудная аномалия', relic: 'Руины', black: 'Чёрный рынок',
-  vault: 'Хранилище Предтеч', sentinel: 'Спящий страж', ionstorm: 'Ионный шторм', graveyard: 'Кладбище флота', front: 'Линия фронта', wevent: 'Мировое событие', cmission: 'Особое задание' };
+  vault: 'Хранилище Предтеч', sentinel: 'Спящий страж', ionstorm: 'Ионный шторм', graveyard: 'Кладбище флота', front: 'Линия фронта', wevent: 'Мировое событие', cmission: 'Особое задание', wanted: 'Логово главаря' };
 const RELIC_KINDS = ['vault', 'sentinel', 'ionstorm', 'graveyard']; // аномалии Предтеч — награда: артефакт
 function iconOf(o) {
   if (o.kind === 'ship') return o.dl ? '¤' : o.gd ? '✠' : o.wg ? '◆' : o.wf ? '⚔' : o.npc ? '▼' : '▲';
@@ -591,6 +601,7 @@ function iconOf(o) {
   if (o.kind === 'anomaly' && o.akind === 'front') return '⚔';
   if (o.kind === 'anomaly' && o.akind === 'cmission') return '✨';
   if (o.kind === 'anomaly' && o.akind === 'wevent') return '☄';
+  if (o.kind === 'anomaly' && o.akind === 'wanted') return '☠';
   if (o.kind === 'anomaly' && (o.akind === 'fortress' || o.akind === 'pbase')) return '☠';
   if (o.kind === 'anomaly' && RELIC_KINDS.includes(o.akind)) return '✦';
   return (KIND[o.kind] || ['•'])[0];
@@ -1160,10 +1171,10 @@ function askWarpRange(id, pos) {
 }
 function spaceMenu(x, y) {
   if (!S.sys) return;
-  const groups = [['Станции', 'station'], ['Звёздные врата', 'gate'], ['Пояса астероидов', 'belt'], ['Аномалии', 'anomaly'], ['Планеты', 'planet'], ['Звезда', 'sun']];
+  const groups = [['Станции', 'station'], ['Звёздные врата', 'gate'], ['Пояса астероидов', 'belt'], ['Газовые облака', 'gasfield'], ['Аномалии', 'anomaly'], ['Трассы, арена, рейд', 'race'], ['Планеты', 'planet'], ['Звезда', 'sun']];
   const items = [];
   for (const [label, kind] of groups) {
-    const cs = [...S.sys.celestials, ...(S.anoms || [])].filter(c => c.kind === kind);
+    const cs = [...S.sys.celestials, ...(S.anoms || [])].filter(c => c.kind === kind || (kind === 'race' && (c.kind === 'arena' || c.kind === 'raid')));
     if (!cs.length) continue;
     items.push([`${label} ▸`, () => showCtx(x, y, label, cs.map(c => [c.name, () => {
       S.sel = c.id;
@@ -1240,7 +1251,7 @@ function updateBrackets() {
       if (o.ag) cls.push('aggro');
     } else if (o.kind === 'asteroid') cls.push('ast');
     else if (o.kind === 'drone') cls.push(o.o === S.name ? 'mydrone' : 'player');
-    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' || o.akind === 'cmission' ? 'story' : o.akind === 'event' || o.akind === 'fortress' || o.akind === 'pbase' || o.akind === 'front' || o.akind === 'wevent' ? 'event' : 'anom', 'lbl');
+    else if (o.kind === 'anomaly') cls.push(o.akind === 'black' ? 'dealer' : o.akind === 'story' || o.akind === 'contract' || o.akind === 'cmission' ? 'story' : o.akind === 'event' || o.akind === 'fortress' || o.akind === 'pbase' || o.akind === 'front' || o.akind === 'wevent' || o.akind === 'wanted' ? 'event' : 'anom', 'lbl');
     else cls.push('cel');
     if (S.sel === o.id) cls.push('sel');
     if (S.me.locks.includes(o.id)) cls.push('locked');
@@ -1572,6 +1583,8 @@ function updateWallet() {
   let f = '';
   if (p.criminal) f += `<span class="flag crim">ПРЕСТУПНИК ${fmtTime(p.criminal / 1000)}</span>`;
   if (p.suspect) f += `<span class="flag susp">ПОДОЗРЕВАЕМЫЙ ${fmtTime(p.suspect / 1000)}</span>`;
+  if (S.world && S.world.myBounty) f += `<span class="flag crim" title="Награда за вашу голову — погасить на станции (📰 Сводка)">☠ ${isk(S.world.myBounty)}</span>`;
+  if (S.wx && S.wx.kind && S.sys && S.wx.sys === S.sys.id && !S.docked) f += `<span class="flag wx" title="${esc(S.wx.info.desc)}">${S.wx.info.icon} ${esc(S.wx.info.name)}</span>`;
   $('#flags').innerHTML = f;
 }
 
@@ -1661,13 +1674,15 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { corp: 'Корпорация', news: 'Сводка: рынки, погода, розыск', assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
   if (name === 'bots' && S.win !== 'bots') send({ t: 'botInfo' });
   if (name === 'career' && S.win !== 'career') { send({ t: 'careerInfo' }); send({ t: 'leaders' }); }
   if (name === 'assets' && S.win !== 'assets') send({ t: 'outList' });
+  if (name === 'corp' && S.win !== 'corp') send({ t: 'corpInfo' });
+  if (name === 'news' && S.win !== 'news') send({ t: 'worldInfo' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1699,6 +1714,8 @@ function renderWin() {
   if (S.win === 'bots') return setHTML(el, botsHTML());
   if (S.win === 'fleet') return setHTML(el, fleetHTML());
   if (S.win === 'career') return setHTML(el, careerHTML());
+  if (S.win === 'corp') { const keep = ['corp-name', 'corp-tag'].map(id => [id, $('#' + id) && $('#' + id).value]); setHTML(el, corpHTML()); for (const [id, v] of keep) if (v && $('#' + id)) $('#' + id).value = v; return; }
+  if (S.win === 'news') return setHTML(el, newsHTML());
   if (S.win === 'assist') { setHTML(el, assistHTML()); const log = $('#assist-log'); if (log) log.scrollTop = log.scrollHeight; return; }
   if (S.win === 'talk') { setHTML(el, talkHTML()); const log = $('#talk-log'); if (log) log.scrollTop = log.scrollHeight; return; }
 }
@@ -1907,7 +1924,8 @@ function missionsHTML(withOffers) {
     const prog = ms.type === 'kill' ? `Прогресс: ${ms.progress} / ${ms.count}` : ms.type === 'recon' && ms.prog ? `Разведка: ${Math.round(ms.prog / ms.secs * 100)}%`
       : ms.type === 'rescue' && S.prof.ship.cargo.q_pod ? `Капсула на борту — везите на «${esc(S.stationById[ms.dest].name)}»` : `Цель: ${esc(ms.goal || (ms.dest ? S.stationById[ms.dest].name : ''))}`;
     const rsys = (ms.type === 'rescue' && S.prof.ship.cargo.q_pod) || (!ms.sys && ms.dest) ? S.stationById[ms.dest].sys : ms.sys;
-    html += `<div class="mission"><div class="mt">${ms.typeName ? `<span class="ctype">${esc(ms.typeName)}</span> ` : ''}${esc(ms.title)}</div><div>${esc(ms.text)}</div><div class="muted">${prog} · Награда: <span class="isk">${isk(ms.reward)}</span></div>
+    const dl = ms.deadline ? Math.round((ms.deadline - S.serverNow()) / 1000) : null;
+    html += `<div class="mission"><div class="mt">${ms.typeName ? `<span class="ctype">${esc(ms.typeName)}</span> ` : ''}${esc(ms.title)}</div><div>${esc(ms.text)}</div>${dl !== null ? `<div class="${dl > 0 ? 'isk' : 'bad'}">⏱ ${dl > 0 ? 'осталось ' + fmtTime(dl) : 'опоздание ' + fmtTime(-dl)}</div>` : ''}<div class="muted">${prog} · Награда: <span class="isk">${isk(ms.reward)}</span></div>
       <button data-a="route" data-sys="${rsys}">Маршрут</button> <button data-a="abandon" data-id="${ms.id}" class="danger">Отказаться</button></div>`;
   }
   if (withOffers) {
@@ -2315,6 +2333,7 @@ function factoryHTML() {
   }).join('')}</table>` : '<div class="muted">В ангаре этой станции нет руды. Разгрузите трюм во вкладке «Ангар».</div>';
   html += '<p class="muted">Готовые материалы появятся в ангаре этой станции. Продать их можно на рынке любой станции.</p>';
   html += yardHTML(h);
+  html += techHTML(h);
   return html;
 }
 // своя верфь: сборочный цех (детали из материалов) и стапель (корабль из деталей)
@@ -2324,10 +2343,10 @@ function yardHTML(h) {
   let html = `<h3>⚙ Сборочный цех — детали кораблей</h3><div class="muted small">Детали делаются из материалов этой станции и стоят дороже них. Каждая деталь тратит ${y.cells} энергоячейку (их даёт солнечная электростанция: ⚒ Стройка → Энергия). Цех работает и без вас в игре.</div>`;
   if (y.queue.length) html += y.queue.map(j => `<div class="mission"><div>${j.kind === 'ship' ? '⚓ ' + esc(S.data.ships[j.item].name) : esc(it(j.item).name) + ' ×' + j.qty}</div><div class="muted small">готово через ${fmtTime(Math.max(0, (j.end - S.serverNow()) / 1000))}</div></div>`).join('');
   html += `<table class="tbl"><tr><th>Деталь</th><th>Из чего (на 1 шт.)</th><th class="r">Цена</th><th></th></tr>${Object.entries(y.parts).map(([k, r]) => {
-    const inVal = Object.entries(r.in).reduce((a, [m, q]) => a + q * it(m).base, 0);
-    const can = Object.entries(r.in).every(([m, q]) => have(m) >= q) && have('energy_cell') >= y.cells;
-    return `<tr><td><b>${esc(it(k).name)}</b> <span class="muted small">· в ангаре ${num(have(k))}</span></td><td class="small">${Object.entries(r.in).map(([m, q]) => `<span class="${have(m) >= q ? 'req-ok' : 'req-no'}">${esc(it(m).name)} ${q}</span>`).join(' + ')}</td>
-      <td class="r isk">${isk(it(k).base)} <span class="muted small">(сырьё ${isk(inVal)})</span></td>
+    const inVal = Object.entries(r.in).reduce((a, [m, q]) => a + q * it(m).base, 0), outK = r.out || k, outQ = r.qty || 1;
+    const can = Object.entries(r.in).every(([m, q]) => have(m) >= q) && (r.noCells || have('energy_cell') >= y.cells);
+    return `<tr><td><b>${esc(it(outK).name)}${outQ > 1 ? ' ×' + outQ : ''}</b> <span class="muted small">· в ангаре ${num(have(outK))}</span></td><td class="small">${Object.entries(r.in).map(([m, q]) => `<span class="${have(m) >= q ? 'req-ok' : 'req-no'}">${esc(it(m).name)} ${q}</span>`).join(' + ')}</td>
+      <td class="r isk">${isk(it(outK).base * outQ)} <span class="muted small">(сырьё ${isk(inVal)})</span></td>
       <td class="r"><input class="qty" type="number" min="1" max="50" value="1" id="pm-${k}"> <button class="primary" data-a="partMake" data-part="${k}" ${can ? '' : 'disabled'}>Сделать</button></td></tr>`;
   }).join('')}</table>`;
   html += `<h3>⚓ Стапель — сборка корабля из деталей</h3><div class="muted small">Корабль из своих деталей обходится заметно дешевле покупки. Готовый корабль появится в ангаре этой станции.</div>`;
@@ -2732,13 +2751,13 @@ function wingHTML() {
   const wg = S.wing;
   if (!wg) return '<div class="muted">Загрузка…</div>';
   let html = `<p class="muted">Нанятые пилоты летают рядом с вашим кораблём: следуют через варп и врата, защищают от нападающих, бьют вашу цель, копают руду в ваш трюм или чинят корабль. За победы растут в уровне и пересаживаются на корабли мощнее. Кнопка «Усилить» — тренировка до 7 уровня, улучшения брони, орудий и спецмодуля и срочный ремонт. Погибший напарник возвращается из ремонта через 5 минут. Приказы — на панели «Напарники» в полёте.</p>`;
-  const byRole = (r) => wg.list.filter(w => w.role === r).length, per = wg.perRole || 4;
+  const byRole = (r) => wg.list.filter(w => w.role === r && !w.fleet).length, per = wg.perRole || 4;
   html += `<h3>Ваша команда <span class="muted">· ${Object.entries(wg.roles).map(([r, x]) => `${WING_ICON[r]} ${esc(x.name)} ${byRole(r)}/${per}`).join(' · ')}</span></h3>`;
   const ups = wg.ups || {}, upMax = wg.upMax || 3, cr = (S.prof || {}).credits || 0;
   const stars = (n) => '<span class="isk">' + '●'.repeat(n) + '</span><span class="muted">' + '○'.repeat(upMax - n) + '</span>';
   html += wg.list.length ? wg.list.map(w => {
     const open = S.wingOpen === w.id;
-    let row = `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[w.role]} ${esc(w.name)}</b> · ${esc(w.roleName)} · ур. ${w.lv}${w.rank ? ` <span class="muted">(${esc(w.rank)})</span>` : ''}
+    let row = `<div class="slot-row">${artImg(w.ship, 'ship-thumb')}<span class="sm"><b>${w.fleet ? '⚓' : WING_ICON[w.role]} ${esc(w.name)}</b> · ${w.fleet ? 'эскорт' : esc(w.roleName)} · ур. ${w.lv}${w.rank ? ` <span class="muted">(${esc(w.rank)})</span>` : ''}
       <span class="muted">· ${esc(S.data.ships[w.ship].name)}${w.next ? ` · побед ${w.xp}/${w.next}` : ' · высший уровень'}${w.dead ? ` · <span class="bad">в ремонте ${fmtTime(w.dead / 1000)}</span>` : ''}${Object.keys(w.hold || {}).length ? ' · в трюме: ' + Object.entries(w.hold).map(([it, q]) => esc(S.data.items[it].name) + ' ' + q).join(', ') : ''}</span>
       ${w.up ? `<span class="small"> · ${Object.keys(ups).map(k => `${k === 'arm' ? '🛡' : k === 'gun' ? '✦' : WING_ICON[w.role]}${stars(w.up[k] || 0)}`).join(' ')}</span>` : ''}</span>
       <button data-a="wingOpen" data-id="${w.id}" class="${open ? 'on' : ''}">${open ? 'Скрыть' : 'Усилить'}</button></div>`;
@@ -2748,10 +2767,12 @@ function wingHTML() {
       if (w.dead && w.revive != null) row += `<div class="slot-row"><span class="sm"><b>Срочный ремонт</b> <span class="muted">— вернуть в строй сразу, без ожидания</span></span>${btn('wingRevive', w.revive, 'Починить')}</div>`;
       row += `<div class="slot-row"><span class="sm"><b>Тренировка</b> <span class="muted">— ${w.train != null ? `сразу уровень ${w.lv + 1} из ${wg.maxLv || 7}: прочность и урон +15%${w.lv < 5 ? ', корабль мощнее' : ''}` : 'достигнут высший уровень'}</span></span>${S.docked ? btn('wingTrain', w.train, 'Тренировать') : ''}</div>`;
       row += Object.entries(ups).map(([k, u]) => `<div class="slot-row"><span class="sm"><b>${esc(u.name)}</b> ${stars(w.up[k] || 0)} <span class="muted">— ${esc(u.byRole ? u.byRole[w.role] : u.desc)}</span></span>${S.docked ? (w.upFee[k] == null ? '<span class="muted small">максимум</span>' : btn('wingUp', w.upFee[k], 'Улучшить', `data-k="${k}"`)) : ''}</div>`).join('');
-      row += `<div class="dr-btns"><button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div></div>`;
+      row += w.fleet ? `<div class="dr-btns">${S.docked ? `<button data-a="wingFire" data-id="${w.id}">⚓ Вернуть корабль в ангар</button>` : '<span class="muted small">Вернуть корабль в ангар можно на станции</span>'}</div></div>`
+        : `<div class="dr-btns"><button data-a="wingFire" data-id="${w.id}" class="danger">Отпустить</button></div></div>`;
     }
     return row;
   }).join('') : '<div class="muted">Пока никого. Наймите пилотов ниже.</div>';
+  html += fleetAssignHTML(wg);
   html += '<h3>Пилоты ищут работу на этой станции</h3><div class="muted small">Список обновляется каждый час. Плата — разовая.</div>';
   html += wg.candidates.length ? wg.candidates.map(c => `<div class="slot-row">${artImg(c.ship, 'ship-thumb')}<span class="sm"><b>${WING_ICON[c.role]} ${esc(c.name)}</b> · ${esc(wg.roles[c.role].name)} · ур. ${c.lv}
       <span class="muted">· «${esc(S.data.ships[c.ship].name)}» — ${esc(wg.roles[c.role].desc)}</span> <span class="isk">${isk(c.fee)}</span></span>
@@ -2765,22 +2786,22 @@ function renderWing() {
   const wg = S.wing, fab = $('#wing-fab');
   if (!wg || !wg.list.length || S.docked || document.body.classList.contains('on-surface')) { el.classList.add('hidden'); fab.classList.add('hidden'); return; }
   el.classList.remove('hidden'); fab.classList.remove('hidden');
-  $('#wing-fab-b').innerHTML = `◆<small>${{ follow: 'за мной', attack: 'атака', mine: 'копать', hold: 'стоять' }[wg.order] || ''}</small>`;
+  $('#wing-fab-b').innerHTML = `◆<small>${{ follow: 'за мной', attack: 'атака', mine: 'копать', hold: 'стоять', goto: 'в точку' }[wg.order] || ''}</small>`;
   const ents = [...S.ents.values()].filter(e => e.wg === S.name);
   const rows = wg.list.map(w => {
     const e = ents.find(x => x.n && x.n.startsWith(w.name));
     const hp = e ? (e.sh + e.ar + e.hu) / 3 : 0;
     return `<div class="dr-row"><span>${WING_ICON[w.role]} ${esc(w.name.split(' ')[0])} <span class="muted">${w.lv}</span></span><span class="bar hu" style="flex:1"><i style="width:${(hp * 100).toFixed(0)}%"></i></span><span class="muted">${w.dead ? 'ремонт' : e ? '' : '…'}</span></div>`;
   }).join('');
-  setHTML($('#wing-body'), rows + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять' }[k] || l}</button>`).join('')}</div>`);
+  setHTML($('#wing-body'), rows + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять', goto: '📍 Точка' }[k] || l}</button>`).join('')}</div>`);
 }
-onTap($('#wingp'), (e) => { const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click(); send({ t: 'wingOrder', order: b.dataset.wo }); });
+onTap($('#wingp'), (e) => { const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click(); if (b.dataset.wo === 'goto') return tacOpen('goto'); send({ t: 'wingOrder', order: b.dataset.wo }); });
 // телефон: круглая кнопка приказов напарникам рядом с модулями — без открытия боковой панели
 onTap($('#wing-fab'), (e) => {
   const menu = $('#wing-fab-menu'), b = e.target.closest('[data-wo]');
-  if (b) { Sound.click(); send({ t: 'wingOrder', order: b.dataset.wo }); menu.classList.add('hidden'); return; }
+  if (b) { Sound.click(); menu.classList.add('hidden'); if (b.dataset.wo === 'goto') return tacOpen('goto'); send({ t: 'wingOrder', order: b.dataset.wo }); return; }
   if (!e.target.closest('#wing-fab-b') || !S.wing) return;
-  menu.innerHTML = Object.keys(S.wing.orders).map(k => `<button data-wo="${k}" class="${S.wing.order === k ? 'on' : ''}">${{ follow: '◎ За мной', attack: '⚔ Атаковать цель', mine: '⛏ Копать', hold: '■ Стоять' }[k]}</button>`).join('');
+  menu.innerHTML = Object.keys(S.wing.orders).map(k => `<button data-wo="${k}" class="${S.wing.order === k ? 'on' : ''}">${{ follow: '◎ За мной', attack: '⚔ Атаковать цель', mine: '⛏ Копать', hold: '■ Стоять', goto: '📍 В точку (тактика)' }[k]}</button>`).join('');
   menu.classList.toggle('hidden');
 });
 // Вкладка «Фронт»: война фракций
@@ -2839,7 +2860,15 @@ function paintHTML() {
   const d = S.daily; if (!d || !d.palette) return '';
   const cur = S.prof.ship.paint, hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0');
   return `<h3>Покраска корабля</h3><div class="paint-row">${d.palette.map(c => `<button class="swatch ${cur === c ? 'on' : ''}" data-a="paint" data-c="${c}" style="background:${hex(c)}" title="${isk(d.paintCost)}"></button>`).join('')}
-    <button data-a="paint" data-c="" class="${cur == null ? 'on' : ''}">Заводская</button></div><div class="muted small">Покраска — ${isk(d.paintCost)}, заводская окраска — бесплатно. Цвет видят и друзья.</div>`;
+    <button data-a="paint" data-c="" class="${cur == null ? 'on' : ''}">Заводская</button></div><div class="muted small">Покраска — ${isk(d.paintCost)}, заводская окраска — бесплатно. Цвет видят и друзья.</div>` + lookHTML(d, hex);
+}
+function lookHTML(d, hex) {
+  if (!d.engines) return '';
+  const L = S.prof.ship.look || {}, corpEmb = S.corp && S.corp.corp ? S.corp.corp.emblem : null;
+  const row = (k, list, title, swatch = true) => `<div class="small" style="margin-top:6px"><b>${title}</b></div><div class="paint-row">${list.map(c => `<button class="swatch ${L[k] === c ? 'on' : ''}" data-a="look" data-k="${k}" data-v="${c}" ${swatch ? `style="background:${hex(c)}"` : ''}>${swatch ? '' : c}</button>`).join('')}<button data-a="look" data-k="${k}" data-v="" class="${L[k] == null ? 'on' : ''}">Нет</button></div>`;
+  return `<h3>Внешний вид</h3><div class="muted small">Каждое изменение — ${isk(d.lookCost)}; герб своей корпорации и цвет герба — бесплатно. Убрать — бесплатно.</div>`
+    + row('second', d.palette, 'Второй цвет корпуса (двухцветная ливрея)') + row('accent', d.palette, 'Цвет полос и маркировки') + row('engine', d.engines, 'Цвет пламени двигателей')
+    + row('emblem', d.emblems, 'Герб на корпусе' + (corpEmb ? ` <span class="muted">(герб корпорации ${corpEmb} — бесплатно)</span>` : ''), false) + (L.emblem ? row('emc', [0xffffff, ...d.palette], 'Цвет герба') : '');
 }
 // ======================================================================
 // Фоторежим: без интерфейса, свободная камера (палец/мышь), облёт, снимок на устройство
@@ -2874,6 +2903,7 @@ async function photoShotRun() {
 $('#photo-bar').onclick = (e) => { const b = e.target.closest('[data-ph]'); if (!b) return; const k = b.dataset.ph;
   if (k === 'shot') photoShot(); else if (k === 'orbit') { PHOTO.orbit = !PHOTO.orbit; b.classList.toggle('on', PHOTO.orbit); } else if (k === 'exit') photoMode(false); };
 $('#b-photo').onclick = () => { if (!S.data) return; photoMode(true); };
+$('#b-tac').onclick = () => { if (!S.data) return; TAC.on ? tacClose() : tacOpen(); };
 window.__VF_SNAP = () => { const u = R.snapshot(); return u ? u.length : 0; }; // отладка фоторежима
 // Вкладка «Производство»: заказы, свои чертежи, магазин чертежей
 const BP_KIND = { module: 'Модули', drone: 'Дроны', item: 'Расходники', ship: 'Корабли' };
@@ -3061,7 +3091,9 @@ function savesHTML() {
   return `<h3>Сохранения</h3>${st && st.msg ? `<div class="${st.ok ? 'muted' : 'bad'}">${esc(st.msg)}</div>` : ''}
     <div class="muted small">Игра сохраняется автоматически каждые несколько секунд (с резервной копией) и раз в 5 минут — в один из трёх автослотов по кругу.</div>
     <table class="tbl">${rows}</table>
-    <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>${cloudHTML()}`;
+    <p><button data-a="saveExport">Экспорт в файл</button> <label class="btnlike">Импорт из файла<input type="file" id="save-import" accept=".json,application/json" hidden></label></p>
+    <h3>📲 Перенос на другой телефон</h3><div class="muted small">«Поделиться» отправляет файл сохранения в мессенджер, почту или на диск (а на другом телефоне — «Импорт из файла» выше). «Код переноса» — то же сохранение сжатым текстом: скопируйте, перешлите себе любым способом и вставьте на другом телефоне. Прогресс на втором телефоне заменится.</div>
+    <p><button class="primary" data-a="saveShare">📤 Поделиться файлом</button> <button data-a="saveCode">📋 Скопировать код переноса</button> <button data-a="savePaste">📥 Вставить код</button></p>${cloudHTML()}`;
 }
 // Экспорт сохранения: на claude.ai — через разрешение на скачивание, в обычном браузере — ссылкой
 async function exportSave() {
@@ -3489,9 +3521,13 @@ function onActionClick(e) {
     case 'slotLoad': modal('<p>Загрузить это сохранение? Текущий прогресс будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => { const r = window.VF_SAVES.load(d.id); if (!r.ok) note(r.msg, 'bad'); }, 'primary']]); break;
     case 'slotDel': window.VF_SAVES.del(d.id); renderWin(); break;
     case 'saveExport': exportSave(); break;
+    case 'saveShare': shareSave(); break;
+    case 'saveCode': copySaveCode(); break;
+    case 'savePaste': modal('<h3>Вставить код переноса</h3><p class="muted">Текущий прогресс на этом устройстве заменится (резервная копия останется в автосохранениях).</p><textarea id="save-code" rows="5" style="width:100%" placeholder="ARK1:…"></textarea>', [['Отмена', null], ['Загрузить', () => pasteSaveCode(($('#save-code') || {}).value || ''), 'primary']]); break;
     case 'bpBuy': send({ t: 'bpBuy', bp: d.bp }); break;
     case 'fullscreen': (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({ navigationUI: 'hide' })).catch(() => note('Полноэкранный режим недоступен', 'warn')); break;
     case 'paint': send({ t: 'paint', color: d.c === '' ? null : +d.c }); break;
+    case 'look': send({ t: 'look', k: d.k, v: d.v === '' ? null : d.k === 'emblem' ? d.v : +d.v }); break;
     case 'talkAgent': if (talkAllowed()) openTalk(agentSpec(d.id)); break;
     case 'talkLeader': if (talkAllowed()) openTalk(leaderSpec(d.fac)); break;
     case 'talkSend': talkSend(); break;
@@ -3515,6 +3551,20 @@ function onActionClick(e) {
     case 'wingHire': send({ t: 'wingHire', id: d.id }); break;
     case 'partMake': send({ t: 'partMake', part: d.part, runs: +($('#pm-' + d.part) || {}).value || 1 }); break;
     case 'yardBuild': send({ t: 'yardBuild', ship: d.ship }); break;
+    case 'raceStart': send({ t: 'raceStart' }); break;
+    case 'raceStop': send({ t: 'raceStop' }); break;
+    case 'arenaStart': send({ t: 'arenaStart' }); break;
+    case 'raidStart': modal('<p>Открыть Врата за Край? Выйдет Архонт Края — самый сильный враг галактики. На бой 25 минут; открыть Врата снова можно через 2 часа. Возьмите напарников и флот.</p>', [['Отмена', null], ['⛬ Открыть Врата', () => send({ t: 'raidStart' }), 'danger']]); break;
+    case 'corpPick': S.corpForm = Object.assign(S.corpForm || {}, d.emblem ? { emblem: d.emblem } : { color: d.color }); if (S.corp && S.corp.corp) send({ t: 'corpStyle', emblem: d.emblem, color: d.color }); else renderWin(); break;
+    case 'corpCreate': { const f = S.corpForm || {}; send({ t: 'corpCreate', name: ($('#corp-name') || {}).value, tag: ($('#corp-tag') || {}).value, emblem: f.emblem, color: f.color }); break; }
+    case 'corpHire': send({ t: 'corpHire', id: d.id }); break;
+    case 'corpFire': modal('<p>Уволить пилота из корпорации?</p>', [['Нет', null], ['Уволить', () => send({ t: 'corpFire', id: d.id }), 'danger']]); break;
+    case 'corpUpgrade': send({ t: 'corpUpgrade' }); break;
+    case 'corpWithdraw': send({ t: 'corpWithdraw' }); break;
+    case 'corpUnload': send({ t: 'corpUnload' }); break;
+    case 'wantedPay': send({ t: 'wantedPay' }); break;
+    case 'techStart': send({ t: 'techStart', id: d.id }); break;
+    case 'fleetAdd': send({ t: 'fleetAdd', i: +d.i }); break;
     case 'allTabs': tut.allTabs = true; saveTut(); applyTabGates(); renderStation(); break;
     case 'replayIntro': closeWin(); playIntro(null); break;
     case 'wingOpen': S.wingOpen = S.wingOpen === d.id ? null : d.id; renderStation(); break;
@@ -3576,6 +3626,7 @@ mc.addEventListener('pointerup', (e) => {
     let best = null, bd = MOBILE ? 26 : 16;
     for (const h of map.hits) { const d = Math.hypot(h.x - e.clientX, h.y - e.clientY) - h.r; if (d < bd) { bd = d; best = h; } }
     if (best) { map.ssel = best.id; map.pick = null; renderMapInfo(); drawMap(); }
+    else if (map.probeMode) { S.probe = Object.assign(S.probe || { r: 8 }, { pos: sysMapInv(e.clientX, e.clientY) }); renderMapInfo(); drawMap(); } // режим зондов — центр круга
     else { map.ssel = null; map.pick = sysMapInv(e.clientX, e.clientY); renderMapInfo(); drawMap(); } // пустое место — точка для метки
   } else if (map.drag && map.drag.moved < 8) {
     const hit = S.data.systems.find(s => Math.hypot(...mapPt(s).map((v, i) => v - [e.clientX, e.clientY][i])) < (MOBILE ? 26 : 14));
@@ -3672,6 +3723,14 @@ function drawSysMap(g) {
   }
   // метки пилота и точка, выбранная на карте
   for (const m of (S.marks || []).filter(m => m.sys === S.sys.id)) { const [x, y] = sysMapPt(m.pos); label('📍', x, y + 5, '#ffd060', 14); label(m.name, x, y - 12, '#ffd060', 10); map.hits.push({ id: m.id, x, y, r: 8 }); }
+  // зонды: круг поиска и найденные отклики (точка ± погрешность)
+  const ring = (c, rAU, col, dash) => { g.strokeStyle = col; g.lineWidth = 1.5; g.setLineDash(dash || []); g.beginPath();
+    for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2, [x, y] = sysMapPt([c[0] + Math.cos(a) * rAU * 1.496e11, c[1], c[2] + Math.sin(a) * rAU * 1.496e11]); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke(); g.setLineDash([]); };
+  if (map.probeMode && S.probe && S.probe.pos) {
+    ring(S.probe.pos, S.probe.r || 8, 'rgba(120,255,180,0.8)', [6, 4]);
+    for (const h of S.probe.hits || []) { if (!h.est) continue; ring(h.est, Math.max(0.15, h.err), 'rgba(255,120,200,0.75)'); const [x, y] = sysMapPt(h.est); label(h.strength + '%', x, y + 4, '#ff9ad8', 12); }
+  }
   if (map.pick) { const [x, y] = sysMapPt(map.pick); g.strokeStyle = '#ffd060'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke(); }
   // мой корабль
   const myPos = S.surface ? (S.celById[S.surface.planet] || {}).pos : S.docked ? (S.celById[S.docked] || {}).pos : S.meRec && S.meRec.dp;
@@ -3687,11 +3746,24 @@ function drawSysMap(g) {
 }
 function sysMapInfo() {
   const here0 = S.meRec && !S.docked && !S.surface;
+  if (map.probeMode) {
+    const pr = S.probe || {}, R = pr.r || 8;
+    setHTML($('#map-info'), `<h3>📡 Зонды</h3><div class="muted small">Глубокие сигналы не видны обычному скану. Нажмите на карту — туда встанет круг зонда, затем «Сканировать». Сигналы внутри круга ответят силой и примерным местом (розовый круг). Сужайте круг на отклике: при 0.5 а.е. сигнал будет найден.</div>
+      <div class="dr-btns">${[8, 4, 2, 1, 0.5].map(r => `<button data-mapact="pr" data-r="${r}" class="${R === r ? 'on' : ''}">${r} а.е.</button>`).join('')}</div>
+      <div class="btn2"><button class="primary" data-mapact="pscan" ${pr.pos && here0 ? '' : 'disabled'}>📡 Сканировать</button><button data-mapact="poff">Выйти из режима зондов</button></div>
+      <div class="small">${!here0 ? '<span class="bad">Зонды запускают из космоса</span>' : pr.hits ? (pr.hits.length ? pr.hits.map(h => h.found ? `<div class="isk">✦ Найден: ${esc(h.name)}</div>` : `<div>Сигнал: сила ${h.strength}% · погрешность ${h.err.toFixed(2)} а.е.</div>`).join('') : '<div class="muted">В круге сигналов нет.</div>') + `<div class="muted">Сигналов в системе: ${pr.total}</div>` : ''}</div>`);
+    return;
+  }
   const mk = map.ssel && (S.marks || []).find(m => m.id === map.ssel);
   if (mk) {
     const d = here0 ? len(sub(mk.pos, S.meRec.dp)) : null;
     setHTML($('#map-info'), `<h3>📍 ${esc(mk.name)}</h3><div class="muted">Метка${d !== null ? ' · ' + fmtDist(d) : ''}</div>
       <div class="btn2">${here0 && d > 150000 ? `<button class="primary" data-mapact="warp" data-id="${mk.id}">» Варп</button><button data-mapact="warpd" data-id="${mk.id}">» Варп на дистанцию…</button>` : ''}<button class="danger" data-mapact="mdel" data-id="${mk.id}">✕ Удалить</button></div>`);
+    return;
+  }
+  if (!map.ssel && !map.pick) {
+    setHTML($('#map-info'), `<h3>${esc(S.sys ? S.sys.name : '')}</h3><div class="muted">Щёлкните звезду, планету, станцию или врата — или пустое место, чтобы поставить метку.</div>
+      <div class="btn2"><button data-mapact="pon">📡 Зонды: поиск скрытых сигналов</button></div>`);
     return;
   }
   if (map.pick && !map.ssel) {
@@ -3719,6 +3791,10 @@ $('#map-info').addEventListener('click', (e) => {
   if (a === 'warp') send({ t: 'warp', id });
   else if (a === 'warpd') askWarpRange(id);
   else if (a === 'mdel') { send({ t: 'markDel', id }); map.ssel = null; }
+  else if (a === 'pr') { S.probe = Object.assign(S.probe || {}, { r: +b.dataset.r }); renderMapInfo(); drawMap(); }
+  else if (a === 'pscan') { if (S.probe && S.probe.pos) send({ t: 'probe', pos: S.probe.pos, r: S.probe.r || 8 }); }
+  else if (a === 'poff') { map.probeMode = false; renderMapInfo(); drawMap(); }
+  else if (a === 'pon') { map.probeMode = true; map.ssel = null; map.pick = null; renderMapInfo(); drawMap(); }
   else if (a === 'mput') { send({ t: 'markAdd', pos: map.pick }); map.pick = null; }
   else if (a === 'mwarp') { send({ t: 'markAdd', pos: map.pick, warp: 0 }); map.pick = null; toggleMap(); }
   else if (a === 'mwarpd') { const pos = map.pick; map.pick = null; askWarpRange(null, pos); }
@@ -3795,6 +3871,13 @@ function drawMapNow() {
     if (S.war && S.war.owner) {
       g.strokeStyle = facCol(S.war.owner[s.id]); g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke();
       if (S.war.front.includes(s.id)) { g.fillStyle = '#ffdf80'; g.font = '12px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText('⚔', x + 13, y + 9); }
+    }
+    // погода и логово главаря из доски розыска
+    if (S.world) {
+      const wx = S.world.weather.find(w => w.sys === s.id), bs = S.world.bosses.find(b => b.sys === s.id && !b.back);
+      g.font = '12px Segoe UI, sans-serif'; g.textAlign = 'center';
+      if (wx) { g.fillStyle = '#9fd0ff'; g.fillText(S.world.weatherKinds[wx.kind].icon, x - 14, y - 8); }
+      if (bs) { g.fillStyle = '#ff6a50'; g.fillText('☠' + bs.lv, x + 15, y - 8); }
     }
     // мировое событие: пульсирующая метка ☄
     if (S.wev && S.wev.sys === s.id) {
@@ -4099,3 +4182,241 @@ AWAKE.want = CFG.awake !== false;
 for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { if (AWAKE.want && !AWAKE.lock && (!AWAKE.video || AWAKE.video.paused)) awakeOn(); }, { capture: true, passive: true });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) awakeOn(); });
 window.__awake = () => ({ lock: !!(AWAKE.lock && !AWAKE.lock.released), video: !!(AWAKE.video && !AWAKE.video.paused), want: AWAKE.want });
+// ======================================================================
+// Гонки и арена: панель у маяка и во время забега
+// ======================================================================
+function renderActHud() {
+  let el = $('#act-hud');
+  if (!el) { el = document.createElement('div'); el.id = 'act-hud'; el.className = 'panel hidden'; document.getElementById('ui').appendChild(el); onTap(el, onActionClick); }
+  const rc = S.race, ar = S.arena, fmtT = (ms) => (ms / 1000).toFixed(1) + ' с';
+  let html = '';
+  if (rc && rc.track && (rc.active || rc.near)) {
+    const t = rc.track;
+    html += rc.active ? `<div><b>🏁 ${esc(t.name)}</b> · ворота ${rc.next + 1}/${t.cps.length} · <span id="race-t">0.0 с</span></div><div class="muted small">Пролетайте жёлтые кольца по порядку. Варп — дисквалификация.</div><button data-a="raceStop" class="danger">Сдаться</button>`
+      : `<div><b>🏁 ${esc(t.name)}</b> · ${t.cps.length} ворот · ${num(t.len / 1000)} км</div><div class="muted small">Ваш лучший: ${rc.best ? fmtT(rc.best) : '—'} · рекорд: ${rc.record ? fmtT(rc.record.t) + ' (' + esc(rc.record.name) + ')' : '—'}</div><button class="primary" data-a="raceStart">▶ Старт гонки</button>`;
+  }
+  if (ar && (ar.active || ar.near)) {
+    html += ar.active ? `<div><b>⚔ Арена</b> · волна ${ar.wave} · врагов ${ar.left} · заработано ${isk(ar.earned)}</div><div class="muted small">Держитесь ближе 40 км к арене.</div>`
+      : `<div><b>⚔ Арена Скверны</b> · ваш рекорд: ${ar.best} волн</div><div class="muted small">${(ar.top || []).map((x, i) => `${i + 1}. ${esc(x.name)} — ${x.w}`).join(' · ') || 'Рекордов пока нет'}</div><button class="primary" data-a="arenaStart">▶ Начать бой</button>`;
+  }
+  const rd = S.raid;
+  if (rd && (rd.active || rd.near)) {
+    html += rd.active ? `<div><b>⛬ Архонт Края</b> · фаза ${rd.phase + 1}/3 · ${(rd.hp * 100).toFixed(1)}% · ⏱ ${fmtTime(rd.left / 1000)}</div><div class="cap-bar"><i style="width:${(rd.hp * 100).toFixed(1)}%;background:#ff70d0"></i></div><div class="muted small">${rd.shield ? '<span class="bad">Щит поднят — сбейте стражей!</span>' : 'Щит снят — огонь по Архонту!'} · ваш вклад ${rd.share}%</div>`
+      : `<div><b>⛬ Врата за Край</b>${rd.best ? ` · побед над Архонтом: ${rd.best}` : ''}</div><div class="muted small">Финальный рейд: Архонт Края с фазами щита и стражами. Награда до 6 млн CR по вкладу.</div>${rd.cd ? `<div class="muted small">Врата восстановятся через ${fmtTime(rd.cd / 1000)}</div>` : '<button class="danger" data-a="raidStart">⛬ Открыть Врата</button>'}`;
+  }
+  el.classList.toggle('hidden', !html);
+  setHTML(el, html);
+}
+setInterval(() => { const t = $('#race-t'); if (t && S.race && S.race.active) t.textContent = ((S.serverNow() - S.race.t0) / 1000).toFixed(1) + ' с'; }, 100);
+
+// ======================================================================
+// Своя корпорация: основание, ИИ-участники, казна, общий склад, герб
+// ======================================================================
+function corpHTML() {
+  const C = S.corp; if (!C) return '<div class="muted">Загрузка…</div>';
+  const cr = (S.prof || {}).credits || 0, c = C.corp, f = S.corpForm || {};
+  const pickers = (emb, col) => `<div class="corp-pick">${C.emblems.map(x => `<button data-a="corpPick" data-emblem="${x}" class="${emb === x ? 'on' : ''}">${x}</button>`).join('')}</div>
+    <div class="corp-pick">${C.colors.map(x => `<button data-a="corpPick" data-color="${x}" class="${col === x ? 'on' : ''}" style="background:${x};width:30px;height:30px"></button>`).join('')}</div>`;
+  if (!c) {
+    const emb = f.emblem || C.emblems[0], col = f.color || C.colors[0];
+    return `<p class="muted">Своя корпорация: наймите ИИ-пилотов — они сами копают, торгуют и охотятся и каждый час приносят CR в казну (шахтёры — ещё и руду на общий склад, охотники — трофеи). Работают, даже когда вас нет в игре (до суток). Герб корпорации можно нанести на корпус корабля (Ангар → Покраска).</p>
+      <div class="corp-emb" style="--cc:${col}">${emb}</div>
+      <div class="kv"><span>Название</span><span><input id="corp-name" maxlength="28" placeholder="Например: Северный Ветер" style="width:100%"></span><span>Тег (2–4)</span><span><input id="corp-tag" maxlength="4" placeholder="СВ" style="width:80px"></span></div>
+      <h3>Герб и цвет</h3>${pickers(emb, col)}
+      <p><button class="primary" data-a="corpCreate" ${cr < C.cost ? 'disabled' : ''}>🏛 Основать за ${isk(C.cost)}</button></p>`;
+  }
+  const busy = c.members.length, down = (m) => m.downUntil > C.now;
+  let html = `<div class="bm-head" style="border-color:${c.color}"><div class="corp-emb sm" style="--cc:${c.color}">${c.emblem}</div><div><div class="bm-name">${esc(c.name)} [${esc(c.tag)}] · уровень ${c.level}</div>
+    <div class="muted">Пилотов ${busy}/${c.slots} · доход ≈ ${isk(c.rateH)}/ч</div></div>
+    ${c.next ? `<button data-a="corpUpgrade" style="margin-left:auto" ${cr < c.next.cost ? 'disabled' : ''}>Уровень ${c.level + 1}: ${c.next.slots} мест — ${isk(c.next.cost)}</button>` : '<span class="sk-max" style="margin-left:auto">Высший уровень</span>'}</div>`;
+  const hk = Object.entries(c.hangar);
+  html += `<div class="kv"><span>Казна</span><span><span class="isk">${isk(Math.floor(c.treasury))}</span> <button class="primary" data-a="corpWithdraw" ${c.treasury < 1 ? 'disabled' : ''}>Забрать</button></span>
+    <span>Общий склад</span><span>${hk.length ? hk.map(([k, q]) => `${esc(S.data.items[k].name)} ${num(q)}`).join(', ') : '<span class="muted">пусто</span>'} ${hk.length ? (S.docked ? '<button data-a="corpUnload">Выгрузить в ангар станции</button>' : '<span class="muted small">— выгрузка на станции</span>') : ''}</span></div>`;
+  html += `<h3>Пилоты корпорации</h3>` + (c.members.length ? c.members.map(m => `<div class="slot-row"><span class="sm"><b>${{ miner: '⛏', trader: '⚖', hunter: '⚔' }[m.role]} ${esc(m.name)}</b> · ${esc(C.roles[m.role].name)} · ур. ${m.lv}
+      <span class="muted">· ${down(m) ? `<span class="bad">выбыл ещё ${fmtTime((m.downUntil - C.now) / 1000)}</span>` : `≈ ${isk(C.roles[m.role].cr * m.lv)}/ч`} · принёс ${isk(m.earned || 0)}</span></span>
+      <button data-a="corpFire" data-id="${m.id}" class="danger">Уволить</button></div>`).join('') : '<div class="muted">Пока никого — наймите пилотов ниже.</div>');
+  html += `<h3>Ищут корпорацию</h3><div class="muted small">Список обновляется каждый час. Плата за вступление — разовая. Охотники приносят больше, но чаще выбывают.</div>` +
+    (C.cands.length ? C.cands.map(x => `<div class="slot-row"><span class="sm"><b>${{ miner: '⛏', trader: '⚖', hunter: '⚔' }[x.role]} ${esc(x.name)}</b> · ${esc(C.roles[x.role].name)} · ур. ${x.lv} <span class="muted">≈ ${isk(C.roles[x.role].cr * x.lv)}/ч</span> <span class="isk">${isk(x.fee)}</span></span>
+      <button class="primary" data-a="corpHire" data-id="${x.id}" ${busy >= c.slots || cr < x.fee ? 'disabled' : ''}>${busy >= c.slots ? 'Нет мест' : 'Нанять'}</button></div>`).join('') : '<div class="muted">Все кандидаты уже наняты — загляните через час.</div>');
+  html += `<h3>Герб и цвет</h3>${pickers(c.emblem, c.color)}`;
+  html += `<h3>Журнал</h3>` + (c.log.length ? c.log.slice(0, 12).map(l => `<div class="small"><span class="muted">${new Date(l.t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span> ${esc(l.text)}</div>`).join('') : '<div class="muted">Пусто</div>');
+  return html;
+}
+
+// Дерево технологий: лаборатория своей станции
+function techHTML(h) {
+  const T = S.tech; if (!T) return '';
+  const cr = (S.prof || {}).credits || 0, cur = T.cur;
+  const branches = [...new Set(Object.values(T.tree).map(t => t.branch))];
+  let html = `<h3>🔬 Лаборатория — дерево технологий</h3><div class="muted small">Исследование идёт одно за раз и продолжается без вас в игре. Материалы берутся из ангара этой станции. Бонусы действуют всегда.</div>`;
+  if (cur) { const t = T.tree[cur.id]; html += `<div class="mission"><b>Идёт: ${esc(t.name)}</b> <span class="muted">— осталось ${fmtTime(Math.max(0, cur.end - S.serverNow()) / 1000)}</span></div>`; }
+  html += `<div class="tech-grid">` + branches.map(b => `<div class="tech-col"><div class="role-head">${esc(b)}</div>` + Object.entries(T.tree).filter(([, t]) => t.branch === b).map(([id, t]) => {
+    const done = T.done.includes(id), lock = (t.req || []).some(r => !T.done.includes(r));
+    const mat = Object.entries(t.mat).map(([k, q]) => `<span class="${(h[k] || 0) >= q ? '' : 'bad'}">${esc(S.data.items[k].name)} ${q}</span>`).join(', ');
+    return `<div class="tech ${done ? 'done' : lock ? 'lock' : ''}"><b>${done ? '✔ ' : lock ? '🔒 ' : ''}${esc(t.name)}</b><div class="small">${esc(t.desc)}</div>
+      ${done ? '' : `<div class="small muted">${isk(t.cr)} · ${mat} · ${t.min} мин${lock ? ` · нужно: ${t.req.map(r => esc(T.tree[r].name)).join(', ')}` : ''}</div>
+      ${lock || cur ? '' : `<button class="primary" data-a="techStart" data-id="${id}" ${cr < t.cr ? 'disabled' : ''}>Исследовать</button>`}`}</div>`;
+  }).join('') + `</div>`).join('') + `</div>`;
+  return html;
+}
+
+// Флот эскорта: свои корабли из ангара под управлением ИИ
+function fleetAssignHTML(wg) {
+  const n = wg.list.filter(w => w.fleet).length, max = wg.fleetMax || 3;
+  let html = `<h3>⚓ Флот эскорта <span class="muted">· ${n}/${max}</span></h3><div class="muted small">Отдайте корабль из ангара этой станции — его поведёт ИИ-пилот. Эскорт крепче наёмников (+40%), не пересаживается на другие корабли, после гибели чинится 10 минут. Приказы — те же, что напарникам, плюс «📍 В точку» на тактической карте (кнопка ⌖).</div>`;
+  const ships = wg.hangarShips || [];
+  html += ships.length ? ships.map(x => `<div class="slot-row">${artImg(x.type, 'ship-thumb')}<span class="sm"><b>${esc(S.data.ships[x.type].name)}</b> <span class="muted">${esc(S.data.ships[x.type].cls || '')}</span></span>
+    <button class="primary" data-a="fleetAdd" data-i="${x.i}" ${n >= max ? 'disabled' : ''}>${n >= max ? 'Флот полон' : 'В эскорт'}</button></div>`).join('') : '<div class="muted">В ангаре этой станции нет свободных кораблей.</div>';
+  return html;
+}
+
+// ======================================================================
+// Тактическая карта: вид сверху вокруг корабля. Враги, напарники, линии атак, дальность орудий.
+// Тап по точке — флот летит туда; тап по врагу — выбрать (и, если есть флот, приказать атаковать).
+// ======================================================================
+const TAC = { on: false, mode: null, r: 50000, cv: null };
+function tacOpen(mode) {
+  TAC.on = true; TAC.mode = mode || null;
+  let el = $('#tac');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'tac'; el.className = 'panel';
+    el.innerHTML = `<div class="tac-top"><b>⌖ Тактика</b><span id="tac-hint" class="muted small"></span><span style="margin-left:auto"></span><button data-tz="25000">25</button><button data-tz="50000">50</button><button data-tz="100000">100 км</button><button data-tx="1">✕</button></div><canvas id="tac-cv" width="340" height="340"></canvas>
+      <div class="tac-bot"><button data-tm="goto">📍 Флот — в точку</button><button data-tm="">Выбор цели</button></div>`;
+    document.getElementById('ui').appendChild(el); TAC.cv = $('#tac-cv');
+    onTap(el, (e) => {
+      const b = e.target.closest('button');
+      if (b) { Sound.click(); if (b.dataset.tx) return tacClose(); if (b.dataset.tz) TAC.r = +b.dataset.tz; if (b.dataset.tm != null) TAC.mode = b.dataset.tm || null; return tacDraw(); }
+      if (e.target === TAC.cv) tacTap(e);
+    });
+  }
+  el.classList.remove('hidden'); tacDraw();
+}
+function tacClose() { TAC.on = false; const el = $('#tac'); if (el) el.classList.add('hidden'); }
+function tacBasis() { const y = R.cam.yaw; return { c: Math.cos(y), s: Math.sin(y) }; }
+function tacMe() { return S.meRec ? S.meRec.dp : S.me ? S.me.p : null; }
+function tacTap(e) {
+  const me = tacMe(); if (!me) return;
+  const cv = TAC.cv, rc = cv.getBoundingClientRect(), pt = e.changedTouches ? e.changedTouches[0] : e;
+  const k = (cv.width / 2 - 14) / TAC.r, sx = ((pt.clientX - rc.left) / rc.width * cv.width - cv.width / 2) / k, sy = -((pt.clientY - rc.top) / rc.height * cv.height - cv.height / 2) / k;
+  const { c, s } = tacBasis(), dx = sx * c - sy * s, dz = -sx * s - sy * c;
+  // ближайший объект к точке касания
+  let best = null, bd = 18 / k;
+  for (const o of S.ents.values()) { if (o.k !== 's' || o.w) continue; const p = o.dp || o.p, d = Math.hypot(p[0] - me[0] - dx, p[2] - me[2] - dz); if (d < bd) { bd = d; best = o; } }
+  const fleet = S.wing && S.wing.list.length;
+  if (best && TAC.mode !== 'goto') {
+    S.sel = best.id;
+    if (fleet && (best.npc || best.ol || best.ag || best.tg) && best.wg !== S.name) { send({ t: 'wingOrder', order: 'attack', target: best.id }); note(`Флоту: атаковать «${best.n}»`, 'info'); }
+  } else if (fleet) {
+    const pos = [me[0] + dx, me[1], me[2] + dz];
+    send({ t: 'wingOrder', order: 'goto', pos }); TAC.goto = { pos, sys: S.sys && S.sys.id }; TAC.mode = null;
+  } else note('Флота и напарников нет — наймите на станции (вкладка «Напарники»)', 'warn');
+  tacDraw();
+}
+function tacDraw() {
+  if (!TAC.on || !TAC.cv) return;
+  const cv = TAC.cv, x = cv.getContext('2d'), W = cv.width, me = tacMe();
+  x.clearRect(0, 0, W, W); x.fillStyle = 'rgba(4,12,22,0.92)'; x.fillRect(0, 0, W, W);
+  const hint = $('#tac-hint'); if (hint) hint.textContent = TAC.mode === 'goto' ? ' тапните точку для флота' : ' тап: цель / точка';
+  for (const b of $('#tac').querySelectorAll('[data-tz]')) b.classList.toggle('on', +b.dataset.tz === TAC.r);
+  for (const b of $('#tac').querySelectorAll('[data-tm]')) b.classList.toggle('on', (b.dataset.tm || null) === TAC.mode);
+  if (!me || S.docked) { x.fillStyle = '#7a8a9a'; x.font = '14px sans-serif'; x.textAlign = 'center'; x.fillText('Только в космосе', W / 2, W / 2); return; }
+  const k = (W / 2 - 14) / TAC.r, C = W / 2, { c, s } = tacBasis();
+  const proj = (p) => { const dx = p[0] - me[0], dz = p[2] - me[2]; return [C + (dx * c - dz * s) * k, C - (-dx * s - dz * c) * k]; };
+  // кольца дальности
+  x.lineWidth = 1; x.font = '10px sans-serif'; x.textAlign = 'left';
+  for (const km of [5, 10, 20, 50, 100]) { if (km * 1000 > TAC.r) continue; x.strokeStyle = 'rgba(120,180,220,0.22)'; x.beginPath(); x.arc(C, C, km * 1000 * k, 0, 7); x.stroke(); x.fillStyle = 'rgba(150,200,230,0.55)'; x.fillText(km + ' км', C + km * 1000 * k * 0.71 + 2, C - km * 1000 * k * 0.71 - 2); }
+  // дальность моих орудий (оптимальная и с падением)
+  const mods = ((S.prof || {}).ship || {}).fit || [], wr = mods.map(id => id && S.data.modules[id]).filter(d => d && d.kind === 'weapon');
+  if (wr.length) {
+    const opt = Math.max(...wr.map(d => d.optimal)), fall = Math.max(...wr.map(d => d.optimal + d.falloff));
+    x.setLineDash([6, 4]); x.strokeStyle = 'rgba(255,170,70,0.75)'; x.beginPath(); x.arc(C, C, Math.min(opt * k, W), 0, 7); x.stroke();
+    x.strokeStyle = 'rgba(255,170,70,0.3)'; x.beginPath(); x.arc(C, C, Math.min(fall * k, W), 0, 7); x.stroke(); x.setLineDash([]);
+  }
+  const col = (o) => o.wg === S.name ? '#60e0ff' : o.npc || o.ol || o.cr ? '#ff5a4a' : o.su ? '#ffb040' : o.civ ? '#9fb0c0' : o.o ? '#ffffff' : '#c0d0e0';
+  const pos = new Map([[S.me && S.me.id, me]]);
+  for (const o of S.ents.values()) pos.set(o.id, o.dp || o.p);
+  // линии атак: кто по кому стреляет
+  for (const o of S.ents.values()) {
+    if (o.k !== 's' || !o.at) continue; const tp = pos.get(o.at); if (!tp) continue;
+    const a = proj(o.dp || o.p), b = proj(tp);
+    x.strokeStyle = o.wg === S.name ? 'rgba(96,224,255,0.7)' : o.at === (S.me && S.me.id) ? 'rgba(255,80,60,0.95)' : 'rgba(255,120,90,0.45)';
+    x.lineWidth = o.at === (S.me && S.me.id) ? 2 : 1; x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke();
+  }
+  x.lineWidth = 1;
+  if (S.me && S.me.locks) for (const id of S.me.locks) { const tp = pos.get(id); if (!tp) continue; const b = proj(tp); x.strokeStyle = 'rgba(255,220,120,0.5)'; x.setLineDash([2, 3]); x.beginPath(); x.moveTo(C, C); x.lineTo(b[0], b[1]); x.stroke(); x.setLineDash([]); }
+  // объекты
+  for (const o of S.ents.values()) {
+    const p = o.dp || o.p, d = Math.hypot(p[0] - me[0], p[2] - me[2]); if (d > TAC.r * 1.02) continue;
+    const [px, py] = proj(p);
+    if (o.k === 'a') { x.fillStyle = o.ore && o.ore.startsWith('gas_') ? 'rgba(160,220,140,0.5)' : 'rgba(150,140,130,0.6)'; x.fillRect(px - 1.5, py - 1.5, 3, 3); continue; }
+    if (o.k === 'w') { x.fillStyle = '#ffd860'; x.fillRect(px - 2.5, py - 2.5, 5, 5); continue; }
+    if (o.k === 'd') { x.fillStyle = o.o === S.name ? '#60e0ff' : '#ff8a70'; x.fillRect(px - 1, py - 1, 2, 2); continue; }
+    if (o.k !== 's') continue;
+    const r = Math.max(3, Math.min(9, Math.sqrt(o.r || 50) / 2.2));
+    x.fillStyle = col(o); x.beginPath();
+    if (o.npc || o.ol) { x.moveTo(px, py - r); x.lineTo(px + r, py + r * 0.8); x.lineTo(px - r, py + r * 0.8); x.closePath(); } else x.arc(px, py, r * 0.8, 0, 7);
+    x.fill();
+    if (o.id === S.sel) { x.strokeStyle = '#ffffff'; x.lineWidth = 1.5; x.strokeRect(px - r - 3, py - r - 3, r * 2 + 6, r * 2 + 6); x.lineWidth = 1; }
+    if (o.tg) { x.strokeStyle = 'rgba(255,90,70,0.9)'; x.beginPath(); x.arc(px, py, r + 4, 0, 7); x.stroke(); }
+  }
+  // точка флота
+  const g = (S.wing && S.wing.order === 'goto' && S.wing.goto) || null;
+  if (g && S.sys && g.sys === S.sys.id) { const [px, py] = proj(g.pos); x.strokeStyle = '#60e0ff'; x.lineWidth = 2; x.beginPath(); x.moveTo(px - 7, py); x.lineTo(px + 7, py); x.moveTo(px, py - 7); x.lineTo(px, py + 7); x.stroke(); x.beginPath(); x.arc(px, py, 10, 0, 7); x.stroke(); x.lineWidth = 1; }
+  // я
+  x.fillStyle = '#ffffff'; x.beginPath(); x.moveTo(C, C - 8); x.lineTo(C + 6, C + 6); x.lineTo(C, C + 3); x.lineTo(C - 6, C + 6); x.closePath(); x.fill();
+  x.fillStyle = 'rgba(150,200,230,0.6)'; x.textAlign = 'center'; x.fillText('▲ вид камеры', C, 12);
+}
+setInterval(() => { if (TAC.on) tacDraw(); }, 250);
+
+// ======================================================================
+// Сводка: кризисы на рынках, космическая погода, доска розыска
+// ======================================================================
+function newsHTML() {
+  const W = S.world; if (!W) return '<div class="muted">Загрузка…</div>';
+  const now = S.serverNow(), left = (t) => fmtTime(Math.max(0, t - now) / 1000);
+  let html = `<h3>📈 Рынки</h3>` + (W.crises.length ? W.crises.map(c => `<div class="mission"><b class="${c.kind === 'shortage' ? 'good' : 'bad'}">${c.kind === 'shortage' ? '▲' : '▼'} ${esc(S.data.items[c.item].name)} ×${c.mul}</b> · регион «${esc(c.regionName)}» <span class="muted">— ещё ${left(c.until)}</span><div class="small muted">${esc(c.text)}</div></div>`).join('')
+    : '<div class="muted">Рынки спокойны. Кризисы случаются каждые 15–25 минут — следите за новостями: нехватка товара в регионе поднимает цену продажи вдвое.</div>');
+  html += `<h3>🌌 Космическая погода</h3>` + (W.weather.length ? `<div class="small">${W.weather.map(w => { const k = W.weatherKinds[w.kind]; return `<div>${k.icon} <b>${esc(sysName(w.sys))}</b> — ${esc(k.name)} <span class="muted">(${esc(k.desc)})</span></div>`; }).join('')}</div><div class="muted small">Погода меняется каждые 20–35 минут.</div>` : '<div class="muted">Везде спокойно.</div>');
+  html += `<h3>☠ Доска розыска</h3><div class="muted small">Главари пиратов живут в опасных системах и каждые 30 минут становятся сильнее — и дороже. Логово отмечено ☠ на карте системы (меню космоса → Аномалии).</div>`;
+  html += `<table class="tbl"><tr><th>Главарь</th><th>Система</th><th class="r">Ур.</th><th class="r">Награда</th></tr>${W.bosses.map(b => `<tr><td><b>${esc(b.name)}</b></td><td>${b.back ? '<span class="muted">сбит — новый через ' + fmtTime(b.back / 1000) + '</span>' : esc(sysName(b.sys))}</td><td class="r">${b.back ? '—' : b.lv}</td><td class="r isk">${b.back ? '' : isk(b.bounty)}</td></tr>`).join('')}</table>`;
+  html += `<h3>Награда за вашу голову</h3>` + (W.myBounty ? `<p><span class="bad">${isk(W.myBounty)}</span> — за вами охотятся охотники за головами (в системах ниже 0.95). Долг понемногу уменьшается сам. ${S.docked ? `<button class="primary" data-a="wantedPay" ${S.prof.credits < W.myBounty ? 'disabled' : ''}>Погасить</button>` : '<span class="muted">Погасить можно на станции.</span>'}</p>` : '<div class="muted">Вы чисты перед законом. Нападение на мирных пилотов в безопасных системах назначит награду за вашу голову.</div>');
+  return html;
+}
+
+// ======================================================================
+// Перенос сохранения: файл через «Поделиться» или сжатый текстовый код
+// ======================================================================
+async function shareSave() {
+  const text = window.VF_SAVES.exportText(), name = 'arktur-save-' + new Date().toISOString().slice(0, 10) + '.json';
+  try {
+    const file = new File([text], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Сохранение Arktur', text: 'Сохранение игры Arktur — откройте игру → Настройки → Сохранения → Импорт из файла' }); return note('Файл сохранения отправлен', 'good'); }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  note('«Поделиться» здесь недоступно — сохраняю файл', 'info'); exportSave();
+}
+const b64 = { enc(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }, dec(t) { const s = atob(t); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; } };
+async function gz(text, back) {
+  const cs = back ? new DecompressionStream('gzip') : new CompressionStream('gzip');
+  const data = back ? text : new TextEncoder().encode(text);
+  const out = new Response(new Blob([data]).stream().pipeThrough(cs));
+  return back ? out.text() : new Uint8Array(await out.arrayBuffer());
+}
+async function copySaveCode() {
+  const text = window.VF_SAVES.exportText();
+  let code;
+  try { code = 'ARK1:' + b64.enc(await gz(text)); } catch { code = 'ARK0:' + b64.enc(new TextEncoder().encode(text)); }
+  try { await navigator.clipboard.writeText(code); note(`Код переноса скопирован (${Math.round(code.length / 1024)} КБ) — перешлите его себе и вставьте на другом телефоне`, 'good'); }
+  catch { modal(`<h3>Код переноса</h3><p class="muted">Скопируйте весь текст вручную (${Math.round(code.length / 1024)} КБ):</p><textarea rows="6" style="width:100%" readonly>${esc(code)}</textarea>`, [['Готово', null, 'primary']]); }
+}
+async function pasteSaveCode(raw) {
+  const code = String(raw).replace(/\s+/g, '');
+  try {
+    let text;
+    if (code.startsWith('ARK1:')) text = await gz(b64.dec(code.slice(5)), true);
+    else if (code.startsWith('ARK0:')) text = new TextDecoder().decode(b64.dec(code.slice(5)));
+    else if (code.startsWith('{')) text = raw;
+    else return note('Это не код переноса Arktur', 'bad');
+    const r = window.VF_SAVES.importText(text);
+    if (!r.ok) note('Не удалось загрузить: ' + r.msg, 'bad');
+  } catch (e) { note('Код повреждён или обрезан: ' + ((e && e.message) || ''), 'bad'); }
+}

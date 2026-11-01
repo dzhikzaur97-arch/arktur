@@ -1698,6 +1698,7 @@ class Game {
       }
       if (viewer && (o.locks.has(viewer.id) || o.locking.has(viewer.id))) v.tg = 1; // нацелен на вас
       if (o.modules.some(m => m && m.active && m.target === viewer.id && MODULES[m.id].kind === 'weapon')) v.ag = 1;
+      { const wm = o.modules.find(m => m && m.active && m.target && MODULES[m.id].kind === 'weapon'); const at = wm ? wm.target : o.npc && o.npcTarget ? o.npcTarget : o.fightUntil > this.now ? o.fightAt : null; if (at) v.at = at; } // для тактического обзора
     } else if (o.type === 'asteroid') {
       v.ore = o.ore; v.r = o.radius; v.am = o.amount; v.sd = o.seed;
     } else if (o.type === 'drone') {
@@ -1789,5 +1790,13 @@ require('./outposts')(Game);
 require('./wormholes')(Game);
 require('./shipyard')(Game);
 require('./marks')(Game);
+require('./gas')(Game);
+require('./probes')(Game);
+require('./activities')(Game);
+require('./passengers')(Game);
+require('./corp')(Game);
+require('./tech')(Game);
+require('./raid')(Game);
+require('./world')(Game);
 
 module.exports = { Game };
