@@ -765,6 +765,7 @@ if (!CLAUDE_OK) for (const sel of ['[data-win=assist]', '#chat-tabs [data-ch=fri
 setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейдеров, пока открыт экран входа
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
+window.__VF_TURN = (type) => R.shipTurntable(type, S.data.ships[type]); // инструмент проверки: модель со всех сторон
 window.__VF_CAM = R.cam; // инструменты сборки и отладки: камера
 window.__VF_SF = SF; // отладка мира поверхности
 window.__VF_CAM = R.cam; // отладка камеры (тесты)

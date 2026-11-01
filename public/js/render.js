@@ -1048,19 +1048,54 @@ const PROFS = {
   round: Array.from({ length: 20 }, (_, i) => [Math.cos(i / 20 * Math.PI * 2), Math.sin(i / 20 * Math.PI * 2)])
 };
 // Лофт: сечения [z, w, h, y = 0, x = 0], одинаковый профиль; гранёный (плоские нормали) или гладкий
+// плавные переходы между сечениями: Catmull-Rom по каждому параметру (z, ширина, высота, смещения)
+function smoothSecs(secs, sub = 3) {
+  if (secs.length < 3) return secs;
+  const out = [], v = secs.map(([z, w, h, y = 0, x = 0]) => [z, w, h, y, x]);
+  for (let i = 0; i + 1 < v.length; i++) {
+    const p0 = v[Math.max(0, i - 1)], p1 = v[i], p2 = v[i + 1], p3 = v[Math.min(v.length - 1, i + 2)];
+    for (let k = 0; k < sub; k++) {
+      const t = k / sub, t2 = t * t, t3 = t2 * t;
+      out.push(p1.map((_, j) => Math.max(j === 1 || j === 2 ? 0.0005 : -1e9, 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3))));
+    }
+  }
+  out.push(v[v.length - 1]);
+  return out;
+}
+// нормали «с изломом»: пологие переходы сглажены, острые рёбра (больше 38°) остаются острыми
+function creaseNormals(g, deg = 38) {
+  const pos = g.attributes.position, n = pos.count, fn = new Float32Array(n * 3), cos = Math.cos(deg * Math.PI / 180);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  for (let i = 0; i < n; i += 3) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+    e1.subVectors(b, a); e2.subVectors(c, a); e1.cross(e2); const L = e1.length() || 1; e1.divideScalar(L);
+    for (let k = 0; k < 3; k++) { fn[(i + k) * 3] = e1.x; fn[(i + k) * 3 + 1] = e1.y; fn[(i + k) * 3 + 2] = e1.z; }
+  }
+  const key = (i) => `${Math.round(pos.getX(i) * 1e3)},${Math.round(pos.getY(i) * 1e3)},${Math.round(pos.getZ(i) * 1e3)}`;
+  const groups = new Map();
+  for (let i = 0; i < n; i++) { const k = key(i); let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i); }
+  const out = new Float32Array(n * 3);
+  for (const l of groups.values()) for (const i of l) {
+    let x = 0, y = 0, z = 0;
+    for (const j of l) { const d = fn[i * 3] * fn[j * 3] + fn[i * 3 + 1] * fn[j * 3 + 1] + fn[i * 3 + 2] * fn[j * 3 + 2]; if (d >= cos) { x += fn[j * 3]; y += fn[j * 3 + 1]; z += fn[j * 3 + 2]; } }
+    const L = Math.hypot(x, y, z) || 1; out[i * 3] = x / L; out[i * 3 + 1] = y / L; out[i * 3 + 2] = z / L;
+  }
+  g.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+}
 function loftGeo(secs, prof = 'hex', smooth = false) {
+  secs = smoothSecs(secs, smooth ? 4 : 3);
   const P = PROFS[prof] || PROFS.hex, n = P.length, rings = secs.map(([z, w, h, y = 0, x = 0]) => P.map(([px, py]) => [x + px * w, y + py * h, z]));
   const tri = [];
   const push = (a, b, c) => tri.push(...a, ...b, ...c);
   for (let i = 0; i + 1 < rings.length; i++) for (let k = 0; k < n; k++) {
     const a = rings[i][k], b = rings[i][(k + 1) % n], c = rings[i + 1][(k + 1) % n], d = rings[i + 1][k];
-    push(a, d, c); push(a, c, b); // обход — наружу (нос по +Z)
+    push(a, c, d); push(a, b, c); // обход — наружу (нос по +Z)
   }
   const cap = (ring, rev) => { const c = ring.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n, s[2] + p[2] / n], [0, 0, 0]); for (let k = 0; k < n; k++) rev ? push(c, ring[k], ring[(k + 1) % n]) : push(c, ring[(k + 1) % n], ring[k]); };
   cap(rings[0], false); cap(rings[rings.length - 1], true);
   let g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
-  if (smooth) { g = mergeVertices(g, 1e-4); }
-  g.computeVertexNormals();
+  if (smooth) { g = mergeVertices(g, 1e-4); g.computeVertexNormals(); }
+  else creaseNormals(g);
   return g;
 }
 function shipKit(g, R, M, D, eng, faction, add) {
@@ -1103,6 +1138,14 @@ function shipKit(g, R, M, D, eng, faction, add) {
       const A = new THREE.Vector3(...a.map(s)), B = new THREE.Vector3(...b.map(s)), up = new THREE.Vector3(0, s(off), 0);
       g.add(rod(A.clone().add(up).toArray(), B.clone().add(up).toArray(), s(r), mat)); g.add(rod(A.clone().sub(up).toArray(), B.clone().sub(up).toArray(), s(r), mat));
       for (let i = 0; i < n; i++) { const p = A.clone().lerp(B, i / n), q = A.clone().lerp(B, (i + 1) / n); g.add(rod(p.clone().add(up).toArray(), q.clone().sub(up).toArray(), s(r * 0.7), mat)); }
+    },
+    // светящийся шов по корпусу: повторяет его сечения (верх — 'top', низ — 'bottom', борта — 'side')
+    seam(secs, where = 'top', c = 0xb080ff, k = 2.3, t = 0.012) {
+      const pick = (sec, sd) => { const [z, w, h, y = 0, x = 0] = sec; return where === 'side' ? [z, t, t, y, x + (w + t * 0.4) * sd] : [z, t, t, y + (h + t * 0.4) * (where === 'top' ? 1 : -1), x]; };
+      const inner = secs.slice(1, -1);
+      if (inner.length < 2) return;
+      const mat = glowMat(c, k);
+      if (where === 'side') this.mirror(sd => this.loft(inner.map(q => pick(q, sd)), 'round', mat, true)); else this.loft(inner.map(q => pick(q, 1)), 'round', mat, true);
     },
     dish(x, y, z, r, spin = 0.8) { const d = add(new THREE.SphereGeometry(s(r), 20, 6, 0, Math.PI * 2, 0, 0.85), D, s(x), s(y), s(z)); d.rotation.x = -1.1; if (spin) d.userData.spin = ['y', spin]; return d; }
   };
@@ -1205,7 +1248,7 @@ const DESIGN = {
     }
     K.box(0.22, 0.14, 0.2, 0.32, 0.25, -0.65); K.canopy(0.32, 0.31, -0.58, 0.09, 0.04, 0.06);
     K.mirror(sd => { K.eng(0.3 * sd, 0, -1.07, 0.12); K.eng(0.48 * sd, 0, -1.02, 0.08); });
-    K.greeb(26, 1.0, 0.24, 1.4);
+    K.greeb(26, 1.0, 0.14, 1.4);
     K.lights([[0.62, 0, 0.4], [-0.62, 0, 0.4]], 0xffa020);
   },
   strazh(K) { // крейсер: слоистый клин, надстройка-рубка, бортовые спонсоны с орудиями
@@ -1238,7 +1281,7 @@ const DESIGN = {
   },
   piligrim(K) { // дроновый крейсер: обтекаемый корпус с открытым светящимся ангаром снизу
     K.loft([[-1.0, 0.26, 0.24], [-0.5, 0.42, 0.34, 0.02], [0.3, 0.4, 0.3, 0.04], [0.85, 0.2, 0.16], [1.1, 0.04, 0.05]], 'keel');
-    K.trim(0.46, 0.02, 0.8, 0, -0.3, -0.05, 0x80b0ff, 1.2); // проём ангара
+    K.trim(0.26, 0.008, 0.5, 0, -0.335, -0.05, 0x3a5a90, 0.8); // проём ангара (утоплен в днище)
     K.mirror(sd => {
       for (let i = 0; i < 4; i++) K.trim(0.01, 0.06, 0.1, 0.4 * sd, -0.05, 0.4 - i * 0.25, 0x80d0ff, 2.4); // люки пусковых
       K.loft([[-0.9, 0.08, 0.12, 0.02, 0.35 * sd], [-0.2, 0.1, 0.14, 0.05, 0.4 * sd], [0.3, 0.04, 0.06, 0.03, 0.36 * sd]], 'hex');
@@ -1261,7 +1304,7 @@ const DESIGN = {
       K.windows(0.31, 0.02, -0.4, 0.8, 0.05, sd);
     });
     K.eng(0, 0, -1.08, 0.15);
-    K.greeb(20, 0.5, 0.25, 1.2, -0.3);
+    K.greeb(20, 0.5, 0.22, 1.2, -0.3);
     K.lights([[0.7, 0, 0.6], [-0.7, 0, 0.6]], 0xff2020);
   },
   citadel(K) { // линкор: длинный киль, ярусы палуб, рубка-башня, восемь башен, бортовая броня
@@ -1276,7 +1319,7 @@ const DESIGN = {
       K.eng(0.26 * sd, 0.05, -1.12, 0.11); K.eng(0.26 * sd, -0.15, -1.1, 0.09);
     });
     K.eng(0, 0, -1.15, 0.15);
-    K.greeb(36, 0.7, 0.32, 1.7, -0.1);
+    K.greeb(36, 0.5, 0.36, 1.4, -0.1);
     K.lights([[0.55, 0, 0.6], [-0.55, 0, 0.6], [0, 0.75, -0.55]], 0xff2020);
   },
   leviafan(K) { // эксгуматор: широкий промышленный корпус, две длинные буровые стрелы с суставами
@@ -1291,7 +1334,7 @@ const DESIGN = {
       K.windows(0.5, 0.05, -0.2, 0.7, 0.05, sd);
     });
     K.box(0.2, 0.18, 0.24, -0.25, 0.48, -0.45); K.canopy(-0.25, 0.53, -0.36, 0.09, 0.04, 0.08);
-    K.greeb(28, 0.9, 0.3, 1.4, -0.2);
+    K.greeb(28, 0.8, 0.33, 1.3, -0.2);
     K.lights([[0.5, 0, 0.6], [-0.5, 0, 0.6]], 0xffa020);
   },
   kit(K) { // грузовоз: длинный хребет с тремя кольцами контейнеров и маленькой рубкой
@@ -1318,7 +1361,7 @@ const DESIGN = {
       K.eng(0.32 * sd, 0, -1.07, 0.12); K.eng(0.52 * sd, 0, -1.02, 0.09);
     });
     K.box(0.2, 0.26, 0.24, 0, 0.55, -0.85); K.canopy(0, 0.62, -0.75, 0.1, 0.04, 0.07);
-    K.greeb(30, 1.0, 0.36, 1.6);
+    K.greeb(30, 0.8, 0.37, 1.4);
     K.lights([[0.66, 0, 0.6], [-0.66, 0, 0.6]], 0x70a8ff);
   },
   matka(K) { // авианосец: огромная плоская палуба с разметкой, боковые ангары, островная надстройка
@@ -1332,7 +1375,7 @@ const DESIGN = {
       for (let i = 0; i < 4; i++) K.trim(0.01, 0.1, 0.2, 0.66 * sd, 0.02, 0.6 - i * 0.4, 0x80c0ff, 1.6); // проёмы ангаров
       K.eng(0.3 * sd, 0, -1.07, 0.13); K.eng(0.52 * sd, 0, -1.04, 0.1);
     });
-    K.greeb(24, 1.1, -0.28, 1.8);
+    K.greeb(24, 1.0, -0.15, 1.7);
     K.lights([[0.7, 0.3, 0.9], [-0.7, 0.3, 0.9]], 0x9fe060);
   },
   begemot(K) { // индустриальный дредноут: носовая «пасть» плавильни, трубы, конвейерные галереи
@@ -1350,7 +1393,7 @@ const DESIGN = {
       K.eng(0.32 * sd, 0.12, -1.07, 0.14); K.eng(0.32 * sd, -0.18, -1.07, 0.14);
       K.windows(0.61, -0.15, -0.1, 1.1, 0.06, sd, true);
     });
-    K.greeb(40, 1.1, 0.4, 1.6, -0.1);
+    K.greeb(40, 1.0, 0.43, 1.4, -0.1);
     K.lights([[0.75, 0.3, 0.6], [-0.75, 0.3, 0.6]], 0xffa020);
   },
   flagman(K) { // флагман звена: длинный стремительный корпус, крылья-пилоны, командная башня, лётная палуба
@@ -1495,7 +1538,7 @@ const DESIGN = {
 
   // ===================== Орден Предела: гладкие органические корпуса и кристаллы =====================
   iskatel(K) { // исследовательский фрегат: капля, лепестки-крылья, кольцо-резонатор
-    K.trim(0.012, 0.012, 1.2, 0, 0.215, 0, 0xb080ff, 2.4); K.mirror(sd => K.trim(0.01, 0.01, 0.9, 0.25 * sd, 0.02, -0.1, 0xb080ff, 2.2));
+    { const H = [[-1.0, 0.1, 0.1], [-0.6, 0.24, 0.2], [0.0, 0.27, 0.22, 0.02], [0.6, 0.16, 0.13], [1.15, 0.01, 0.01]]; K.seam(H, 'top'); K.seam(H, 'side'); }
     K.loft([[-1.0, 0.1, 0.1], [-0.6, 0.24, 0.2], [0.0, 0.27, 0.22, 0.02], [0.6, 0.16, 0.13], [1.15, 0.01, 0.01]], 'round', K.M, true);
     K.mirror(sd => { K.loft([[-0.75, 0.02, 0.02, 0.05, 0.12 * sd], [-0.35, 0.06, 0.03, 0.06, 0.45 * sd], [0.05, 0.02, 0.015, 0.03, 0.28 * sd]], 'round', K.M, true); });
     K.loft([[-0.7, 0.015, 0.02, 0.12], [-0.4, 0.03, 0.3, 0.32], [-0.1, 0.015, 0.02, 0.15]], 'round', K.M, true);
@@ -1506,7 +1549,7 @@ const DESIGN = {
     K.lights([[0, 0.45, -0.15]], 0xc090ff);
   },
   prizma(K) { // лучевой фрегат: два изогнутых «рога» и парящий между ними кристалл-фокусатор
-    K.mirror(sd => K.trim(0.01, 0.01, 1.0, 0.3 * sd, 0.07, 0.1, 0xb080ff, 2.4));
+    K.mirror(sd => K.seam([[-0.6, 0.08, 0.08, 0, 0.18 * sd], [-0.1, 0.1, 0.09, 0, 0.3 * sd], [0.5, 0.07, 0.07, 0, 0.3 * sd], [0.95, 0.02, 0.02, 0, 0.2 * sd]], 'top'));
     K.loft([[-1.0, 0.14, 0.1], [-0.5, 0.26, 0.15], [-0.1, 0.22, 0.12], [0.1, 0.08, 0.06]], 'round', K.M, true);
     K.mirror(sd => K.loft([[-0.6, 0.08, 0.08, 0, 0.18 * sd], [-0.1, 0.1, 0.09, 0, 0.3 * sd], [0.5, 0.07, 0.07, 0, 0.3 * sd], [0.95, 0.02, 0.02, 0, 0.2 * sd]], 'round', K.M, true));
     const pr = add2(K, new THREE.OctahedronGeometry(K.s(0.14)), K.C, 0, 0, 0.45); pr.scale.set(0.6, 0.6, 2.2); pr.userData.spin = ['z', 0.9];
@@ -1516,7 +1559,7 @@ const DESIGN = {
     K.eng(0, 0, -1.02, 0.09);
   },
   orakul(K) { // крейсер поддержки: «семя» с тремя дугами-антеннами и светящимися узлами
-    K.mirror(sd => K.trim(0.012, 0.3, 0.012, 0.36 * sd, 0.05, 0.1, 0xb080ff, 2.2)); K.trim(0.012, 0.012, 1.0, 0, 0.35, 0, 0xb080ff, 2.2);
+    { const H = [[-0.8, 0.12, 0.12], [-0.45, 0.36, 0.32], [0.1, 0.42, 0.36, 0.02], [0.55, 0.26, 0.22], [0.85, 0.04, 0.04]]; K.seam(H, 'top'); K.seam(H, 'side'); K.seam(H, 'bottom'); }
     K.loft([[-0.8, 0.12, 0.12], [-0.45, 0.36, 0.32], [0.1, 0.42, 0.36, 0.02], [0.55, 0.26, 0.22], [0.85, 0.04, 0.04]], 'round', K.M, true);
     for (let i = 0; i < 3; i++) {
       const w = new THREE.Group(); w.rotation.z = i * Math.PI * 2 / 3;
@@ -1531,7 +1574,7 @@ const DESIGN = {
     K.lights([[0.4, 0, 0, 0.02], [-0.4, 0, 0, 0.02]], 0xc090ff);
   },
   relikvariy(K) { // линкор Предтеч: длинный гладкий корпус, кристаллический гребень, два кольца-резонатора
-    K.mirror(sd => K.trim(0.012, 0.012, 1.7, 0.34 * sd, 0.08, -0.05, 0xb080ff, 2.4)); K.trim(0.012, 0.012, 1.5, 0, -0.2, 0, 0xb080ff, 2);
+    { const H = [[-1.05, 0.18, 0.14], [-0.6, 0.36, 0.24, 0.02], [0.1, 0.4, 0.26, 0.02], [0.6, 0.28, 0.18], [1.2, 0.02, 0.02]]; K.seam(H, 'side'); K.seam(H, 'bottom'); }
     K.loft([[-1.05, 0.18, 0.14], [-0.6, 0.36, 0.24, 0.02], [0.1, 0.4, 0.26, 0.02], [0.6, 0.28, 0.18], [1.2, 0.02, 0.02]], 'round', K.M, true);
     K.loft([[-0.8, 0.12, 0.08, -0.18], [-0.2, 0.22, 0.12, -0.2], [0.4, 0.1, 0.06, -0.16]], 'round', K.M, true);
     for (let i = 0; i < 7; i++) { const k = 1 - Math.abs(i - 2.5) / 4.5; const c = add2(K, new THREE.OctahedronGeometry(K.s(0.08 * (0.6 + k))), K.C, 0, 0.24 + 0.06 * k, 0.55 - i * 0.18); c.scale.set(0.45, 1.9, 0.9); }
@@ -4283,6 +4326,29 @@ function photoBackdrop(w, h) {
   return cv;
 }
 
+// Осмотр модели со всех сторон: спереди, сзади, слева, сверху, снизу и в три четверти (инструмент проверки моделей)
+export function shipTurntable(type, info = {}, tw = 320, th = 200) {
+  const ps = new THREE.Scene(); ps.background = new THREE.Color(0x1c2128); ps.environment = scene.environment; ps.environmentIntensity = 0.8;
+  const m = shipModel(type, info.unique ? info.color : 0x6a7280, SHIP_BASE_R[type] || 50, 'player'); ps.add(m); setEngines(m, 0.6, 1); m.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), rad = box.getSize(new THREE.Vector3()).length() / 2;
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-rad, rad * 2, rad * 1.5); ps.add(key);
+  const fill = new THREE.DirectionalLight(0xb0c8ff, 0.9); fill.position.set(rad * 2, -rad * 0.5, -rad); ps.add(fill);
+  ps.add(new THREE.AmbientLight(0x9098a8, 0.6));
+  const views = [['спереди', [0, 0.15, 1]], ['сзади', [0, 0.2, -1]], ['слева', [-1, 0.05, 0.001]], ['сверху', [0.001, 1, 0.02]], ['снизу', [0.001, -1, 0.02]], ['3/4', [-0.8, 0.45, 0.7]]];
+  const out = document.createElement('canvas'); out.width = tw * 6; out.height = th; const c = out.getContext('2d');
+  const prev = renderer.getSize(new THREE.Vector2()), pr = renderer.getPixelRatio();
+  renderer.setPixelRatio(1); renderer.setSize(tw, th, false);
+  views.forEach(([name, d], i) => {
+    const cam = new THREE.PerspectiveCamera(30, tw / th, rad * 0.01, rad * 100), dir = new THREE.Vector3(...d).normalize();
+    cam.position.copy(ctr).addScaledVector(dir, rad / Math.tan(THREE.MathUtils.degToRad(15)) * 1.05); cam.lookAt(ctr); cam.updateMatrixWorld(true);
+    renderer.render(ps, cam); c.drawImage(renderer.domElement, i * tw, 0, tw, th);
+    c.fillStyle = '#9fb4c8'; c.font = '13px sans-serif'; c.fillText((i === 0 ? type + ' · ' : '') + name, i * tw + 6, 16);
+  });
+  renderer.setPixelRatio(pr); renderer.setSize(prev.x, prev.y, false);
+  ps.remove(m); bgDispose(ps);
+  return out.toDataURL('image/jpeg', 0.85);
+}
+function bgDispose() {}
 export function shipPhoto(type, info = {}, w = 800, h = 450) {
   const role = info.role || 'explore', tier = Math.max(1, Math.min(5, info.tier || 1));
   const ps = new THREE.Scene();

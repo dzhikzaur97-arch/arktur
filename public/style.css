@@ -798,3 +798,18 @@ body.mobile #neocom button small { font-size: 10px; margin-top: 2px; }
 .news-ships { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 10px; }
 .news-ships > div { display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 12px; gap: 2px; }
 .news-ships .ship-thumb { width: 100%; }
+/* меню на компьютере: на невысоких экранах плотнее, а если всё равно не помещается — в две колонки */
+@media (max-height: 1000px) {
+  body:not(.mobile) #neocom { gap: 0; padding-top: 4px; }
+  body:not(.mobile) #neocom button { padding: 4px 0; font-size: 17px; }
+  body:not(.mobile) #neocom button small { font-size: 8.5px; }
+  body:not(.mobile) #neocom .nc-g { margin: 2px 8px; }
+}
+@media (max-height: 760px) {
+  body:not(.mobile) #neocom { width: 112px; flex-direction: row; flex-wrap: wrap; align-content: flex-start; }
+  body:not(.mobile) #neocom button { flex: 0 0 50%; }
+  body:not(.mobile) #neocom .nc-g { flex: 0 0 calc(100% - 16px); }
+}
+@media (max-height: 760px) {
+  body:not(.mobile) #sysinfo, body:not(.mobile) #chat, body:not(.mobile) #tut, body:not(.mobile) #sf-info { left: 122px; }
+}
