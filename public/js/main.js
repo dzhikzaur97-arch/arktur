@@ -408,7 +408,8 @@ function onMsg(m) {
     case 'whState': applyWormholes(m.list); break;
     case 'state': onState(m); break;
     case 'profile': {
-      S.prof = m; onProfile();
+      { const prevT = S.prof && S.prof.ship ? S.prof.ship.type : null; S.prof = m; onProfile();
+        if (m.ship && m.ship.type !== prevT) { if (prevT) S.ssWantPopup = m.ship.type; send({ t: 'shipStoryInfo' }); } }
       const tk = m.ship.cargo.turret_kit || 0, tb = $('#b-turret');
       tb.classList.toggle('hidden', !tk); tb.textContent = `⛫ Турель ×${tk}`;
       const fb = $('#b-foundry'), has = !!(S.data.ships[m.ship.type] || {}).foundry;
@@ -452,6 +453,9 @@ function onMsg(m) {
     case 'corp': S.corp = m; if (S.win === 'corp') renderWin(); break;
     case 'refine': S.refine = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
     case 'foundryUp': S.fup = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
+    case 'shipStory': S.ss = m; renderShipTrack(); if (S.win === 'missions') renderWin();
+      if (S.ssWantPopup && S.ssWantPopup === m.type) { S.ssWantPopup = null; shipStoryOffer(m); } break;
+    case 'shipStoryProg': if (S.ss && S.ss.type === m.type && S.ss.state && S.ss.state.step === m.step) { S.ss.state.prog = m.prog; renderShipTrack(); } break;
     case 'raid': S.raid = m; renderActHud(); break;
     case 'world': S.world = m; updateWallet(); if (S.win === 'news') renderWin(); if (!$('#map').classList.contains('hidden')) drawMap(); break;
     case 'weather': S.wx = m; updateWallet(); break;
@@ -1927,7 +1931,7 @@ function showDialog(m) {
 
 function missionsHTML(withOffers) {
   const p = S.prof;
-  let html = storyHTML() + cmHTML(withOffers) + '<h3>Контракты</h3>';
+  let html = shipStoryHTML() + storyHTML() + cmHTML(withOffers) + '<h3>Контракты</h3>';
   if (!p.missions.length) html += '<div class="muted">Нет активных заданий. Возьмите их у агентов на любой станции.</div>';
   for (const ms of p.missions) {
     const prog = ms.type === 'kill' ? `Прогресс: ${ms.progress} / ${ms.count}` : ms.type === 'recon' && ms.prog ? `Разведка: ${Math.round(ms.prog / ms.secs * 100)}%`
@@ -3574,6 +3578,8 @@ function onActionClick(e) {
     case 'corpWithdraw': send({ t: 'corpWithdraw' }); break;
     case 'corpUnload': send({ t: 'corpUnload' }); break;
     case 'wantedPay': send({ t: 'wantedPay' }); break;
+    case 'ssStart': send({ t: 'shipStoryStart' }); break;
+    case 'ssOpen': openWin('missions'); break;
     case 'stRefine': send({ t: 'stRefine', item: d.item, qty: +($('#rf-' + d.item) || {}).value || 0 }); break;
     case 'compMake': send({ t: 'compMake', id: d.id, qty: +($('#cm-' + d.id) || {}).value || 1 }); break;
     case 'foundryUp': send({ t: 'foundryUp', k: d.k }); break;
@@ -4536,5 +4542,45 @@ function refineHTML(h) {
   html += `<h3>Куда тратить материалы</h3><div class="kv small"><span>Сталь, керамит</span><span>компоненты «Бронеплита», «Сервопривод», чертежи модулей I–II класса, детали кораблей на своей верфи</span>
     <span>Кристаллит</span><span>«Линза», «Катушка», модули III класса, исследования в лаборатории</span><span>Нуль-сплав, ксенон-ядро</span><span>«Энергоядро», «Нейрочип», модули IV–V класса, улучшения модулей</span>
     <span>Гелий-3, плазменный газ</span><span>«Катушка», «Энергоядро», энергоячейки на своей станции</span></div>`;
+  return html;
+}
+
+// ======================================================================
+// Корабельные истории: цепочка из 10 заданий у каждого корабля — предлагается при посадке на корабль
+// ======================================================================
+const ssSkipKey = (t) => 'vf-ss-skip-' + t;
+function ssProgText(step, prog) {
+  const nm = (S.ss && S.ss.statName && S.ss.statName[step.stat]) || '';
+  return `${nm}: ${num(Math.min(step.need, Math.floor(prog || 0)))} / ${num(step.need)}`;
+}
+function shipStoryOffer(v) {
+  if (!v.chain || v.mastered || (v.state && !v.state.done) || (v.state && v.state.done)) return;
+  try { if (localStorage.getItem(ssSkipKey(v.type))) return; } catch {}
+  if (S.surface || !$('#modal').classList.contains('hidden')) return;
+  const c = v.chain;
+  modal(`<h3>📘 История корабля «${esc(c.name)}»</h3>${artImg(v.type)}<p class="small">${esc(c.intro)}</p>
+    <ol class="ss-list">${c.steps.map(st => `<li><b>${esc(st.title)}</b> <span class="muted small">— ${esc((v.statName || {})[st.stat] || '')}: ${num(st.need)} · ${isk(st.reward)}</span></li>`).join('')}</ol>
+    <p class="muted small">Задания засчитываются, только пока вы летите на этом корабле. За всю цепочку — звание мастера корабля и +5% прочности на кораблях этого типа навсегда.</p>`,
+    [['Не предлагать', () => { try { localStorage.setItem(ssSkipKey(v.type), '1'); } catch {} }], ['Позже', null], ['▶ Начать цепочку', () => send({ t: 'shipStoryStart' }), 'primary']]);
+}
+function renderShipTrack() {
+  let el = $('#ship-track');
+  if (!el) { el = document.createElement('div'); el.id = 'ship-track'; el.className = 'hidden'; el.title = 'История корабля — открыть журнал'; const st = $('#story-track'); st.parentNode.insertBefore(el, st.nextSibling); el.onclick = () => openWin('missions'); }
+  const v = S.ss, on = v && v.chain && v.state && !v.state.done && S.prof && v.type === S.prof.ship.type;
+  el.classList.toggle('hidden', !on);
+  if (!on) return;
+  const st = v.chain.steps[v.state.step]; if (!st) return;
+  setHTML(el, `<div class="st-t">📘 «${esc(v.chain.name)}» ${v.state.step + 1}/10: ${esc(st.title)}</div><div class="st-x">${ssProgText(st, v.state.prog)}</div>`);
+}
+function shipStoryHTML() {
+  const v = S.ss; if (!v || !v.chain) return '';
+  const c = v.chain, s = v.state;
+  let html = `<h3>📘 История корабля «${esc(c.name)}» ${v.mastered ? '<span class="isk">· 🏅 мастер</span>' : ''}</h3>`;
+  if (!s) return html + `<p class="muted small">${esc(c.intro)}</p><button class="primary" data-a="ssStart">▶ Начать цепочку из 10 заданий</button>`;
+  html += `<div class="ss-steps">${c.steps.map((st, i) => { const done = s.done || i < s.step, cur = !s.done && i === s.step;
+    return `<div class="ss-step ${done ? 'done' : cur ? 'cur' : ''}"><b>${done ? '✔' : cur ? '▶' : i + 1}. ${esc(st.title)}</b> <span class="isk small">${isk(st.reward)}</span>
+      ${cur ? `<div class="small">${esc(st.text)}</div><div class="small muted">Прогресс: ${ssProgText(st, s.prog)}</div>` : ''}
+      ${done ? `<div class="small muted">💡 ${esc(st.lesson)}</div>` : ''}</div>`; }).join('')}</div>`;
+  if (s.done) html += '<div class="good small">Цепочка пройдена: вы знаете этот корабль досконально. Прочность +5% на кораблях этого типа.</div>';
   return html;
 }

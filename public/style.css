@@ -817,3 +817,12 @@ body.mobile #neocom button small { font-size: 10px; margin-top: 2px; }
 .mk-cats button, .mk-tiers button { padding: 5px 9px; font-size: 13px; }
 .mk-cats button.on, .mk-tiers button.on { border-color: var(--accent); color: var(--accent); background: rgba(95,200,232,.12); }
 .chain { padding: 8px 10px; border: 1px solid var(--line); background: rgba(10,20,32,.6); margin: 4px 0 8px; }
+#ship-track { margin-top: 6px; padding: 5px 7px; border-left: 2px solid #5fc8e8; background: rgba(95, 200, 232, .08); cursor: pointer; max-width: 300px; }
+#ship-track.hidden { display: none; }
+#ship-track .st-t { font-size: 12px; color: #9fe0f8; font-weight: 600; }
+#ship-track .st-x { font-size: 12px; margin-top: 2px; }
+.ss-list { margin: 6px 0 6px 18px; padding: 0; font-size: 13px; }
+.ss-list li { margin: 2px 0; }
+.ss-step { border-left: 2px solid var(--line); padding: 4px 8px; margin: 4px 0; }
+.ss-step.done { border-color: #3f8f5f; opacity: .85; }
+.ss-step.cur { border-color: #5fc8e8; background: rgba(95, 200, 232, .07); }
