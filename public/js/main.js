@@ -73,6 +73,38 @@ function togglePanel(name, force) {
   if (on) document.body.classList.add(cls);
 }
 
+// ---------- Сворачиваемые окна: шапка окна сворачивает его, состояние помнится в этом браузере ----------
+const FOLD_IDS = ['selected', 'overview', 'autoplay', 'drones', 'wingp', 'sysinfo'];
+let FOLD = {};
+try { FOLD = JSON.parse(localStorage.getItem('vf-fold') || '{}') || {}; } catch {}
+const RC_SIZES = [['⅓', 36], ['½', 58], ['¾', 82]];
+function applyFold() {
+  for (const id of FOLD_IDS) { const el = document.getElementById(id); if (el) el.classList.toggle('folded', !!FOLD[id]); }
+  const sz = RC_SIZES[FOLD.rcSize != null ? FOLD.rcSize : 1] || RC_SIZES[1];
+  document.documentElement.style.setProperty('--rc-h', sz[1] + '%');
+  const ls = document.getElementById('rc-size'); if (ls) ls.textContent = sz[0];
+  const fb = document.querySelector('#rc-bar [data-rc=fold]');
+  if (fb) fb.textContent = ['overview', 'drones', 'wingp', 'autoplay'].every(id => FOLD[id]) ? '▸ Развернуть всё' : '▾ Свернуть всё';
+}
+function setFold(id, on) { FOLD[id] = on; try { localStorage.setItem('vf-fold', JSON.stringify(FOLD)); } catch {} applyFold(); }
+function initFold() {
+  for (const id of FOLD_IDS.filter(x => x !== 'sysinfo')) {
+    const ph = document.querySelector(`#${id} > .ph`); if (!ph) continue;
+    ph.classList.add('foldable');
+    onTap(ph, (e) => { if (e.target.closest('.tabs, button, input, a')) return; setFold(id, !FOLD[id]); });
+  }
+  const sf = document.getElementById('si-fold');
+  if (sf) onTap(sf, (e) => { e.stopPropagation(); setFold('sysinfo', !FOLD.sysinfo); });
+  const bar = document.getElementById('rc-bar');
+  if (bar) onTap(bar, (e) => {
+    const b = e.target.closest('[data-rc]'); if (!b) return;
+    if (b.dataset.rc === 'close') togglePanel('ov', false);
+    else if (b.dataset.rc === 'size') { FOLD.rcSize = ((FOLD.rcSize != null ? FOLD.rcSize : 1) + 1) % RC_SIZES.length; setFold('rcSize', FOLD.rcSize); }
+    else { const all = ['overview', 'drones', 'wingp', 'autoplay'].every(id => FOLD[id]); for (const id of ['overview', 'drones', 'wingp', 'autoplay']) FOLD[id] = !all; setFold('selected', !!FOLD.selected); }
+  });
+  applyFold();
+}
+
 // ======================================================================
 // Настройки игрока (хранятся только в этом браузере)
 // ======================================================================
@@ -1347,6 +1379,7 @@ function renderOverview() {
 }
 
 $('#sel-body').innerHTML = '<div id="sel-info"></div><div class="sel-actions" id="sel-acts"></div>';
+initFold();
 onTap($('#sel-acts'), (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
 onTap($('#mact-btns'), (e) => { const b = e.target.closest('[data-act]'); if (b) { act(b.dataset.act); Sound.click(); } });
 
@@ -2820,7 +2853,7 @@ function renderWing() {
     const hp = e ? (e.sh + e.ar + e.hu) / 3 : 0;
     return `<div class="dr-row"><span>${WING_ICON[w.role]} ${esc(w.name.split(' ')[0])} <span class="muted">${w.lv}</span></span><span class="bar hu" style="flex:1"><i style="width:${(hp * 100).toFixed(0)}%"></i></span><span class="muted">${w.dead ? 'ремонт' : e ? '' : '…'}</span></div>`;
   }).join('');
-  setHTML($('#wing-body'), rows + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять', goto: '📍 Точка' }[k] || l}</button>`).join('')}</div>`);
+  setHTML($('#wing-body'), `<div class="wg-rows${wg.list.length > 6 ? ' many' : ''}">${rows}</div>` + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять', goto: '📍 Точка' }[k] || l}</button>`).join('')}</div>`);
 }
 onTap($('#wingp'), (e) => { const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click(); if (b.dataset.wo === 'goto') return tacOpen('goto'); send({ t: 'wingOrder', order: b.dataset.wo }); });
 // телефон: круглая кнопка приказов напарникам рядом с модулями — без открытия боковой панели

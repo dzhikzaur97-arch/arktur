@@ -826,3 +826,25 @@ body.mobile #neocom button small { font-size: 10px; margin-top: 2px; }
 .ss-step { border-left: 2px solid var(--line); padding: 4px 8px; margin: 4px 0; }
 .ss-step.done { border-color: #3f8f5f; opacity: .85; }
 .ss-step.cur { border-color: #5fc8e8; background: rgba(95, 200, 232, .07); }
+
+/* Сворачиваемые окна (v64): тап по шапке окна сворачивает его до одной строки */
+.ph.foldable { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.ph.foldable::before { content: '▾'; color: var(--muted); font-size: 11px; margin-right: -2px; transition: transform .15s; }
+.folded > .ph.foldable::before { transform: rotate(-90deg); }
+.panel.folded:not(#sysinfo) > :not(.ph) { display: none !important; }
+#overview.folded, #drones.folded, #wingp.folded, #autoplay.folded, #selected.folded { flex: none !important; min-height: 0 !important; }
+#rc-bar { display: none; }
+#si-fold { margin-left: auto; padding: 0 6px; min-height: 0; font-size: 12px; line-height: 18px; background: none; border: 1px solid var(--line); color: var(--muted); }
+#sysinfo .sys-row { display: flex; align-items: center; gap: 6px; }
+#sysinfo.folded #si-fold { transform: rotate(-90deg); }
+#sysinfo.folded > :not(.sys-row):not(#wallet) { display: none !important; }
+.wg-rows.many { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; }
+.wg-rows { max-height: 32vh; overflow-y: auto; }
+body.mobile .wg-rows { max-height: 22vh; }
+body.mobile #rightcol { height: var(--rc-h, 58%); }
+body.mobile #rc-bar { display: flex; gap: 6px; padding: 5px 0 1px; flex: none; }
+body.mobile #rc-bar button { flex: 1; padding: 6px 4px; font-size: 12px; min-height: 34px; }
+body.mobile #rc-bar [data-rc=close] { flex: 0 0 52px; font-size: 16px; color: #f99; border-color: rgba(255,120,120,.4); }
+body.mobile .ph.foldable { min-height: 30px; }
+body.mobile #dr-body { max-height: 30vh; overflow-y: auto; }
+@media (max-height: 500px) { body.mobile #rightcol { height: max(var(--rc-h, 58%), 80%); } }

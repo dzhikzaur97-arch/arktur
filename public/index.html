@@ -34,7 +34,7 @@
 <div id="ui" class="hidden">
   <!-- Информация о системе -->
   <div id="sysinfo" class="panel">
-    <div class="sys-row"><span id="sys-sec"></span><span id="sys-name"></span></div>
+    <div class="sys-row"><span id="sys-sec"></span><span id="sys-name"></span><button id="si-fold" title="Свернуть или развернуть">▾</button></div>
     <div id="sys-region"></div>
     <div id="sys-route"></div>
     <div id="wallet"></div>
@@ -85,6 +85,8 @@
   <div id="targets"></div>
 
   <div id="rightcol">
+  <!-- Полоса управления нижней панелью (телефон): свернуть всё, размер, закрыть -->
+  <div id="rc-bar"><button data-rc="fold" title="Свернуть или развернуть все окна">▾ Свернуть всё</button><button data-rc="size" title="Высота панели">↕ <span id="rc-size">½</span></button><button data-rc="close" title="Убрать панель">✕</button></div>
   <!-- Выбранный объект -->
   <div id="selected" class="panel">
     <div class="ph">Выбранный объект</div>

@@ -4004,4 +4004,10 @@ window.VF_EN = {"Шахтёр":"Miner",
 "Улучшить 1 (":"Upgrade 1 (",
 "Улучшить все ×":"Upgrade all ×",
 "Дроны в ангаре станции (можно улучшать):":"Drones in the station hangar (can be upgraded):",
-"Уже максимальный уровень":"Already at max level"};
+"Уже максимальный уровень":"Already at max level",
+"▾ Свернуть всё":"▾ Collapse all",
+"▸ Развернуть всё":"▸ Expand all",
+"Свернуть или развернуть все окна":"Collapse or expand all windows",
+"Высота панели":"Panel height",
+"Убрать панель":"Hide panel",
+"Свернуть или развернуть":"Collapse or expand"};
