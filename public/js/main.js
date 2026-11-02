@@ -2024,9 +2024,9 @@ function shipStatsHTML(t, stats) {
 function lvBadge(d) { return `<span class="lvb lv${d.lv || 1}" title="Уровень модуля">${'★'.repeat(d.lv || 1)}</span> `; }
 function upgradeCostC(id) {
   const U = S.data.modUpgrade, m = S.data.modules[id];
-  if (!U || !m) return null;
+  if (!U || !m || m.series) return null; // серийные модули не улучшаются — у них классы I–V
   const L = (m.lv || 1) + 1;
-  if (L > U.maxLv) return null;
+  if (L > U.maxLv || !S.data.modules[`${m.base || id}_l${L}`]) return null;
   const base = S.data.modules[m.base || id], k = Math.max(1, base.vol / 5), mats = {};
   for (const [it, q] of Object.entries(U.mats[L])) mats[it] = Math.ceil(q * k);
   if (base.elite) for (const [it, q] of Object.entries(U.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
@@ -2041,7 +2041,7 @@ function upBtn(id, slot, item) {
 function showUpgrade(slot, item) {
   const p = S.prof, h = (p.hangar && p.hangar.items) || {};
   const id = slot !== undefined ? p.ship.fit[slot] : item, d = S.data.modules[id], c = upgradeCostC(id);
-  if (!c) return;
+  if (!c || !d || !S.data.modules[c.next]) return;
   const nd = S.data.modules[c.next], U = S.data.modUpgrade;
   let missingCost = 0;
   const rows = Object.entries(c.mats).map(([it, q]) => {

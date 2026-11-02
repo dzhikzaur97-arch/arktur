@@ -434,7 +434,7 @@ const modBase = (id) => (MODULES[id] && MODULES[id].base) || id;
 const modLevel = (id) => (MODULES[id] && MODULES[id].lv) || 1;
 function upgradeCost(id) {
   const m = MODULES[id], L = modLevel(id) + 1;
-  if (!m || L > MOD_UPGRADE.maxLv) return null;
+  if (!m || m.series || L > MOD_UPGRADE.maxLv || !MODULES[`${modBase(id)}_l${L}`]) return null; // серийные модули не улучшаются
   const base = MODULES[modBase(id)], k = Math.max(1, base.vol / 5);
   const mats = {};
   for (const [it, q] of Object.entries(MOD_UPGRADE.mats[L])) mats[it] = Math.ceil(q * k);
