@@ -1292,7 +1292,7 @@ class Game {
     const tax = Math.max(0, BASE_TAX - 0.01 * (p.skills.trade || 0));
     const orders = this.db.orders.map(o => ({ ...o, stationName: this.U.celestials[o.station].name, sysName: this.U.byId[this.U.celestials[o.station].sys].name }));
     const drones = {};
-    for (const id of Object.keys(DRONES)) if (!DRONES[id].elite) drones[id] = this.buyPriceOf(st, id);
+    for (const id of Object.keys(DRONES)) if (!DRONES[id].elite && DRONES[id].lv === 1) drones[id] = this.buyPriceOf(st, id);
     s.send({ t: 'market', sell, buy, drones, ships, tax, orders, cell: this.buyPriceOf(st, 'energy_cell'),
       consumables: Object.fromEntries(Object.keys(ITEMS).filter(id => ITEMS[id].consumable).map(id => [id, this.buyPriceOf(st, id)])) });
   }
@@ -1315,7 +1315,7 @@ class Game {
     const st = this.requireDocked(s); if (!st) return;
     const qty = clamp(Math.floor(+m.qty) || 1, 1, 10000); // отрицательное количество не должно превращать покупку в доход
     if (ITEMS[m.item] && ITEMS[m.item].elite) return this.notify(s, 'Этот товар продаётся только на чёрном рынке', 'warn');
-    if (MODULES[m.item] && MODULES[m.item].lv > 1) return this.notify(s, 'Улучшенные модули не продаются — улучшайте свои во вкладке «Оснастка»', 'warn');
+    if ((MODULES[m.item] || DRONES[m.item]) && (MODULES[m.item] || DRONES[m.item]).lv > 1) return this.notify(s, 'Улучшенное снаряжение не продаётся — улучшайте свои во вкладке «Оснастка»', 'warn');
     if (MODULES[m.item] || DRONES[m.item]) {
       const cost = this.buyPriceOf(st, m.item) * qty;
       if (p.credits < cost) return this.notify(s, 'Недостаточно CR', 'warn');
@@ -1378,32 +1378,38 @@ class Game {
   // Улучшение модуля на станции: установленного (slot) или лежащего в ангаре (item).
   // Материалы берутся из ангара станции и трюма; недостающие можно докупить (buyMissing) с наценкой.
   c_upgradeModule(s, m, p) {
+    // Улучшение снаряжения на станции: установленного модуля (slot), модуля или дронов из ангара (item),
+    // из трюма (from:'cargo') или из отсека дронов (from:'bay'). Стопку можно улучшить разом (qty).
     const st = this.requireDocked(s); if (!st) return;
     const h = this.hangar(p, st);
     const fitted = m.slot !== undefined && m.slot !== null;
     const idx = m.slot | 0, id = fitted ? p.ship.fit[idx] : m.item;
-    if (!id || !MODULES[id] || (!fitted && !(h.items[id] > 0)) || (fitted && (idx < 0 || idx >= p.ship.fit.length))) return;
+    const src = fitted ? null : m.from === 'bay' ? this.droneBay(p.ship) : m.from === 'cargo' ? p.ship.cargo : h.items;
+    if (!id || !(MODULES[id] || DRONES[id]) || (!fitted && !(src[id] > 0)) || (fitted && (idx < 0 || idx >= p.ship.fit.length))) return;
+    const n = fitted ? 1 : clamp(Math.floor(+m.qty) || 1, 1, src[id]);
     const c = D.upgradeCost(id);
-    if (!c) return this.notify(s, 'Модуль уже на максимальном уровне', 'warn');
+    if (!c) return this.notify(s, 'Уже максимальный уровень', 'warn');
     let missingCost = 0;
-    const missing = {};
+    const missing = {}, need0 = {};
     for (const [it, q] of Object.entries(c.mats)) {
-      const have = (h.items[it] || 0) + (p.ship.cargo[it] || 0);
-      if (have < q) { missing[it] = q - have; missingCost += Math.ceil((q - have) * ITEMS[it].base * D.MOD_UPGRADE.buyMarkup); }
+      need0[it] = q * n;
+      const have = (h.items[it] || 0) + (p.ship.cargo[it] || 0) - (src === p.ship.cargo && it === id ? n : 0);
+      if (have < need0[it]) { missing[it] = need0[it] - Math.max(0, have); missingCost += Math.ceil(missing[it] * ITEMS[it].base * D.MOD_UPGRADE.buyMarkup); }
     }
     if (missingCost && !m.buyMissing) return this.notify(s, 'Не хватает материалов — докупите их или привезите со своего завода', 'warn');
-    const total = c.isk + missingCost;
+    const total = c.isk * n + missingCost;
     if (p.credits < total) return this.notify(s, `Недостаточно CR: нужно ${fmt(total)}`, 'warn');
     // всё проверено — списываем одной операцией
     p.credits -= total;
-    for (const [it, q] of Object.entries(c.mats)) {
+    for (const [it, q] of Object.entries(need0)) {
       let need = q - (missing[it] || 0);
       const fromH = Math.min(need, h.items[it] || 0); h.items[it] = (h.items[it] || 0) - fromH; need -= fromH; if (!h.items[it]) delete h.items[it];
       if (need) { p.ship.cargo[it] -= need; if (!p.ship.cargo[it]) delete p.ship.cargo[it]; }
     }
     if (fitted) p.ship.fit[idx] = c.next;
-    else { h.items[id]--; if (!h.items[id]) delete h.items[id]; h.items[c.next] = (h.items[c.next] || 0) + 1; }
-    this.notify(s, `${MODULES[D.modBase(id)].name} улучшен до уровня ${c.level}! Списано ${fmt(total)} CR`, 'good');
+    else { src[id] -= n; if (!src[id]) delete src[id]; src[c.next] = (src[c.next] || 0) + n; }
+    const nm = (MODULES[D.modBase(id)] || DRONES[D.modBase(id)]).name;
+    this.notify(s, `${nm}${n > 1 ? ` ×${n}` : ''} — улучшено до уровня ${c.level}! Списано ${fmt(total)} CR`, 'good');
     this.sendProfile(s); this.save();
   }
 

@@ -430,21 +430,22 @@ const MOD_UPGRADE = {
   // прирост характеристик за каждый уровень сверх первого
   per: { dmg: 0.12, range: 0.05, yield: 0.15, amount: 0.12, speed: 0.1, passive: 0.15, cap: -0.04 }
 };
-const modBase = (id) => (MODULES[id] && MODULES[id].base) || id;
-const modLevel = (id) => (MODULES[id] && MODULES[id].lv) || 1;
+// Улучшаются все модули (и серийные классы I–V с рынка) и все дроны — у дронов те же уровни «<id>_l<N>».
+const gearOf = (id) => MODULES[id] || DRONES[id];
+const modBase = (id) => (gearOf(id) && gearOf(id).base) || id;
+const modLevel = (id) => (gearOf(id) && gearOf(id).lv) || 1;
 function upgradeCost(id) {
-  const m = MODULES[id], L = modLevel(id) + 1;
-  if (!m || m.series || L > MOD_UPGRADE.maxLv || !MODULES[`${modBase(id)}_l${L}`]) return null; // серийные модули не улучшаются
-  const base = MODULES[modBase(id)], k = Math.max(1, base.vol / 5);
+  const m = gearOf(id), L = modLevel(id) + 1, T = MODULES[id] ? MODULES : DRONES;
+  if (!m || L > MOD_UPGRADE.maxLv || !T[`${modBase(id)}_l${L}`]) return null;
+  const base = T[modBase(id)], k = Math.max(1, base.vol / 5);
   const mats = {};
   for (const [it, q] of Object.entries(MOD_UPGRADE.mats[L])) mats[it] = Math.ceil(q * k);
   if (base.elite) for (const [it, q] of Object.entries(MOD_UPGRADE.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
   mats.energy_cell = MOD_UPGRADE.cells[L];
-  return { next: `${modBase(id)}_l${L}`, level: L, isk: Math.round(base.price * MOD_UPGRADE.isk[L]), mats };
+  return { next: `${modBase(id)}_l${L}`, level: L, isk: Math.round(base.price * MOD_UPGRADE.isk[L]), mats, drone: T === DRONES };
 }
 for (const [id, m] of Object.entries({ ...MODULES })) {
   m.base = id; m.lv = 1;
-  if (m.series) continue; // серийные модули не улучшаются — у них уже есть классы I–V
   const P = MOD_UPGRADE.per;
   for (let L = 2; L <= MOD_UPGRADE.maxLv; L++) {
     const f = (k) => 1 + P[k] * (L - 1);
@@ -493,7 +494,20 @@ const DRONES = {
   drone_x:        { name: 'Дрон-призрак «Мираж»', kind: 'combat', cls: 'medium', price: 260000, vol: 10, dmg: 75, cycle: 2.5, range: 3500, speed: 2600, hp: 1100, sig: 22, r: 8, pd: 0.5, color: 0xd060ff, elite: true }
 };
 Object.assign(DRONES, CATALOG_DRONES);
-for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite };
+// уровни дронов 2–5: урон и прочность +12%, ремонт и добыча +15%, дальность +5% за уровень
+for (const [id, d] of Object.entries({ ...DRONES })) {
+  d.base = id; d.lv = 1;
+  for (let L = 2; L <= MOD_UPGRADE.maxLv; L++) {
+    const f = (x) => 1 + x * (L - 1);
+    const v = { ...d, base: id, lv: L, name: `${d.name} · ур.${L}`, price: Math.round(d.price * (1 + 0.6 * (L - 1))), hp: Math.round(d.hp * f(0.12)), range: Math.round(d.range * f(0.05)) };
+    if (d.dmg) v.dmg = Math.round(d.dmg * f(0.12));
+    if (d.rep) v.rep = Math.round(d.rep * f(0.15));
+    if (d.yield) v.yield = Math.round(d.yield * f(0.15));
+    if (d.regen) v.regen = Math.round(d.regen * f(0.12));
+    DRONES[`${id}_l${L}`] = v;
+  }
+}
+for (const [id, d] of Object.entries(DRONES)) ITEMS[id] = { name: d.name, cat: d.elite ? 'Элитные дроны' : 'Дроны', vol: d.vol, base: d.price, drone: true, elite: d.elite, lv: d.lv };
 // Планетарные ресурсы: добываются мультитулом на поверхности планет (см. server/surface.js, public/js/planetgen.js)
 Object.assign(ITEMS, {
   res_carbon:     { name: 'Углерод', cat: 'Планетарные ресурсы', vol: 0.02, base: 14, desc: 'из растений и деревьев' },
@@ -747,7 +761,7 @@ function addBlueprint(out, kind, price, rare) {
   ITEMS[id] = { name: 'Чертёж: ' + name, cat: rare ? 'Редкие чертежи' : 'Чертежи', vol: 0.1, base: Math.round(rare ? value * 0.6 : BLUEPRINTS[id].price * 0.3), blueprint: true, rare: !!rare };
 }
 for (const [id, m] of Object.entries(MODULES)) if (m.lv === 1 && !m.artifact && !m.trophy && !m.only) addBlueprint(id, 'module', m.price, m.elite);
-for (const [id, d] of Object.entries(DRONES)) addBlueprint(id, 'drone', d.price, d.elite);
+for (const [id, d] of Object.entries(DRONES)) if (d.lv === 1) addBlueprint(id, 'drone', d.price, d.elite);
 for (const id of Object.keys(BP_BATCH)) addBlueprint(id, 'item', ITEMS[id].base, false);
 for (const [id, t] of Object.entries(SHIPS)) if (t.price > 0 && !t.unique) addBlueprint(id, 'ship', t.price, !!t.fac);
 // перепродажа станции: модули, дроны и боеприпасы — за полцены (иначе «докупил материалы → сделал → продал» печатало бы деньги)

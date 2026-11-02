@@ -2026,54 +2026,66 @@ function shipStatsHTML(t, stats) {
 
 // ---------- Улучшение модулей (до 5 уровня) ----------
 function lvBadge(d) { return `<span class="lvb lv${d.lv || 1}" title="Уровень модуля">${'★'.repeat(d.lv || 1)}</span> `; }
+const gearC = (id) => S.data.modules[id] || (S.data.drones || {})[id];
 function upgradeCostC(id) {
-  const U = S.data.modUpgrade, m = S.data.modules[id];
-  if (!U || !m || m.series) return null; // серийные модули не улучшаются — у них классы I–V
-  const L = (m.lv || 1) + 1;
-  if (L > U.maxLv || !S.data.modules[`${m.base || id}_l${L}`]) return null;
-  const base = S.data.modules[m.base || id], k = Math.max(1, base.vol / 5), mats = {};
+  // улучшаются все модули (и серийные классы I–V) и все дроны
+  const U = S.data.modUpgrade, m = gearC(id);
+  if (!U || !m) return null;
+  const T = S.data.modules[id] ? S.data.modules : S.data.drones, L = (m.lv || 1) + 1;
+  if (L > U.maxLv || !T[`${m.base || id}_l${L}`]) return null;
+  const base = T[m.base || id], k = Math.max(1, base.vol / 5), mats = {};
   for (const [it, q] of Object.entries(U.mats[L])) mats[it] = Math.ceil(q * k);
   if (base.elite) for (const [it, q] of Object.entries(U.eliteMats[L] || {})) mats[it] = (mats[it] || 0) + q;
   if (U.cells) mats.energy_cell = U.cells[L];
-  return { next: `${m.base || id}_l${L}`, level: L, isk: Math.round(base.price * U.isk[L]), mats };
+  return { next: `${m.base || id}_l${L}`, level: L, isk: Math.round(base.price * U.isk[L]), mats, drone: T === S.data.drones };
 }
-function upBtn(id, slot, item) {
+function upBtn(id, slot, item, from) {
   const c = upgradeCostC(id);
   if (!c) return '<span class="muted small" style="margin-right:6px">макс.</span>';
-  return `<button class="upg" data-a="upgradeMod" ${slot !== null ? `data-slot="${slot}"` : `data-item="${item}"`} title="Улучшить до уровня ${c.level}">⬆ ур.${c.level}</button>`;
+  return `<button class="upg" data-a="upgradeMod" ${slot !== null ? `data-slot="${slot}"` : `data-item="${item}"`}${from ? ` data-from="${from}"` : ''} title="Улучшить до уровня ${c.level}">⬆ ур.${c.level}</button>`;
 }
-function showUpgrade(slot, item) {
+function showUpgrade(slot, item, from) {
   const p = S.prof, h = (p.hangar && p.hangar.items) || {};
-  const id = slot !== undefined ? p.ship.fit[slot] : item, d = S.data.modules[id], c = upgradeCostC(id);
-  if (!c || !d || !S.data.modules[c.next]) return;
-  const nd = S.data.modules[c.next], U = S.data.modUpgrade;
-  let missingCost = 0;
-  const rows = Object.entries(c.mats).map(([it, q]) => {
-    const have = (h[it] || 0) + (p.ship.cargo[it] || 0), miss = Math.max(0, q - have);
-    missingCost += Math.ceil(miss * S.data.items[it].base * U.buyMarkup);
-    return `<tr><td>${esc(S.data.items[it].name)}</td><td class="r">${num(q)}</td><td class="r ${miss ? 'bad' : 'req-ok'}">${num(have)}</td></tr>`;
-  }).join('');
-  const total = c.isk + missingCost, canPay = p.credits >= total;
-  const html = `<h3>Улучшение: ${esc(S.data.modules[d.base || id].name)}</h3>
-    <div class="up-cmp"><div>${lvBadge(d)}<b>Уровень ${d.lv || 1}</b><div class="muted">${moduleDesc(d)}${d.heatPerShot ? `, нагрев ${d.heatPerShot}` : ''}</div></div>
-    <div class="up-arrow">→</div><div>${lvBadge(nd)}<b>Уровень ${c.level}</b><div>${moduleDesc(nd)}${nd.heatPerShot ? `, нагрев ${nd.heatPerShot}` : ''}</div></div></div>
-    <table class="tbl"><tr><th>Материал</th><th class="r">Нужно</th><th class="r">Есть (ангар + трюм)</th></tr>${rows}</table>
-    <div class="kv"><span>Работа верфи</span><span class="isk">${isk(c.isk)}</span>${missingCost ? `<span>Докупить недостающее (×${U.buyMarkup})</span><span class="isk">${isk(missingCost)}</span>` : ''}<span><b>Итого</b></span><span class="isk"><b>${isk(total)}</b></span></div>
-    ${canPay ? '' : '<div class="bad">Недостаточно CR</div>'}
-    <div class="muted small">Материалы дают переработка руды на своей станции и литейный цех «Бегемота». Улучшенные модули нельзя купить — только сделать.</div>`;
-  const go = (buy) => () => send({ t: 'upgradeModule', slot, item, buyMissing: buy });
-  modal(html, [['Отмена', null], ...(canPay ? [[missingCost ? `Улучшить и докупить (${num(total)} CR)` : `Улучшить (${num(total)} CR)`, go(!!missingCost), 'primary']] : [])]);
+  const id = slot !== undefined ? p.ship.fit[slot] : item, d = gearC(id), c = upgradeCostC(id);
+  if (!c || !d || !gearC(c.next)) return;
+  const nd = gearC(c.next), U = S.data.modUpgrade, desc = (x) => c.drone ? droneDesc(x) : moduleDesc(x) + (x.heatPerShot ? `, нагрев ${x.heatPerShot}` : '');
+  const src = slot !== undefined ? null : from === 'bay' ? (p.ship.drones || {}) : from === 'cargo' ? p.ship.cargo : h;
+  const stack = src ? src[id] || 0 : 1;
+  const calc = (n) => {
+    let miss = 0;
+    const rows = Object.entries(c.mats).map(([it, q]) => {
+      const need = q * n, have = (h[it] || 0) + (p.ship.cargo[it] || 0), m = Math.max(0, need - have);
+      miss += Math.ceil(m * S.data.items[it].base * U.buyMarkup);
+      return `<tr><td>${esc(S.data.items[it].name)}</td><td class="r">${num(need)}</td><td class="r ${m ? 'bad' : 'req-ok'}">${num(have)}</td></tr>`;
+    }).join('');
+    return { rows, miss, total: c.isk * n + miss };
+  };
+  const one = calc(1), all = stack > 1 ? calc(stack) : null;
+  const html = `<h3>Улучшение: ${esc(gearC(d.base || id).name)}</h3>
+    <div class="up-cmp"><div>${lvBadge(d)}<b>Уровень ${d.lv || 1}</b><div class="muted">${desc(d)}</div></div>
+    <div class="up-arrow">→</div><div>${lvBadge(nd)}<b>Уровень ${c.level}</b><div>${desc(nd)}</div></div></div>
+    <table class="tbl"><tr><th>Материал (за 1 шт.)</th><th class="r">Нужно</th><th class="r">Есть (ангар + трюм)</th></tr>${one.rows}</table>
+    <div class="kv"><span>Работа верфи</span><span class="isk">${isk(c.isk)}</span>${one.miss ? `<span>Докупить недостающее (×${U.buyMarkup})</span><span class="isk">${isk(one.miss)}</span>` : ''}<span><b>Итого за 1 шт.</b></span><span class="isk"><b>${isk(one.total)}</b></span>
+    ${all ? `<span><b>Вся стопка ×${stack}</b></span><span class="isk"><b>${isk(all.total)}</b>${all.miss ? ` <span class="muted small">(докупка ${isk(all.miss)})</span>` : ''}</span>` : ''}</div>
+    ${p.credits >= one.total ? '' : '<div class="bad">Недостаточно CR</div>'}
+    <div class="muted small">Материалы дают переработка руды (вкладка «Переработка» на любой станции, свой завод) и литейный цех «Бегемота». Улучшенное снаряжение нельзя купить — только сделать.</div>`;
+  const go = (n, buy) => () => send({ t: 'upgradeModule', slot, item, from, qty: n, buyMissing: buy });
+  const btns = [['Отмена', null]];
+  if (p.credits >= one.total) btns.push([one.miss ? `Улучшить 1 и докупить (${num(one.total)} CR)` : `Улучшить 1 (${num(one.total)} CR)`, go(1, !!one.miss), all ? '' : 'primary']);
+  if (all && p.credits >= all.total) btns.push([`Улучшить все ×${stack} (${num(all.total)} CR)`, go(stack, !!all.miss), 'primary']);
+  modal(html, btns);
 }
 
+const kmR = (m) => +(m / 1000).toFixed(1);
 function moduleDesc(d) {
-  if (d.kind === 'launcher') return `${d.salvo ? d.salvo + '×' : ''}${d.dmg} урона / ${d.cycle}с, дальность ${d.range / 1000} км, взрыв ${d.explR} м, боезапас: ${S.data.items[d.ammo].name}`;
-  if (d.kind === 'pd') return `сбивает ракеты в ${d.range / 1000} км, ${d.shots} за ${d.cycle}с`;
-  if (d.kind === 'weapon') return `урон ${d.dmg} / ${d.cycle}с, дальность ${d.optimal / 1000}+${d.falloff / 1000} км`;
-  if (d.kind === 'miner') return `${d.yield} м³ / ${d.cycle}с, дальность ${d.range / 1000} км`;
+  if (d.kind === 'launcher') return `${d.salvo ? d.salvo + '×' : ''}${d.dmg} урона / ${d.cycle}с, дальность ${kmR(d.range)} км, взрыв ${d.explR} м, боезапас: ${S.data.items[d.ammo].name}`;
+  if (d.kind === 'pd') return `сбивает ракеты в ${kmR(d.range)} км, ${d.shots} за ${d.cycle}с`;
+  if (d.kind === 'weapon') return `урон ${d.dmg} / ${d.cycle}с, дальность ${kmR(d.optimal)}+${kmR(d.falloff)} км`;
+  if (d.kind === 'miner') return `${d.yield} м³ / ${d.cycle}с, дальность ${kmR(d.range)} км`;
   if (d.kind === 'shieldRep') return `+${d.amount} щита / ${d.cycle}с`;
   if (d.kind === 'armorRep') return `+${d.amount} брони / ${d.cycle}с`;
   if (d.kind === 'prop') return `+${d.speedBonus * 100}% скорости`;
-  if (d.kind === 'scram') return `блокирует варп цели, ${d.range / 1000} км`;
+  if (d.kind === 'scram') return `блокирует варп цели, ${kmR(d.range)} км`;
   if (d.kind === 'passive') return Object.entries(d.passive).map(([k, v]) => k === 'droneCount' ? `+${Math.floor(v)} дрона в бою`
     : `+${Math.round(v * 100)}% ${{ damage: 'урона', cargo: 'трюма', mining: 'добычи', speed: 'скорости', rof: 'скорострельности орудий', hp: 'щита, брони и корпуса', capRegen: 'перезарядки накопителя', warp: 'скорости варпа', scan: 'силы сканера', drones: 'урона дронов' }[k] || k}`).join(', ');
   return '';
@@ -3282,27 +3294,31 @@ function droneDesc(d) {
   if (d.regen) tags.push(`чинится ${d.regen}/с`);
   if (d.taunt) tags.push('отвлекает пиратов');
   if (d.pd) tags.push(`сбивает ракеты ${Math.round(d.pd * 100)}%`);
-  const main = d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, дальность ${d.range / 1000} км` : d.kind === 'repair' ? `ремонт ${d.rep} / ${d.cycle}с` : `${d.yield} м³ руды / ${d.cycle}с`;
+  const main = d.kind === 'combat' ? `урон ${d.dmg} / ${d.cycle}с, дальность ${kmR(d.range)} км` : d.kind === 'repair' ? `ремонт ${d.rep} / ${d.cycle}с` : `${d.yield} м³ руды / ${d.cycle}с`;
   return `${main}, прочность ${d.hp}, ${d.vol} м³ · ${tags.join(', ')}`;
 }
 function droneBayHTML() {
   const p = S.prof, t = S.data.ships[p.ship.type];
-  if (!t.droneBay) return '<h3>Отсек дронов</h3><div class="muted">У этого корабля нет отсека дронов. Дроны есть у «Стража», «Пилигрима», «Бурлака», «Молота», «Цитадели» и других.</div>';
+  if (!t.droneBay) {
+    const hd = S.docked ? Object.entries((S.prof.hangar || { items: {} }).items).filter(([id]) => S.data.drones[id]) : [];
+    return '<h3>Отсек дронов</h3><div class="muted">У этого корабля нет отсека дронов. Дроны есть у «Стража», «Пилигрима», «Бурлака», «Молота», «Цитадели» и других.</div>'
+      + (hd.length ? '<div class="bay-src">Дроны в ангаре станции (можно улучшать):</div>' + hd.map(([id, q]) => `<div class="slot-row"><span class="sm">${lvBadge(S.data.drones[id])}${esc(S.data.drones[id].name)} <b>×${q}</b><br><span class="muted">${droneDesc(S.data.drones[id])}</span></span>${upBtn(id, null, id)}</div>`).join('') : '');
+  }
   const bay = p.ship.drones || {}, cargo = p.ship.cargo || {}, hang = (S.prof.hangar || { items: {} }).items;
   let used = 0; for (const id in bay) used += bay[id] * S.data.drones[id].vol;
   const free = t.droneBay - used;
   const qtyIn = (id, max, pre) => `<input class="qty" type="number" min="1" max="${max}" value="${Math.max(1, Math.min(max, Math.floor(free / S.data.drones[id].vol) || 1))}" id="${pre}-${id}">`;
-  const row = (id, q, btns) => `<div class="slot-row"><span class="sm">${esc(S.data.drones[id].name)} <b>×${q}</b><br><span class="muted">${droneDesc(S.data.drones[id])}</span></span>${btns}</div>`;
+  const row = (id, q, btns, from) => `<div class="slot-row"><span class="sm">${lvBadge(S.data.drones[id])}${esc(S.data.drones[id].name)} <b>×${q}</b><br><span class="muted">${droneDesc(S.data.drones[id])}</span></span>${S.docked ? upBtn(id, null, id, from) : ''}${btns}</div>`;
   let html = `<h3>Отсек дронов</h3><div class="bay-head"><div style="flex:1"><div class="muted">${used} / ${t.droneBay} м³ · в космосе одновременно до ${t.maxDrones}</div>
     <div class="cap-bar"><i style="width:${Math.min(100, used / t.droneBay * 100)}%"></i></div></div><button class="primary" data-a="fillBay">Заполнить отсек</button></div>`;
   html += Object.keys(bay).length ? Object.entries(bay).map(([id, q]) => row(id, q, S.docked
       ? `<button data-a="unloadDrone" data-item="${id}">В ангар</button><button data-a="bayToCargo" data-item="${id}">В трюм</button>`
-      : `<button data-a="bayToCargo" data-item="${id}">В трюм</button>`)).join('')
+      : `<button data-a="bayToCargo" data-item="${id}">В трюм</button>`, 'bay')).join('')
     : '<div class="muted">Отсек пуст.</div>';
   const fromCargo = Object.entries(cargo).filter(([id]) => S.data.drones[id]);
   const fromHang = S.docked ? Object.entries(hang).filter(([id]) => S.data.drones[id]) : [];
   if (fromHang.length) html += '<div class="bay-src">В ангаре станции:</div>' + fromHang.map(([id, q]) => row(id, q, `${qtyIn(id, q, 'dh')}<button data-a="loadDrone" data-item="${id}">Загрузить</button>`)).join('');
-  if (fromCargo.length) html += '<div class="bay-src">В трюме:</div>' + fromCargo.map(([id, q]) => row(id, q, `${qtyIn(id, q, 'dc')}<button data-a="cargoToBay" data-item="${id}">Загрузить</button>`)).join('');
+  if (fromCargo.length) html += '<div class="bay-src">В трюме:</div>' + fromCargo.map(([id, q]) => row(id, q, `${qtyIn(id, q, 'dc')}<button data-a="cargoToBay" data-item="${id}">Загрузить</button>`, 'cargo')).join('');
   if (!fromHang.length && !fromCargo.length && !Object.keys(bay).length) html += '<div class="muted">Купите дронов на рынке (раздел «Дроны») — они сразу попадут в отсек.</div>';
   return html;
 }
@@ -3525,7 +3541,7 @@ function onActionClick(e) {
     case 'routeCmd': send({ t: 'routeCmd', id: d.id, cmd: d.cmd }); break;
     case 'addRoute': send({ t: 'addRoute', from: $('#rt-from').value, to: $('#rt-to').value, item: $('#rt-item').value, keep: +$('#rt-keep').value }); break;
     case 'buyCons': send({ t: 'buy', item: d.item, qty: +$('#cq-' + d.item).value }); break;
-    case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item); break;
+    case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item, d.from); break;
     case 'rebind': rebinding = d.id; renderWin(); break;
     case 'bench': runBench(); break;
     case 'benchShow': openWin('bench', null, true); break;
