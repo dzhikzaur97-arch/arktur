@@ -411,3 +411,154 @@ def facet_canopy(x, y, z, w, l, h, M):
 
 def mir(fn):
     for sd in (1, -1): fn(sd)
+
+# =====================================================================
+# Концепт-стиль (v73): разметка, светящиеся решётки, накладные плиты, механика — общий проход для всех кораблей
+# =====================================================================
+def bm_box(bm, c, d, length, w, h, up=None):
+    """Повёрнутый брусок в общий bmesh: центр c, ось d (длина length), ширина w, высота h по up."""
+    c = Vector(c); d = Vector(d)
+    if d.length < 1e-6: d = Vector((0, 1, 0))
+    d.normalize(); up = Vector(up) if up is not None else Vector((0, 0, 1))
+    side = d.cross(up)
+    if side.length < 1e-4: side = d.cross(Vector((1, 0, 0)))
+    side.normalize(); u = side.cross(d).normalized()
+    vs = [bm.verts.new(c + d * length * a + side * w * b + u * h * k) for a in (-0.5, 0.5) for b in (-0.5, 0.5) for k in (-0.5, 0.5)]
+    for f in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
+        bm.faces.new([vs[i] for i in f])
+
+def bm_quad(bm, c, d, length, w, n):
+    """Плоская накладка (4 вершины) на обшивке: полосы, решётки, маркировка — без лишних граней."""
+    c = Vector(c); n = Vector(n).normalized(); d = Vector(d); d = (d - n * d.dot(n))
+    if d.length < 1e-6: d = n.orthogonal()
+    d.normalize(); sd = d.cross(n).normalized()
+    v = [bm.verts.new(c + d * length * a + sd * w * b) for a, b in ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5))]
+    f = bm.faces.new(v)
+    if f.normal.dot(n) < 0: f.normal_flip()
+
+def bm_obj(name, bm, material, recalc=True):
+    if not bm.faces: bm.free(); return None
+    if recalc: bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    ob = bpy.data.objects.new(name, me); ob.data.materials.append(material); link(ob)
+    for p in me.polygons: p.use_smooth = False
+    return ob
+
+def style_mats():
+    return {'stripe': mat('stripe', (1.0, 0.42, 0.08), 0.2, 0.45, (1.0, 0.38, 0.05), 1.2),
+            'vent': mat('vent', (0.05, 0.12, 0.2), 0.3, 0.3, (0.25, 0.65, 1.0), 4.0)}
+
+def hull_bvh(dg):
+    """Общее дерево лучей по крупным деталям корпуса (без турелей и мелочи)."""
+    verts, polys = [], []
+    for o in S['col'].objects:
+        if o.type != 'MESH' or o.parent is not None or not o.data.materials: continue
+        if o.data.materials[0].name.split('.')[0] not in ('hull', 'hull2'): continue
+        if max(o.dimensions) < 0.18: continue
+        ev = o.evaluated_get(dg); me = ev.to_mesh(); off = len(verts); mw = o.matrix_world
+        verts += [mw @ v.co for v in me.vertices]; polys += [[off + i for i in p.vertices] for p in me.polygons]
+        ev.to_mesh_clear()
+    if not polys: return None, None
+    mn = Vector((min(v.x for v in verts), min(v.y for v in verts), min(v.z for v in verts)))
+    mx = Vector((max(v.x for v in verts), max(v.y for v in verts), max(v.z for v in verts)))
+    return BVHTree.FromPolygons(verts, polys), (mn, mx)
+
+def detail_pass(M, seed=1, density=1.0):
+    """Детализация в духе концептов: оранжевая разметка вдоль корпуса, синие решётки по бортам,
+    накладные бронеплиты, коробки и трубы механики, антенны. Всё сливается в 4 объекта — модель остаётся лёгкой."""
+    import random
+    rnd = random.Random(seed)
+    SM = style_mats(); M.update(SM)
+    bpy.context.view_layer.update(); dg = bpy.context.evaluated_depsgraph_get()
+    bvh, bb = hull_bvh(dg)
+    if not bvh: return
+    mn, mx = bb; L = mx.y - mn.y; ztop = mx.z + 1
+    hps = [o.matrix_world.translation.copy() for o in S['col'].objects if o.type == 'EMPTY' and 'hp' in o.keys()]
+    near_hp = lambda p, r=0.1: any((Vector((p.x - h.x, p.y - h.y)).length < r) for h in hps)
+    def top(x, y):
+        h = bvh.ray_cast(Vector((x, y, ztop)), Vector((0, 0, -1)))
+        return h if h[0] is not None and h[1].z > 0.5 else None
+    def side_hit(sd, y, z):
+        h = bvh.ray_cast(Vector((sd * 3, y, z)), Vector((-sd, 0, 0)))
+        return h if h[0] is not None and sd * h[1].x > 0.6 else None
+    B = {k: bmesh.new() for k in ('stripe', 'vent', 'hull2', 'dark')}
+    # --- 1. разметка: пунктир вдоль корпуса на 2/3 полуширины (и по кромке у широких кораблей)
+    ys = [mn.y + L * (0.1 + 0.78 * i / 90) for i in range(91)]
+    hw = []
+    for y in ys:
+        w, x = 0.0, 0.0
+        while x < 1.6:
+            if top(x, y): w = x
+            x += 0.01
+        hw.append(w)
+    for k in ((0.62,) if max(hw) < 0.25 else (0.42, 0.8)):
+        for sd in (1, -1):
+            prev = None
+            for i, (y, w) in enumerate(zip(ys, hw)):
+                h = top(sd * k * w, y) if w > 0.05 else None
+                if h and prev and (i % 11) < 8:
+                    p1, p2 = prev[0], h[0]
+                    if abs(p1.x - p2.x) < 0.03 and abs(p1.z - p2.z) < 0.03 and not near_hp(p2, 0.07):
+                        n = (prev[1] + h[1]).normalized()
+                        bm_quad(B['stripe'], (p1 + p2) / 2 + n * 0.004, p2 - p1, (p2 - p1).length * 1.03, 0.013, n)
+                prev = h
+    # --- 2. синие решётки по бортам: группы прорезей на самой широкой высоте борта
+    zs = [mn.z + (mx.z - mn.z) * t for t in (0.25, 0.4, 0.55, 0.7)]
+    y = mn.y + L * 0.18
+    while y < mn.y + L * 0.82:
+        if rnd.random() < 0.55:
+            best = None
+            for z in zs:
+                h = side_hit(1, y, z)
+                if h and (best is None or h[0].x > best[0].x): best = h
+            if best:
+                cnt = rnd.randint(3, 6); z0 = best[0].z
+                for sd in (1, -1):
+                    for j in range(cnt):
+                        hh = side_hit(sd, y + j * 0.032, z0)
+                        if hh: bm_quad(B['vent'], hh[0] + hh[1] * 0.004, (0, 0, 1), 0.026, 0.018, hh[1])
+                y += cnt * 0.032 + 0.05
+                continue
+        y += 0.06
+    # --- 3. накладные плиты, механика, маркировка, антенны сверху
+    area = L * 2 * (sum(hw) / len(hw)); N = int(min(70, 18 + 40 * area) * density)
+    placed = tries = 0
+    while placed < N and tries < N * 8:
+        tries += 1
+        y = rnd.uniform(mn.y + L * 0.08, mn.y + L * 0.9); i = min(90, max(0, int((y - mn.y - L * 0.1) / (L * 0.78) * 90)))
+        w = hw[i]
+        if w < 0.04: continue
+        x = rnd.uniform(-w * 0.85, w * 0.85); h = top(x, y)
+        if not h or h[1].z < 0.75: continue
+        p, n = h[0], h[1]
+        if near_hp(p): continue
+        fwd = Vector((0, 1, 0)) - n * n.y
+        k = rnd.random()
+        if k < 0.38:
+            sx, sy = rnd.uniform(0.05, 0.13), rnd.uniform(0.06, 0.18)
+            bm_box(B['hull2'], p + n * 0.005, fwd, sy, sx, 0.01, n)
+        elif k < 0.7:
+            s = rnd.uniform(0.018, 0.045)
+            bm_box(B['dark' if rnd.random() < 0.5 else 'hull2'], p + n * s * 0.35, fwd, s * rnd.uniform(1, 2.2), s * rnd.uniform(0.8, 1.4), s * 0.7, n)
+        elif k < 0.84:
+            bm_box(B['dark'], p + n * 0.008, fwd, rnd.uniform(0.08, 0.2), 0.012, 0.012, n)
+        elif k < 0.95:
+            for j in range(rnd.randint(1, 3)):
+                bm_quad(B['stripe'], p + n * 0.004 + fwd.normalized() * j * 0.022, fwd, 0.014, 0.03, n)
+        else:
+            bm_quad(B['vent'], p + n * 0.004, fwd, 0.05, 0.022, n)
+        placed += 1
+    for j in range(2):
+        y = mn.y + L * (0.25 + 0.15 * j); h = top((j - 0.5) * 0.06, y)
+        if h and not near_hp(h[0]): bm_box(B['dark'], h[0] + Vector((0, 0, 0.06 + j * 0.03)), (0, 0, 1), 0.12 + j * 0.06, 0.006, 0.006, (0, 1, 0))
+    bm_obj('Разметка', B['stripe'], SM['stripe'], False); bm_obj('Решётки', B['vent'], SM['vent'], False)
+    bm_obj('Накладные_плиты', B['hull2'], M['hull2']); bm_obj('Механика', B['dark'], M['dark'])
+
+def plumes(color):
+    """Факелы дюз только для рендеров (в игру не экспортируются: там свои факелы)."""
+    core = mat('plume_core', (0.5, 0.7, 1.0), 0, 0.3, (0.6, 0.85, 1.0), 3.5, 0.6)
+    outer = mat('plume', color, 0, 0.3, color, 1.6, 0.18)
+    for e in [o for o in S['col'].objects if o.type == 'EMPTY' and 'eng' in o.keys()]:
+        r = e['eng']; p = e.matrix_world.translation
+        for (rr, ll, m) in ((r * 0.5, r * 3.0, core), (r * 0.92, r * 6.5, outer)):
+            lathe('Факел', [(rr, -0.001), (rr * 0.7, -ll * 0.35), (0.002, -ll)], m, 12, 'Y', (p.x, p.y - r * 0.15, p.z), False)
