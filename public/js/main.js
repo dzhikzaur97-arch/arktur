@@ -1518,7 +1518,9 @@ function renderHud(now) {
   if (me.ap) st.push(`<div>Автопилот → ${esc(S.sysById[me.ap].name)}</div>`);
   const cmdName = { approach: 'Подлёт', orbit: 'Орбита', keep: 'Удержание дистанции', dock: 'Подлёт для стыковки', jump: 'Подлёт к вратам', dir: 'Курс задан' }[me.cmd.type];
   if (cmdName && !me.warp) { const t = me.cmd.target && getObj(me.cmd.target); st.push(`<div class="muted">${cmdName}${t ? ': ' + esc(t.n || t.name) : ''}</div>`); }
+  if (me.hh) st.push('<div class="warp">🔥 УМНЫЙ ОГОНЬ: орудия остывают…</div>');
   setHTML($('#hud-status'), st.join(''));
+  adviseTick();
 
   // модули
   const order = moduleOrder();
@@ -2782,10 +2784,81 @@ function stateSummary() {
     S.wing && S.wing.list.length ? `Напарники: ${S.wing.list.map(x => `${x.name} (${x.roleName}, ур.${x.lv})`).join(', ')}.` : 'Напарников нет.',
     `Контракты: ${p.missions.length}.`].filter(Boolean).join(' ');
 }
+// ======================================================================
+// Советник: смотрит на положение пилота и подсказывает, что сделать прямо сейчас (работает без Claude)
+// ======================================================================
+const ADV = { last: {}, cur: null, at: 0, ovh: [], ohSeen: 0 };
+function adviceList() {
+  const out = [], p = S.prof, me = S.me, now = Date.now();
+  if (!p || !S.data) return out;
+  const t = S.data.ships[p.ship.type], fit = p.ship.fit || [];
+  const mod = (id) => id && S.data.modules[id];
+  const hasKind = (k) => fit.some(id => mod(id) && mod(id).kind === k);
+  const hostile = me && [...S.ents.values()].some(e => e.k === 's' && e.npc && !e.w && distTo(e) < 60000);
+  if (me) {
+    if (me.oh && me.oh !== ADV.ohSeen) { ADV.ohSeen = me.oh; ADV.ovh.push(now); }
+    ADV.ovh = ADV.ovh.filter(x => now - x < 300000);
+    const heat = me.heat || 0, cool = me.cool || 0;
+    if (heat >= 70 || ADV.ovh.length) {
+      if (!p.heatGuard) out.push({ id: 'heatGuard', pri: 10, text: 'Орудия перегреваются. Включите «Умный огонь»: на 90% нагрева орудия сами сделают паузу и продолжат с 55% — без отключения на 6 секунд.', act: ['🔥 Включить умный огонь', () => send({ t: 'heatGuard', on: true })] });
+      else if (cool < 15) out.push({ id: 'heatSink', pri: 7, text: `Чтобы стрелять дольше без пауз: поставьте теплоотвод в нижний слот (рынок → ⚙ Усилители, «Теплоотвод») и учите навык «Терморегуляция». Сейчас охлаждение +${cool}%. Лазеры греются сильнее всего, автопушки и рельсотроны — меньше; часть орудий можно выключить.` });
+      else if (ADV.ovh.length >= 2) out.push({ id: 'heatMany', pri: 6, text: 'Перегрев повторяется: стреляйте не всеми орудиями сразу, а пачками; на корабле с большим числом орудийных портов запас тепла больше.' });
+    }
+    const sh = me.sh / me.max.sh, ar = me.ar / me.max.ar, cap = me.cap / me.max.cap;
+    if (hostile && sh < 0.3) out.push({ id: 'shield', pri: 9, text: hasKind('shieldRep') ? 'Щиты почти сняты — включите усилитель щита, держитесь на дальности своих орудий, а если броня тоже тает — варп (») к станции.' : 'Щиты почти сняты, а усилителя щита нет. Отходите (варп ») и поставьте усилитель щита в средний слот — он восстанавливает щит в бою.' });
+    if (hostile && ar < 0.4 && sh < 0.1) out.push({ id: 'flee', pri: 11, text: 'Броня под угрозой! Уходите варпом (») на станцию — ремонт там бесплатный. Страховка вернёт часть цены, но модули и груз могут пропасть.' });
+    if (hostile && cap < 0.15) out.push({ id: 'cap', pri: 8, text: 'Накопитель пуст — модули не включаются. Выключите лишнее (форсаж, усилители), поставьте регенератор накопителя или учите «Энергетику».' });
+    if (hostile && p.ship.drones && Object.keys(p.ship.drones).length && ![...S.ents.values()].some(e => e.k === 'd' && e.o === S.name)) out.push({ id: 'drones', pri: 6, text: 'В отсеке есть дроны — выпустите их, они бьют пиратов и сбивают ракеты.', act: ['🛸 Выпустить дронов', () => send({ t: 'droneLaunch' })] });
+    const tgt = S.active && S.ents.get(S.active);
+    if (tgt && tgt.npc) {
+      const ws = fit.map(mod).filter(d => d && d.kind === 'weapon');
+      const reach = ws.length ? Math.max(...ws.map(d => (d.optimal || 0) + (d.falloff || 0))) : 0;
+      if (reach && distTo(tgt) > reach * 1.1) out.push({ id: 'range', pri: 8, text: `Цель в ${fmtDist(distTo(tgt))}, а ваши орудия бьют до ${fmtDist(reach)}. Встаньте на орбиту ближе — кнопка «⚔ В бой» сделает это сама.` });
+    }
+    if (p.cargoUsed >= (p.shipStats.cargo || 1) * 0.97) out.push({ id: 'cargo', pri: 5, text: 'Трюм полон. Пристыкуйтесь и продайте добычу (или переработайте руду во вкладке «Переработка» — материалы дороже). Расширитель трюма в нижнем слоте даёт +20–60% места.' });
+  }
+  if (!p.training && Object.keys(S.data.skills).some(k => (p.skills[k] || 0) < 5)) out.push({ id: 'skills', pri: 3, text: 'Ни один навык сейчас не учится — а они учатся даже без вас. Поставьте следующий.', act: ['✪ Открыть навыки', () => openWin('skills')] });
+  if (S.docked) {
+    const empty = fit.filter(x => !x).length;
+    if (empty) out.push({ id: 'slots', pri: 4, text: `У корабля ${empty} пустых слотов — каждый модуль делает его сильнее. Вкладка «Оснастка», модули — на «Рынке».`, act: ['Открыть «Оснастку»', () => { S.stTab = 'fitting'; for (const sp of $('#st-tabs').children) sp.classList.toggle('on', sp.dataset.tab === 'fitting'); renderStation(); }] });
+    if (t.price >= 2000000 && !p.ship.ins) out.push({ id: 'ins', pri: 2, text: `«${t.name}» не застрахован. «Серебро» или «Платина» во вкладке «Оснастка» вернут больше при гибели.` });
+  }
+  return out.sort((a, b) => b.pri - a.pri);
+}
+function adviseTick() {
+  if (CFG.advisor === false || !S.prof || S.surface) return hideAdvice();
+  const now = Date.now();
+  if (now - ADV.at < 2000) return; ADV.at = now;
+  const list = adviceList().filter(x => !ADV.last[x.id] || now - ADV.last[x.id] > 5 * 60000);
+  if (ADV.cur && list.some(x => x.id === ADV.cur.id) && now - ADV.cur.t < 25000 && !(list[0] && list[0].pri > ADV.cur.pri)) return; // держим текущий совет, пока он актуален и нет более срочного
+  if (ADV.cur) { const was = ADV.cur; hideAdvice(); if (!(list[0] && list[0].pri > was.pri && list.some(x => x.id === was.id))) ADV.last[was.id] = now; }
+  const tip = list[0]; if (!tip) return;
+  ADV.cur = { ...tip, t: now };
+  let el = $('#advice');
+  if (!el) { el = document.createElement('div'); el.id = 'advice'; el.className = 'panel'; $('#ui').appendChild(el);
+    onTap(el, (e) => { const b = e.target.closest('[data-adv]'); if (!b) return; const c = ADV.cur; if (!c) return;
+      if (b.dataset.adv === 'act' && c.act) c.act[1](); ADV.last[c.id] = Date.now(); hideAdvice(); }); }
+  el.innerHTML = `<span class="adv-i">💡</span><span class="adv-t">${esc(tip.text)}</span><span class="adv-b">${tip.act ? `<button class="primary" data-adv="act">${esc(tip.act[0])}</button>` : ''}<button data-adv="x" title="Понятно">✕</button></span>`;
+  el.classList.remove('hidden');
+}
+function hideAdvice() { const el = $('#advice'); if (el) el.classList.add('hidden'); ADV.cur = null; }
+const FAQ = [
+  ['Как не перегревать орудия?', 'Каждый выстрел греет корабль, на 100% орудия отключаются на 6 секунд. 1) Включите «Умный огонь» (Настройки → Игра или кнопка в совете) — орудия сами делают паузу на 90% и продолжают с 55%. 2) Поставьте теплоотвод в нижний слот: меньше нагрева за выстрел и быстрее остывание. 3) Учите навык «Терморегуляция». 4) Лазеры греются сильнее всего, автопушки и рельсотроны — меньше; на корабле с большим числом орудийных портов запас тепла больше. 5) Не держите включёнными все орудия против слабой цели.'],
+  ['Как быстрее заработать?', 'Добыча в опасных системах и торговля товарами между регионами (вкладка «Торговля») дают больше всего. Охота на пиратов — с хорошим боевым кораблём; доход растёт к опасным регионам. Своя система и корпорация приносят деньги, пока вас нет.'],
+  ['Как не погибнуть?', 'Держите щит выше трети: усилитель щита в среднем слоте, при опасности — варп (») к станции. Страхуйте дорогие корабли. В системах ниже 0.5 пираты сильнее — летайте туда на крепком корабле и с напарниками.'],
+  ['Как сделать корабль сильнее?', 'Заполните все слоты, улучшайте модули до 5 уровня (вкладка «Оснастка»), учите навыки, покупайте корабль класса выше — и стройте свои детали на верфи.']
+];
+function adviceHTML() {
+  const list = adviceList();
+  return `<h3>💡 Советы прямо сейчас</h3>` + (list.length ? list.map(x => `<div class="slot-row"><span class="sm">${esc(x.text)}</span>${x.act ? `<button data-a="advAct" data-id="${x.id}">${esc(x.act[0])}</button>` : ''}</div>`).join('') : '<div class="muted">Всё в порядке — советов нет.</div>')
+    + `<h3>Частые вопросы</h3>` + FAQ.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><div>${esc(a)}</div></details>`).join('')
+    + `<div class="muted small">Советы всплывают и во время игры — их можно выключить: Настройки → Игра.</div><h3>Спросить помощника</h3>`;
+}
+
 function assistHTML() {
   const A = S.assist || (S.assist = { turns: [], busy: false });
   const quick = ['Что мне делать дальше?', 'Как быстрее заработать?', 'Как работает война фракций?', 'Как устроено производство?'];
-  return `<div id="assist-log" class="talk-log">${A.turns.map(t => `<div class="tb ${t.role === 'user' ? 'me' : 'npc'}">${esc(t.content)}</div>`).join('') || '<div class="muted">Спросите о чём угодно в игре — помощник видит ваш корабль, деньги, навыки и прогресс.</div>'}${A.busy && !A.streaming ? '<div class="tb npc muted">…</div>' : ''}</div>
+  return adviceHTML() + `<div id="assist-log" class="talk-log">${A.turns.map(t => `<div class="tb ${t.role === 'user' ? 'me' : 'npc'}">${esc(t.content)}</div>`).join('') || '<div class="muted">Спросите о чём угодно в игре — помощник видит ваш корабль, деньги, навыки и прогресс.</div>'}${A.busy && !A.streaming ? '<div class="tb npc muted">…</div>' : ''}</div>
     <div class="btn2 small">${quick.map(q => `<button data-a="assistAsk" data-q="${esc(q)}" ${A.busy ? 'disabled' : ''}>${esc(q)}</button>`).join(' ')}</div>
     <div class="talk-in"><input id="assist-in" maxlength="300" placeholder="Ваш вопрос…" ${A.busy ? 'disabled' : ''}>${A.busy ? '<button data-a="assistStop">Стоп</button>' : '<button class="primary" data-a="assistSend">Спросить</button>'}</div>
     <div class="muted small">Отвечает Claude; каждый вопрос расходует лимиты вашего аккаунта.</div>`;
@@ -3268,6 +3341,8 @@ function settingsHTML() {
       <button data-a="resetKeys">Сбросить раскладку</button>
     </div>
     <div class="set-p ${(S.setTab || 0) === 4 ? '' : 'hidden'}">
+      ${chk('cfg-advisor', CFG.advisor !== false, '💡 Советник: подсказки во время игры (перегрев, щиты, трюм, навыки…)')}
+      ${chk('cfg-heatGuard', !(S.prof && S.prof.heatGuard === false), '🔥 Умный огонь: на 90% нагрева орудия делают паузу и не перегреваются')}
       <label>Сложность<select id="cfg-diff">${opt('story', diff, 'История — меньше врагов, они медленнее реагируют')}${opt('normal', diff, 'Стандарт')}${opt('veteran', diff, 'Опытный пилот — больше врагов, умнее тактика')}</select></label>
       <div class="muted small">Сложность меняет число врагов в миссиях и их тактику (реакцию, отступление, фокус огня), а не скрытый урон. Менять можно только вне боя.</div>
       ${OFFLINE ? savesHTML() : '<div class="muted small">Прогресс сетевой игры хранится на сервере автоматически.</div>'}
@@ -3464,6 +3539,8 @@ $('#win-body').addEventListener('input', (e) => {
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
   for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake', 'rings']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
   if (id === 'cfg-onehand') CFG.onehand = e.target.checked;
+  if (id === 'cfg-advisor') { CFG.advisor = e.target.checked; if (!CFG.advisor) hideAdvice(); }
+  if (id === 'cfg-heatGuard') { send({ t: 'heatGuard', on: e.target.checked }); return; }
   if (id.startsWith('cfg-hide-')) { CFG.hide = { ...(CFG.hide || {}), [id.slice(9)]: !e.target.checked }; }
   if (id === 'cfg-awake') keepAwake(CFG.awake);
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
@@ -3753,6 +3830,8 @@ function onActionClick(e) {
     case 'addRoute': send({ t: 'addRoute', from: $('#rt-from').value, to: $('#rt-to').value, item: $('#rt-item').value, keep: +$('#rt-keep').value }); break;
     case 'buyCons': send({ t: 'buy', item: d.item, qty: +$('#cq-' + d.item).value }); break;
     case 'insure': send({ t: 'insure', tier: d.tier }); break;
+    case 'advAct': { const x = adviceList().find(y => y.id === d.id); if (x && x.act) { x.act[1](); setTimeout(() => S.win === 'assist' && renderWin(), 600); } break; }
+    case 'heatGuardSet': send({ t: 'heatGuard', on: !(S.prof && S.prof.heatGuard) }); break;
     case 'sovCollect': case 'sovBridge': send({ t: d.a }); break;
     case 'sovClaim': case 'monGive': case 'sovUp': case 'leviBuild': { // крупные траты — с подтверждением
       const what = { sovClaim: 'Выкупить систему', monGive: 'Вложить в Монумент', sovUp: 'Улучшить систему (недостающие материалы докупятся)', leviBuild: 'Начать этап стройки титана (недостающие материалы докупятся)' }[d.a];

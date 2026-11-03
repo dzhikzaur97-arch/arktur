@@ -201,7 +201,7 @@ class Game {
   calcStats(p, ship) {
     const t = SHIPS[ship.type];
     const sk = (p && p.skills) || {};
-    const b = { damage: 0, mining: 0, cargo: 0, speed: 0, scan: 0, drones: 0, rof: 0, hp: 0, capRegen: 0, warp: 0, droneCount: 0 };
+    const b = { damage: 0, mining: 0, cargo: 0, speed: 0, scan: 0, drones: 0, rof: 0, hp: 0, capRegen: 0, warp: 0, droneCount: 0, cool: 0 };
     for (const k in (t.bonus || {})) b[k] += t.bonus[k];
     for (const m of ship.fit) if (m && MODULES[m].passive) for (const k in MODULES[m].passive) b[k] += MODULES[m].passive[k];
     b.damage += 0.05 * (sk.gunnery || 0);
@@ -211,7 +211,7 @@ class Game {
     return {
       maxSpeed: t.maxSpeed * (1 + b.speed), align: t.align, warpSpeed: t.warpSpeed * (1 + 0.1 * (sk.warpnav || 0)) * (1 + b.warp), sig: t.sig, radius: t.radius,
       shield: t.shield * (1 + 0.05 * (sk.shields || 0)) * (1 + b.hp), armor: t.armor * (1 + 0.05 * (sk.armor || 0)) * (1 + b.hp), hull: t.hull * (1 + b.hp),
-      cap: t.cap * eng, capRegen: t.capRegen * eng * (1 + b.capRegen), cargo: t.cargo * (1 + b.cargo), rof: b.rof,
+      cap: t.cap * eng, capRegen: t.capRegen * eng * (1 + b.capRegen), cargo: t.cargo * (1 + b.cargo), rof: b.rof, cool: Math.min(0.6, b.cool + 0.04 * (sk.thermo || 0)),
       maxLocks: t.maxLocks + ((sk.targeting || 0) >= 5 ? 2 : (sk.targeting || 0) >= 3 ? 1 : 0), lockRange: t.lockRange * (1 + 0.1 * (sk.targeting || 0)), lockTime: t.lockTime,
       dmgMul: 1 + b.damage, mineMul: 1 + b.mining, scanBonus: b.scan, droneMul: b.drones, droneBay: t.droneBay || 0, maxDrones: (t.maxDrones || 0) + Math.floor(b.droneCount)
     };
@@ -515,6 +515,15 @@ class Game {
     const def = MODULES[mod.id];
     if (e.owner && mod.damagedUntil > this.now) { mod.active = false; if (e.session) this.notify(e.session, `${def.name} повреждён — ремонт ещё ${Math.ceil((mod.damagedUntil - this.now) / 1000)} с`, 'warn'); return; }
     if (e.owner && def.kind === 'weapon' && e.overheatUntil > this.now) { mod.active = false; if (e.session) this.notify(e.session, 'Орудия перегреты — дождитесь остывания', 'warn'); return; }
+    // «Умный огонь»: на 90% нагрева орудия сами делают паузу и продолжают с 55% — без отключения от перегрева
+    if (e.owner && def.kind === 'weapon') {
+      const pl = this.db.players[e.owner], guard = !pl || pl.heatGuard !== false;
+      if (guard && ((e.heat || 0) >= 90 || (e.heatHold && (e.heat || 0) > 55))) {
+        if (!e.heatHold && e.session) this.notify(e.session, 'Умный огонь: орудия остывают и продолжат стрелять сами', 'info');
+        e.heatHold = true; mod.cycleStart = this.now; mod.cycleEnd = this.now + 500; return;
+      }
+      e.heatHold = false;
+    }
     if (e.cap < def.cap) { mod.active = false; if (e.session) this.notify(e.session, 'Недостаточно энергии в накопителе', 'warn'); return; }
     e.cap -= def.cap;
     mod.cycleStart = this.now;
@@ -524,7 +533,7 @@ class Game {
       if (e.owner) {
         // запас тепла и охлаждение растут с числом орудийных портов корабля
         const before = e.heat || 0, hs = SHIPS[e.shipType].slots.high || 1;
-        e.heat = before + (MODULES[mod.id].heatPerShot || 0) * 100 / (100 + 25 * hs);
+        e.heat = before + (MODULES[mod.id].heatPerShot || 0) * 100 / (100 + 25 * hs) * (1 - ((e.stats && e.stats.cool) || 0) * 0.6); // теплоотводы и навык «Терморегуляция»
         if (before < 80 && e.heat >= 80 && e.heat < 100 && e.session) this.notify(e.session, 'Нагрев орудий 80% — сбавьте темп или выключите часть орудий', 'warn');
         if (e.heat >= 100) {
           e.overheatUntil = this.now + 6000; e.heat = 100;
@@ -801,7 +810,7 @@ class Game {
         }
       }
       // остывание орудий
-      if (e.owner && e.heat) { const hs = SHIPS[e.shipType].slots.high || 1; e.heat = Math.max(0, e.heat - (4 + 2.2 * hs) * 100 / (100 + 25 * hs) * dt); }
+      if (e.owner && e.heat) { const hs = SHIPS[e.shipType].slots.high || 1; e.heat = Math.max(0, e.heat - (4 + 2.2 * hs) * 100 / (100 + 25 * hs) * (1 + ((e.stats && e.stats.cool) || 0)) * dt); }
       // модули
       for (const m of e.modules) {
         if (!m || !m.cycleEnd) continue;
@@ -1675,7 +1684,7 @@ class Game {
       hangar: st ? this.hangar(p, st) : null,
       assets: Object.entries(p.hangars).filter(([, h]) => Object.keys(h.items).length || h.ships.length)
         .map(([id, h]) => ({ station: id, name: this.U.celestials[id].name, items: h.items, ships: h.ships.map(x => x.type) })),
-      story: this.storyView(p), rep: p.rep, difficulty: p.difficulty || 'normal', foundryOff: !!p.foundryOff, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
+      story: this.storyView(p), rep: p.rep, difficulty: p.difficulty || 'normal', foundryOff: !!p.foundryOff, heatGuard: p.heatGuard !== false, criminal: p.criminalUntil > this.now ? p.criminalUntil - this.now : 0,
       suspect: p.suspectUntil > this.now ? p.suspectUntil - this.now : 0,
       myOrders: this.db.orders.filter(o => o.seller === p.name)
     });
@@ -1738,7 +1747,7 @@ class Game {
         warp: e.warp ? { to: e.warp.to, prog: (this.now - e.warp.start) / e.warp.dur } : null,
         locks: [...e.locks], locking: [...e.locking].map(([id, t]) => [id, t]),
         mods: e.modules.map(m => m ? { id: m.id, a: m.active, s: m.cycleStart || 0, e: m.cycleEnd, t: m.target, d: m.damagedUntil > this.now ? m.damagedUntil : 0 } : null),
-        heat: Math.round(e.heat || 0), oh: e.overheatUntil > this.now ? e.overheatUntil : 0, eng: e.hull < e.stats.hull * 0.35 ? 1 : 0,
+        heat: Math.round(e.heat || 0), oh: e.overheatUntil > this.now ? e.overheatUntil : 0, hh: e.heatHold ? 1 : 0, cool: Math.round(((e.stats && e.stats.cool) || 0) * 100), eng: e.hull < e.stats.hull * 0.35 ? 1 : 0,
         scram: e.scrambledUntil > this.now, ap: e.autopilot ? e.autopilot.dest : null,
         msl: [...this.ents.values()].filter(x => x.type === 'missile' && x.target === e.id).length, dm: e.droneMode || s.player.droneMode || 'defensive',
         invuln: e.invulnUntil > this.now,
@@ -1813,5 +1822,6 @@ require('./trade')(Game);
 require('./mega')(Game);
 require('./fleetx')(Game);
 require('./season')(Game);
+require('./heat')(Game);
 
 module.exports = { Game };
