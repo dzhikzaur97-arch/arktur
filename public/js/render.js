@@ -819,17 +819,108 @@ function weaponMesh(w, s) {
 }
 function applyWeapons(model, weapons) {
   if (!weapons || !weapons.length) return;
-  const hps = []; model.traverse(o => { if (o.userData.hp) hps.push(o); });
-  const box = new THREE.Box3().setFromObject(model), sz = box.getSize(new THREE.Vector3());
-  weapons.forEach((w, i) => {
-    let hp = hps[i], s, pos;
-    if (hp) { s = hp.userData.hp; pos = hp.position.clone(); hp.visible = false; }
-    else { // турелей в модели меньше, чем орудий: ставим по хребту сверху
-      const k = (i - hps.length), n = Math.max(1, weapons.length - hps.length);
-      s = Math.max(sz.x, sz.z) * 0.045; pos = new THREE.Vector3(((k % 2) ? 1 : -1) * sz.x * 0.12, box.max.y * 0.85, box.max.z - sz.z * (0.3 + 0.4 * (k + 0.5) / n));
-    }
-    const m = weaponMesh(w, s); m.position.copy(pos); (hp ? hp.parent : model).add(m);
+  // считаем в собственных координатах модели: временно снимаем масштаб, поворот и родителя
+  const par = model.parent, sc = model.scale.clone(), pos0 = model.position.clone(), q0 = model.quaternion.clone();
+  if (par) par.remove(model);
+  model.scale.set(1, 1, 1); model.position.set(0, 0, 0); model.quaternion.identity(); model.updateMatrixWorld(true);
+  try { mountWeapons(model, weapons); } finally {
+    model.scale.copy(sc); model.position.copy(pos0); model.quaternion.copy(q0);
+    if (par) par.add(model); model.updateMatrixWorld(true);
+  }
+}
+// корпус для лучей: непрозрачные меши без свечения, дюз, окон и куполов
+function hullMeshes(model) {
+  const out = [];
+  model.traverse(o => {
+    if (!o.isMesh || !o.visible || o.userData.plume || o.userData.glow || o.userData.dome || o.userData.wpn) return;
+    let p = o; while (p && p !== model) { if (p.userData.wpn || p.userData.hp) return; p = p.parent; }
+    const m = o.material; if (!m || Array.isArray(m) || m.transparent || m.isMeshBasicMaterial || (m.roughness < 0.1 && m.metalness > 0.9)) return; // без свечения и стекла кабины
+    out.push(o);
   });
+  return out;
+}
+function mountWeapons(model, weapons) {
+  const hps = []; model.traverse(o => { if (o.userData.hp) hps.push(o); });
+  const box = new THREE.Box3().setFromObject(model), sz = box.getSize(new THREE.Vector3()), L = Math.max(sz.x, sz.z);
+  // размер орудия: как у штатных турелей модели, иначе — от размеров корпуса
+  const sStd = hps.length ? hps.reduce((a, h) => a + h.userData.hp, 0) / hps.length : Math.min(L * 0.05, sz.x * 0.14);
+  const wp = new THREE.Vector3();
+  // точки крепления: штатные турели + найденные лучом на корпусе; у каждой — сторона (x) и «зеркальная» пара
+  const pts = hps.map(h => { h.getWorldPosition(wp); return { p: wp.clone(), hp: h, s: h.userData.hp, top: true }; });
+  const ray = new THREE.Raycaster(), meshes = hullMeshes(model);
+  // тонкие детали (крылья, панели, фермы, антенны) — не место для орудия: луч, упёршийся в них, не годится
+  const thin = new Set(), mb = new THREE.Box3(), ms = new THREE.Vector3();
+  const wsc = new THREE.Vector3();
+  for (const o of meshes) { // толщина в собственных осях детали (крыло может стоять наискосок)
+    const g = o.geometry; if (!g.boundingBox) g.computeBoundingBox();
+    g.boundingBox.getSize(ms); o.getWorldScale(wsc); ms.multiply(wsc);
+    if (Math.min(Math.abs(ms.x), Math.abs(ms.y), Math.abs(ms.z)) < L * 0.03) thin.add(o);
+  }
+  const cast = (x, z, top) => {
+    ray.set(new THREE.Vector3(x, top ? box.max.y + L : box.min.y - L, z), new THREE.Vector3(0, top ? -1 : 1, 0)); ray.far = L * 3;
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (!hit || !hit.face || thin.has(hit.object)) return null;
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    return (top ? n.y : -n.y) >= 0.55 ? hit.point.clone() : null; // только пологая обшивка, не борт и не стык
+  };
+  const castSide = (y, z, sd) => { // луч сбоку — крепление на борт
+    ray.set(new THREE.Vector3(sd * (box.max.x + L), y, z), new THREE.Vector3(-sd, 0, 0)); ray.far = L * 3;
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (!hit || !hit.face || thin.has(hit.object)) return null;
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    return n.x * sd >= 0.55 ? hit.point.clone() : null;
+  };
+  const need = Math.max(0, weapons.length - hps.length), extra = [];
+  if (need) {
+    const s = sStd * 0.95, gap = s * 2.6, far = (p) => pts.concat(extra).every(u => u.p.distanceTo(p) > gap);
+    for (const top of [true, false]) for (let k = 0; k <= 14 && extra.length < need; k++) {
+      const z = box.max.z - sz.z * (0.2 + 0.58 * k / 14);
+      // пара по бортам: самое широкое место, где обе точки на обшивке
+      for (const xf of [0.24, 0.17, 0.1]) {
+        const R = cast(xf * sz.x, z, top), Lp = cast(-xf * sz.x, z, top);
+        if (R && Lp && Math.abs(R.y - Lp.y) < s * 0.5 && far(R) && far(Lp) && need - extra.length >= 2) {
+          extra.push({ p: R, s, top }, { p: Lp, s, top }); break;
+        }
+      }
+      if (extra.length < need && (need - extra.length) % 2 === 1) { const C = cast(0, z, top); if (C && far(C)) extra.push({ p: C, s, top }); }
+    }
+    // корпус-ферма или узкий: одиночные точки по оси, затем борта
+    const gap2 = gap * 0.7, far2 = (p) => pts.concat(extra).every(u => u.p.distanceTo(p) > gap2);
+    for (const top of [true, false]) for (let k = 0; k <= 20 && extra.length < need; k++) {
+      const z = box.max.z - sz.z * (0.12 + 0.76 * k / 20);
+      for (const xf of [0, 0.06, -0.06]) { const C = cast(xf * sz.x, z, top); if (C && far2(C)) { extra.push({ p: C, s, top }); break; } }
+    }
+    const yc = (box.min.y + box.max.y) / 2;
+    for (let k = 0; k <= 16 && extra.length < need; k++) {
+      const z = box.max.z - sz.z * (0.15 + 0.7 * k / 16);
+      for (const sd of [1, -1]) { if (extra.length >= need) break; const P = castSide(yc, z, sd); if (P && far2(P)) extra.push({ p: P, s, side: sd }); }
+    }
+  }
+  const all = pts.concat(extra.slice(0, need));
+  // гармония: одинаковые орудия — на зеркальные точки, по порядку от носа к корме
+  const keyOf = (w) => (w.kind || '') + (w.fam || w.base || '') + (w.lv || 1);
+  const groups = {}; for (const w of weapons) (groups[keyOf(w)] = groups[keyOf(w)] || []).push(w);
+  const order = Object.values(groups).sort((a, b) => b.length - a.length).flat();
+  const slots = all.slice().sort((a, b) => (b.p.z - a.p.z) || (b.p.x - a.p.x)); // нос → корма, справа → слева
+  const pairOf = (sl) => slots.find(o => o !== sl && !o.used && Math.abs(o.p.x + sl.p.x) < sStd * 0.4 && Math.abs(o.p.z - sl.p.z) < sStd * 0.6 && Math.abs(sl.p.x) > sStd * 0.3);
+  const place = (w, sl) => {
+    sl.used = true;
+    const m = weaponMesh(w, sl.s);
+    if (sl.hp) { m.position.copy(sl.hp.position); m.rotation.copy(sl.hp.rotation); sl.hp.visible = false; sl.hp.parent.add(m); return; }
+    m.position.copy(sl.p);
+    if (sl.side) { m.position.x -= sl.side * sl.s * 0.08; m.rotation.z = -sl.side * Math.PI / 2; } // на борту: основанием к обшивке, стволом вперёд
+    else { m.position.y += sl.top ? -sl.s * 0.08 : sl.s * 0.08; if (!sl.top) m.rotation.z = Math.PI; } // основание чуть утоплено; снизу — вверх ногами
+    model.add(m);
+  };
+  let i = 0;
+  while (i < order.length) {
+    const w = order[i], same = order[i + 1] && keyOf(order[i + 1]) === keyOf(w);
+    let sl = slots.find(o => !o.used && (!same || pairOf(o)));
+    if (!sl) sl = slots.find(o => !o.used);
+    if (!sl) break; // места нет — лучше без орудия, чем в воздухе
+    place(w, sl); i++;
+    if (same) { const pr = pairOf(sl); if (pr) { place(order[i], pr); i++; } }
+  }
 }
 export { applyWeapons };
 
@@ -4653,9 +4744,10 @@ function photoBackdrop(w, h) {
 }
 
 // Осмотр модели со всех сторон: спереди, сзади, слева, сверху, снизу и в три четверти (инструмент проверки моделей)
-export function shipTurntable(type, info = {}, tw = 320, th = 200) {
+export function shipTurntable(type, info = {}, tw = 320, th = 200, weapons = null) {
   const ps = new THREE.Scene(); ps.background = new THREE.Color(0x1c2128); ps.environment = scene.environment; ps.environmentIntensity = 0.8;
-  const m = shipModel(type, info.unique ? info.color : 0x6a7280, SHIP_BASE_R[type] || 50, 'player'); ps.add(m); setEngines(m, 0.6, 1); m.updateMatrixWorld(true);
+  const m = shipModel(type, info.unique ? info.color : 0x6a7280, SHIP_BASE_R[type] || 50, 'player'); if (weapons) applyWeapons(m, weapons); ps.add(m);
+  let nW = 0; m.traverse(o => { if (o.userData.wpn) nW++; }); window.__VF_WPN_N = (window.__VF_WPN_N || {}); window.__VF_WPN_N[type] = [nW, weapons ? weapons.length : 0]; setEngines(m, 0.6, 1); m.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), rad = box.getSize(new THREE.Vector3()).length() / 2;
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-rad, rad * 2, rad * 1.5); ps.add(key);
   const fill = new THREE.DirectionalLight(0xb0c8ff, 0.9); fill.position.set(rad * 2, -rad * 0.5, -rad); ps.add(fill);
@@ -4668,7 +4760,7 @@ export function shipTurntable(type, info = {}, tw = 320, th = 200) {
     const cam = new THREE.PerspectiveCamera(30, tw / th, rad * 0.01, rad * 100), dir = new THREE.Vector3(...d).normalize();
     cam.position.copy(ctr).addScaledVector(dir, rad / Math.tan(THREE.MathUtils.degToRad(15)) * 1.05); cam.lookAt(ctr); cam.updateMatrixWorld(true);
     renderer.render(ps, cam); c.drawImage(renderer.domElement, i * tw, 0, tw, th);
-    c.fillStyle = '#9fb4c8'; c.font = '13px sans-serif'; c.fillText((i === 0 ? type + ' · ' : '') + name, i * tw + 6, 16);
+    c.fillStyle = '#9fb4c8'; c.font = '13px sans-serif'; c.fillText((i === 0 ? type + ' · ' : '') + name + (weapons && i === 2 ? ` · орудий ${nW}/${weapons.length}` : ''), i * tw + 6, 16);
   });
   renderer.setPixelRatio(pr); renderer.setSize(prev.x, prev.y, false);
   ps.remove(m); bgDispose(ps);

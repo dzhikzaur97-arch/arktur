@@ -18,7 +18,11 @@ const ROOT = path.join(__dirname, '..');
     await p.waitForFunction(() => window.__VF_TURN && !document.querySelector('#ui').classList.contains('hidden'), null, { timeout: 60000 });
     await p.waitForTimeout(2000);
     fs.mkdirSync(OUT, { recursive: true });
-    for (const t of types) { const url = await p.evaluate((t) => window.__VF_TURN(t), t); fs.writeFileSync(path.join(OUT, t + '.jpg'), Buffer.from(url.split(',')[1], 'base64')); }
+    // WPN=1 — с полным набором оружия во всех верхних слотах (разные типы по кругу)
+    const KINDS = [{ kind: 'weapon', fam: 'pl', lv: 5, color: 0xff6040 }, { kind: 'weapon', fam: 'rg', lv: 3, color: 0x60c0ff }, { kind: 'weapon', fam: 'ac', lv: 1 }, { kind: 'launcher', lv: 2 }, { kind: 'weapon', fam: 'pt', lv: 4, color: 0x60ffd0 }, { kind: 'weapon', fam: 'ion', lv: 2, color: 0xa080ff }, { kind: 'miner', lv: 1 }];
+    for (const t of types) { const wpn = process.env.WPN ? Array.from({ length: SHIPS[t].slots.high }, (_, i) => KINDS[i % KINDS.length]) : null;
+      const TW = +process.env.TW || 320, TH = Math.round(TW / 1.6); const url = await p.evaluate(([t, w, a, b]) => window.__VF_TURN(t, w, a, b), [t, wpn, TW, TH]); fs.writeFileSync(path.join(OUT, t + '.jpg'), Buffer.from(url.split(',')[1], 'base64')); }
+    if (process.env.WPN) console.log('орудия (встало/нужно):', JSON.stringify(await p.evaluate(() => window.__VF_WPN_N)));
     console.log('готово:', types.length, errs.length ? 'ошибки: ' + errs.join('; ') : '');
   } finally { await browser.close(); fs.unlinkSync(page); }
 })();
