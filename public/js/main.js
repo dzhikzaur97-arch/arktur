@@ -31,8 +31,13 @@ function secColor(sec) {
   for (const [v, c] of t) if (r >= v - 0.001) return c;
   return '#f00000';
 }
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const len = (a) => Math.hypot(a[0], a[1], a[2]);
+// координаты без позиции (объект ещё не пришёл с сервера, устаревшая метка) не должны ронять кадр:
+// считаем такой объект «очень далёким» и один раз пишем в журнал ошибок, откуда пришёл вызов
+const FAR = [1e15, 1e15, 1e15];
+const BAD_POS = window.__VF_BADPOS = [];
+function badPos(where) { if (BAD_POS.length < 20) { const st = (new Error().stack || '').split('\n').slice(2, 6).map(x => x.trim()).join(' ← '); if (!BAD_POS.some(b => b.st === st)) BAD_POS.push({ where, st }); } }
+const sub = (a, b) => { if (!a || !b) { badPos('sub'); return FAR; } return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; };
+const len = (a) => a ? Math.hypot(a[0], a[1], a[2]) : (badPos('len'), 1e15);
 function setHTML(el, html) { if (el._h !== html) { el.innerHTML = html; el._h = html; } }
 
 // ======================================================================
@@ -128,7 +133,8 @@ function showFatal(msg) {
   try {
     let el = document.getElementById('vf-fatal');
     if (!el) { el = document.createElement('div'); el.id = 'vf-fatal'; el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:rgba(40,8,8,.92);color:#ffd0c0;font:12px/1.4 monospace;padding:8px 10px;border:1px solid #a33;border-radius:6px;white-space:pre-wrap;max-height:40vh;overflow:auto'; document.body.appendChild(el); }
-    el.textContent = 'Ошибка игры (пришлите этот текст разработчику):\n' + msg + '\n\n' + (el.dataset.more || '');
+    el.textContent = 'Ошибка игры (пришлите этот текст разработчику, нажмите, чтобы закрыть):\n' + msg + '\n\n' + (el.dataset.more || '');
+    el.onclick = () => el.remove();
   } catch {}
 }
 // запуск удался, когда игра отрисовала пару секунд кадров; обычное закрытие страницы — тоже не сбой
@@ -136,7 +142,7 @@ let bootFrames = 0;
 let bootStart = 0;
 function bootTick() { if (bootFrames < 0) return; bootStart = bootStart || performance.now(); if (++bootFrames >= 120 || performance.now() - bootStart > 8000) { bootFrames = -1; try { localStorage.setItem('vf-boot', 'ok'); } catch {} } }
 addEventListener('pagehide', () => { try { localStorage.setItem('vf-boot', 'ok'); } catch {} });
-addEventListener('error', (e) => showFatal(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno}`));
+addEventListener('error', (e) => showFatal(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno}` + (e.error && e.error.stack ? '\n' + String(e.error.stack).split('\n').slice(0, 5).join('\n') : '')));
 addEventListener('unhandledrejection', (e) => showFatal('Promise: ' + ((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
 // Графика: профиль (низкий/средний/высокий/ультра) или пользовательский набор; угол обзора и тряска — отдельно
 const perf = { buf: new Float64Array(600), n: 0, last: 0, cpu: 0, shown: 0, el: null };
@@ -645,7 +651,7 @@ function distTo(o) {
   if (!S.meRec) return 0;
   const myR = S.data.ships[S.me.st].radius;
   const r = o.kind === 'planet' || o.kind === 'sun' || o.kind === 'station' || o.kind === 'gate' || o.kind === 'ship' || o.kind === 'asteroid' || o.kind === 'wreck' ? (o.radius || 0) : 0;
-  return Math.max(0, len(sub(o.pos, S.meRec.dp)) - r - myR);
+  return Math.max(0, len(sub(o.pos || o.dp, S.meRec.dp)) - r - myR); // и объект обзора (pos), и «сырой» корабль из S.ents (dp)
 }
 const KIND = {
   sun: ['☀', 'Звезда'], planet: ['◍', 'Планета'], station: ['⌂', 'Станция'], belt: ['⁂', 'Пояс астероидов'], gate: ['⊚', 'Звёздные врата'],
@@ -826,6 +832,7 @@ R.init(canvas);
 if (!CLAUDE_OK) for (const sel of ['[data-win=assist]', '#chat-tabs [data-ch=friends]']) { const el = document.querySelector(sel); if (el) el.remove(); }
 setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейдеров, пока открыт экран входа
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
+window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id) }; // для автотестов
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_WSHEET = () => R.weaponSheet(); // инструмент проверки: витрина всех орудий
 window.__VF_TURN = (type, weapons, tw, th) => R.shipTurntable(type, S.data.ships[type], tw || 320, th || 200, weapons || null); // инструмент проверки: модель со всех сторон
@@ -4452,6 +4459,14 @@ function loop(now) {
   frameBody(now, dt);
   perfTick(now, performance.now() - t0);
 }
+// часть кадра с защитой: сбой одной панели не останавливает игру и не сыплет ошибкой каждый кадр
+const SAFE_ERR = new Set();
+function safe(name, fn) {
+  try { fn(); } catch (e) {
+    const k = name + ':' + e.message;
+    if (!SAFE_ERR.has(k)) { SAFE_ERR.add(k); console.error(name, e); showFatal(`${name}: ${e.message}\n${String(e.stack || '').split('\n').slice(0, 5).join('\n')}`); }
+  }
+}
 function frameBody(now, dt) {
   if (SF.active()) { SF.frame(dt, now); return; } // на поверхности планеты — свой мир
   if (S.me && S.meRec && !S.docked) {
@@ -4459,15 +4474,15 @@ function frameBody(now, dt) {
     sample(S.meRec, rt);
     for (const e of S.ents.values()) sample(e, rt);
   }
-  manualTick(dt, now);
+  safe('Ручное управление', () => manualTick(dt, now));
   // карта закрывает весь экран — 3D-сцену под ней не рисуем
   const mapOpen = !$('#map').classList.contains('hidden');
   if (!mapOpen) {
-    R.frame(viewState(), dt, now / 1000);
+    safe('Графика', () => R.frame(viewState(), dt, now / 1000));
     autoQuality(now, dt);
-    updateBrackets();
-    updateThreats();
-    if (S.me && S.meRec && !S.docked) updateDamageNumbers(now);
+    safe('Рамки объектов', updateBrackets);
+    safe('Угрозы', updateThreats);
+    if (S.me && S.meRec && !S.docked) safe('Цифры урона', () => updateDamageNumbers(now));
   } else fps.t0 = 0;
   if (now - lastUi > 200) {
     lastUi = now;
@@ -4477,7 +4492,7 @@ function frameBody(now, dt) {
     if (fight) S.fightUntil = now + 8000;
     Music.setCombat(now < (S.fightUntil || 0));
     if (!MOBILE) { const tu = $('#tut'); if (tu && !tu.classList.contains('hidden')) tu.style.top = ($('#sysinfo').getBoundingClientRect().bottom + 8) + 'px'; }
-    if (!S.docked && S.me && S.meRec) { renderOverview(); renderSelected(); renderTargets(); renderHud(now); renderDrones(); renderWing(); }
+    if (!S.docked && S.me && S.meRec) { safe('Обзор', renderOverview); safe('Выбранный объект', renderSelected); safe('Цели', renderTargets); safe('Приборы', () => renderHud(now)); safe('Дроны', renderDrones); safe('Напарники', renderWing); }
     if (S.win === 'skills' || (S.docked && S.stTab === 'skills')) updateSkillProgress();
     if (S.docked && S.stTab === 'factory') updateJobs();
     if (S.docked && S.stTab === 'prod') updateProd();
