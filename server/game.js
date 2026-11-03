@@ -1808,5 +1808,10 @@ require('./world')(Game);
 require('./newships')(Game);
 require('./refine')(Game);
 require('./shipstory')(Game);
+require('./insure')(Game);
+require('./trade')(Game);
+require('./mega')(Game);
+require('./fleetx')(Game);
+require('./season')(Game);
 
 module.exports = { Game };

@@ -43,7 +43,9 @@ Object.assign(ITEMS, {
   q_map:      { name: 'Фрагмент звёздной карты Предтеч', cat: 'Миссия', vol: 2, base: 0, quest: true },
   q_core:     { name: 'Ядро маяка Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true },
   q_shard:    { name: 'Осколок карты Колосса', cat: 'Миссия', vol: 2, base: 0, quest: true },
-  q_heart:    { name: 'Сердце Стража Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true }
+  q_heart:    { name: 'Сердце Стража Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true },
+  q_voice:    { name: 'Кристалл с записью Голоса', cat: 'Миссия', vol: 2, base: 0, quest: true },
+  q_gatekey:  { name: 'Ключ Врат Предтеч', cat: 'Миссия', vol: 5, base: 0, quest: true }
 });
 
 // ---------- Кампания ----------
@@ -232,8 +234,80 @@ const MISSIONS = [
       { type: 'site', sys: 'predtecha', site: 'Колыбель Колосса', act: 'hack', secs: 40, text: 'Исполните решение — 40 с у Колыбели' },
       { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
     done: null, final2: true,
-    reward: { isk: 2000000, rep: { [ALLY]: 20 }, items: { ev_core: 1 } } }
+    reward: { isk: 2000000, rep: { [ALLY]: 20 }, items: { ev_core: 1 } } },
+
+  // ===== Кампания «Голос за Краем». Акт VI. Голос =====
+  { id: 'm23', act: 6, title: 'Отголосок', from: 'Магистр Сайра Нод', faction: 'orden',
+    brief: ['Пилот, после Колосса эфир должен был замолчать. Он не молчит. Из-за Края идёт новый сигнал — и это уже не узор.',
+            'Это голос. Он повторяет одно слово на языке Предтеч, и Орден переводит его как «Отзовитесь».',
+            'В системе Эхо стоит обелиск, который начал петь в ответ. Снимите запись.'],
+    stages: [
+      { type: 'travel', sys: 'eho', text: 'Прыгните в систему Эхо (Глубокий космос)' },
+      { type: 'scan', sys: 'eho', text: 'Просканируйте систему' },
+      { type: 'site', sys: 'eho', site: 'Поющий обелиск', act: 'hack', secs: 30, text: 'Запишите песнь обелиска (30 с ближе 15 км)' },
+      { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
+    done: 'Запись расшифрована наполовину. Голос не угрожает — он зовёт. Но кто-то по ту сторону Врат очень не хочет, чтобы ему ответили.',
+    reward: { isk: 1200000, rep: { orden: 10 } } },
+  { id: 'm24', act: 6, title: 'Караван для Края', from: ALLY, faction: ALLY,
+    brief: ['Экспедиция к Краю съест больше, чем любая война: топливо, медикаменты, станки, хладагент.',
+            'Казна союзника пуста после Колосса. Заработайте на торговле — и снабдите экспедицию сами.'],
+    stages: [{ type: 'stat', stat: 'tradeEarned', qty: 1500000, text: 'Выручите 1,5 млн CR на торговле товарами (вкладка «Торговля» на станции)' }],
+    done: 'Трюмы экспедиции полны. Говорят, ваш караван видели в трёх регионах за один день.',
+    reward: { isk: 800000, rep: { [ALLY]: 10 } } },
+  { id: 'm25', act: 6, title: 'Опорный пункт', from: ALLY, faction: ALLY,
+    brief: ['До Края далеко, а флоту нужен тыл: верфь, склад, свои пушки на орбите.',
+            'Возьмите под руку любую систему вне Ядра. Конфедерация закроет глаза — ради экспедиции.'],
+    stages: [{ type: 'stat', stat: 'sov', qty: 1, abs: true, text: 'Выкупите свою систему (окно «👑 Стройки», на станции нужной системы)' }],
+    done: 'Над вашей системой поднят флаг. Отныне это тыл экспедиции — и ваш дом.',
+    reward: { isk: 6000000, rep: { [ALLY]: 10 } } },
+  { id: 'm26', act: 6, title: 'Сирены Сингулярности', from: 'Магистр Сайра Нод', faction: 'orden',
+    brief: ['Вторая половина записи — у Сингулярности. Там поют сирены: осколки Стражей, которые отвечают Голосу.',
+            'Заберите кристалл с полной записью. Осторожно: сирены зовут к себе всех, кто их слышит.'],
+    stages: [
+      { type: 'site', sys: 'sing', site: 'Хор сирен', act: 'kill', enemies: ['shard', 'shard', 'shard', 'sentinel'], text: 'Уничтожьте хор сирен у Сингулярности' },
+      { type: 'site', sys: 'sing', site: 'Хор сирен', act: 'loot', item: 'q_voice', text: 'Заберите кристалл с записью Голоса' },
+      { type: 'deliver', item: 'q_voice', station: 'arktur:st1', text: 'Доставьте кристалл на Арктур Прайм II' }],
+    done: 'Полная запись: «Отзовитесь. Врата держит тот, кто не должен. Мы заперты». Голос — не враг. Враг — тот, кто стоит у Врат.',
+    reward: { isk: 1500000, rep: { orden: 15 } } },
+
+  // ===== Акт VII. Порог =====
+  { id: 'm27', act: 7, title: 'Ключ от Врат', from: 'Совет фракций', faction: null,
+    brief: ['Врата за Край открываются ключом Предтеч. Один такой хранится в архиве на Кладбище кораблей — его стерегут остатки Скверны.',
+            'Совет впервые единогласен: ключ нужен вам.'],
+    stages: [
+      { type: 'site', sys: 'kladbishe', site: 'Архив Врат', act: 'kill', enemies: ['warlord', 'reaper', 'reaper', 'hunter'], text: 'Разбейте стражу архива на Кладбище кораблей' },
+      { type: 'site', sys: 'kladbishe', site: 'Архив Врат', act: 'hack', secs: 35, text: 'Вскройте архив (35 с у архива)' },
+      { type: 'site', sys: 'kladbishe', site: 'Архив Врат', act: 'loot', item: 'q_gatekey', text: 'Заберите Ключ Врат' }],
+    done: 'Ключ тяжёлый и тёплый, будто живой. Он тянется к Краю, как стрелка компаса.',
+    reward: { isk: 1500000, rep: { cons: 5, liga: 5, orden: 5 } } },
+  { id: 'm28', act: 7, title: 'Флот Порога', from: ALLY, faction: ALLY,
+    brief: ['У Врат стоит Архонт — тот, кто держит их закрытыми. В одиночку к нему не ходят.',
+            'Соберите звено, обстреляйте его в боях. Построения и группы — в окне напарников.'],
+    stages: [{ type: 'stat', stat: 'wingKills', qty: 20, text: 'Ваше звено должно одержать 20 побед' }],
+    done: 'Звено слетано. Пилоты говорят о вас «командир» без иронии.',
+    reward: { isk: 1000000, rep: { [ALLY]: 10 } } },
+  { id: 'm29', act: 7, title: 'Архонт', from: ALLY, faction: ALLY,
+    brief: ['Время. Рейд «Врата за Край» открыт: Архонт ждёт у Врат в системе Край.',
+            'Зовите друзей, берите флот, ставьте на корабль всё лучшее. Победа над Архонтом откроет путь Голосу.'],
+    stages: [{ type: 'stat', stat: 'archon', qty: 1, abs: true, text: 'Победите Архонта Края в рейде «Врата за Край» (система Край)' }],
+    done: 'Архонт пал. Врата дрогнули — впервые за тысячу лет за ними видно свет.',
+    reward: { isk: 3000000, rep: { [ALLY]: 15 } } },
+  { id: 'm30', act: 7, title: 'Тишина за Краем', from: 'Магистр Сайра Нод', faction: 'orden',
+    brief: ['Последний шаг. Вставьте ключ во Врата и ответьте Голосу.',
+            'Что будет дальше, не знает никто. Даже Орден.'],
+    stages: [
+      { type: 'travel', sys: 'kray', text: 'Прыгните в систему Край' },
+      { type: 'site', sys: 'kray', site: 'Голос за Вратами', act: 'hack', secs: 45, text: 'Откройте Врата ключом и ответьте Голосу (45 с у Врат)' },
+      { type: 'dock', station: 'arktur:st1', text: 'Вернитесь на Арктур Прайм II' }],
+    done: null, final3: true,
+    reward: { isk: 5000000, rep: { cons: 10, liga: 10, orden: 10 }, items: { ev_core: 2 } } }
 ];
+// Эпилог «Голоса за Краем» — продолжает решение о судьбе Колосса
+const EPILOGUE3 = {
+  destroy: 'Врата открылись, и из-за них вышли не чудовища, а беженцы — последние Предтечи, тысячу лет запертые Архонтом. Они знали, что вы уничтожили Колосса, и всё равно поклонились: «Вы выбрали мир без оружия. Мы тоже». Галактика стала больше. Ваше имя выбито у Врат.',
+  control: 'Врата открылись, и Колосс вашего союзника первым шагнул за Край — встречать Предтеч как равный. Они приняли его. Теперь у фракции есть не только сила, но и древние друзья. А у вас — место в их летописи и вечный пропуск за Врата.',
+  free: 'Врата открылись — и с той стороны вас ждал Колосс. Тот самый, отпущенный вами. «Мы же сказали: ещё встретимся». За его спиной горели огни целого народа Предтеч, свободного благодаря вам. Путь за Край открыт всем — и первым его прошли вы.'
+};
 // Эпилог «Эха Колосса» — по решению судьбы Колосса
 const EPILOGUE2 = {
   destroy: 'Колосс распался на миллиард искр, и узор в эфире умолк навсегда. Фракции впервые за век подписали перемирие на один день — в вашу честь. Галактика стала тише. И, может быть, безопаснее.',
@@ -318,7 +392,7 @@ module.exports = function install(Game) {
   P.storyView = function (p) {
     const st = this.storyOf(p), md = MISSIONS[st.m];
     const rep = Object.entries(FACTIONS).map(([id, f]) => ({ id, name: f.name, short: f.short, color: f.color, desc: f.desc, leader: f.leader, v: p.rep[id] || 0, tier: repTier(p.rep[id] || 0) }));
-    if (!md) return { done: true, total: MISSIONS.length, ally: st.ally, rep, epilogue: st.c2done ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : st.ally ? EPILOGUE[st.ally] : null };
+    if (!md) return { done: true, total: MISSIONS.length, ally: st.ally, rep, epilogue: st.c3done ? EPILOGUE3[st.c2choice] || EPILOGUE3.destroy : st.c2done ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : st.ally ? EPILOGUE[st.ally] : null };
     const stage = md.stages[st.st] || {};
     let text = stage.text || '';
     if (stage.type === 'hack' || stage.act === 'hack') text += st.prog ? ` — ${Math.min(100, Math.round(st.prog / stage.secs * 100))}%` : '';
@@ -403,8 +477,9 @@ module.exports = function install(Game) {
       this.notify(s, `Миссия «${md.title}» выполнена! Награда: ${fmt(md.reward.isk || 0)} CR`, 'good');
     }
     if (md.final2) st.c2done = true;
-    const last = md.epilogue || md.final2;
-    const text = md.epilogue ? EPILOGUE[st.ally] || EPILOGUE.liga : md.final2 ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : md.done;
+    if (md.final3) { st.c3done = true; p.stats.c3done = 1; }
+    const last = md.epilogue || md.final2 || md.final3;
+    const text = md.epilogue ? EPILOGUE[st.ally] || EPILOGUE.liga : md.final2 ? EPILOGUE2[st.c2choice] || EPILOGUE2.destroy : md.final3 ? EPILOGUE3[st.c2choice] || EPILOGUE3.destroy : md.done;
     if (text) s.send({ t: 'dialog', kind: last ? 'final' : 'info', title: last ? 'Эпилог' : `Миссия выполнена: ${md.title}`, from: last ? (FACTIONS[st.ally] || FACTIONS.liga).leader : this.speakerOf(p, md), lines: [text],
       reward: md.reward.isk ? `${fmt(md.reward.isk)} CR` : null });
     this.nextMission(s, p);
@@ -417,7 +492,7 @@ module.exports = function install(Game) {
     st.prog = 0; st.failed = null;
     if (stage.type === 'mine') st.mined0 = p.stats.mined;
     if (stage.type === 'hunt') st.kills = 0;
-    if (stage.type === 'stat') st.base = (p.stats && p.stats[stage.stat]) || 0;
+    if (stage.type === 'stat') st.base = stage.abs ? 0 : (p.stats && p.stats[stage.stat]) || 0; // abs: засчитывается и то, что уже сделано раньше
     this.notify(s, 'Новая задача: ' + stage.text, 'info');
   };
   P.advanceStage = function (s, p) {

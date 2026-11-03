@@ -2,7 +2,7 @@
 'use strict';
 const fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
-const { SHIPS } = require('../server/data'); require('../server/newships');
+const { SHIPS } = require('../server/data'); require('../server/newships'); require('../server/mega');
 const ROOT = path.join(__dirname, '..');
 (async () => {
   const OUT = process.argv[2] || path.join(ROOT, 'dist/turntable'), only = process.argv[3] ? process.argv[3].split(',') : null;

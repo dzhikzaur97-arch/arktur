@@ -47,7 +47,7 @@ const S = {
 
 const MOVE_CMDS = new Set(['approach', 'orbit', 'keep', 'warp', 'dock', 'jump', 'dir', 'stop', 'autopilot']);
 // Экономические команды получают уникальный tx: сервер не исполнит один и тот же tx дважды
-const TX_CMDS = new Set(['upgradeModule', 'buy', 'sell', 'buyOrder', 'placeOrder', 'cancelOrder', 'blackBuy', 'blackSell', 'build', 'upgrade', 'refine', 'board', 'fit', 'unfit', 'load', 'unload', 'jettison', 'acceptMission', 'storyAccept', 'storyChoice', 'loot', 'train', 'sethome']);
+const TX_CMDS = new Set(['upgradeModule', 'insure', 'tradeBuy', 'tradeSell', 'sovClaim', 'sovUp', 'sovCollect', 'sovBridge', 'leviBuild', 'monGive', 'seasonClaim', 'buy', 'sell', 'buyOrder', 'placeOrder', 'cancelOrder', 'blackBuy', 'blackSell', 'build', 'upgrade', 'refine', 'board', 'fit', 'unfit', 'load', 'unload', 'jettison', 'acceptMission', 'storyAccept', 'storyChoice', 'loot', 'train', 'sethome']);
 function send(msg) {
   if (TX_CMDS.has(msg.t) && !msg.tx) msg.tx = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   if (typeof MAN !== 'undefined' && MAN.on && MOVE_CMDS.has(msg.t)) manualToggle(false, true);
@@ -111,6 +111,8 @@ function initFold() {
 const CFG_DEFAULT = { quality: MOBILE ? 'medium' : 'high', volume: 0.55, vSfx: 1, vUi: 1, vMusic: 0.5, ui: 1, labels: false, sens: 1,
   invX: false, invY: false, flash: true, threats: true, cb: false, keys: {},
   gfx: null, fov: 60, shake: 0.5, fpsCap: 0, perf: false };
+// элементы экрана, которые можно скрыть в настройках («Интерфейс»)
+const HIDE_EL = [['sysinfo', 'Окно системы и задания (слева сверху)'], ['targets', 'Захваченные цели'], ['notes', 'Всплывающие уведомления (журнал 🔔 всё равно пишется)'], ['hud-status', 'Строка состояния над кнопками (курс, маскировка, перегрев)'], ['drones', 'Окно дронов'], ['wingp', 'Окно напарников'], ['wing-fab', 'Круглая кнопка приказов напарникам (телефон)'], ['chat', 'Чат (на компьютере)']];
 let CFG = { ...CFG_DEFAULT };
 try { CFG = { ...CFG_DEFAULT, ...JSON.parse(localStorage.getItem('vf-cfg') || '{}') }; } catch {}
 function saveCfg() { try { localStorage.setItem('vf-cfg', JSON.stringify(CFG)); } catch {} }
@@ -457,6 +459,8 @@ function onMsg(m) {
       showStation(); break;
     }
     case 'undocked': S.docked = null; hideStation(); Sound.whoosh(0.8, false, 2); break;
+    case 'ins': S.ins = m; S.insFor = S.prof && S.prof.ship.uid; if (S.docked && S.stTab === 'fitting') renderStation(); break;
+    case 'away': showAway(m); break;
     case 'note': note(m.text, m.kind); if (m.text.startsWith('Продано:')) markTut('sell'); break;
     case 'chat': addChat(m.ch, m.from, m.text); break;
     case 'local': S.members = m.members; renderMembers(); break;
@@ -471,6 +475,7 @@ function onMsg(m) {
     case 'leaders': S.leaders = m; boardSync(); if (S.win === 'career') renderWin(); break;
     case 'achieve': Sound.beep(880, 1320, 0.12); showAchieve(m); break;
     case 'wevent': S.wev = m.sys ? m : null; if (!$('#map').classList.contains('hidden')) drawMap(); break;
+    case 'wingx': S.wingx = m; renderWing(); break;
     case 'wing': S.wing = m; if (S.docked && S.stTab === 'wing') renderStation(); break;
     case 'war': S.war = Object.assign(S.war || {}, m); if (S.docked && S.stTab === 'war') renderStation(); if (!$('#map').classList.contains('hidden')) { drawMap(); renderMapInfo(); } break;
     case 'prod': S.prod = m; S.prodAt = performance.now(); if (S.docked && S.stTab === 'prod') renderStation(); break;
@@ -483,6 +488,9 @@ function onMsg(m) {
     case 'yard': S.yard = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
     case 'tech': S.tech = m; if (S.docked && S.stTab === 'factory') renderStation(); break;
     case 'corp': S.corp = m; if (S.win === 'corp') renderWin(); break;
+    case 'mega': S.mega = m; if (S.win === 'mega') renderWin(); break;
+    case 'season': S.season = m; if (S.win === 'career') renderWin(); break;
+    case 'trade': S.trade = m; if (S.docked && S.stTab === 'trade') renderStation(); break;
     case 'refine': S.refine = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
     case 'foundryUp': S.fup = m; if (S.docked && S.stTab === 'refine') renderStation(); break;
     case 'shipStory': S.ss = m; renderShipTrack(); if (S.win === 'missions') renderWin();
@@ -553,7 +561,16 @@ function onState(m) {
   if (S.sel && !S.ents.has(S.sel) && !(S.celById && S.celById[S.sel]) && !(S.anoms && S.anoms.some(a => a.id === S.sel))) S.sel = null;
   if (S.active && !me.locks.includes(S.active)) S.active = me.locks[0] || null;
   if (m.fx) for (const fx of m.fx) { R.addFx(fx, viewState()); playFx(fx); damageNumber(fx); }
-  R.setMyShip(me.st, S.data, S.prof && S.prof.ship.paint, S.prof && S.prof.ship.look);
+  R.setMyShip(me.st, S.data, S.prof && S.prof.ship.paint, S.prof && S.prof.ship.look, hullWeapons());
+}
+// установленное оружие верхних слотов — для модели корабля (кэш по оснастке)
+function hullWeapons() {
+  const sh = S.prof && S.prof.ship; if (!sh) return null;
+  const key = sh.type + '|' + sh.fit.join(',');
+  if (S.wpnKey === key) return S.wpnList;
+  S.wpnKey = key;
+  S.wpnList = sh.fit.map((id, i) => [id, i]).filter(([id, i]) => id && slotType(sh.type, i) === 'high').map(([id]) => { const m = S.data.modules[id] || {}; return { kind: m.kind, fam: m.fam, base: m.base || id, lv: m.lv || 1, color: m.color, gas: !!m.gas }; }).filter(w => w.kind === 'weapon' || w.kind === 'launcher' || w.kind === 'miner');
+  return S.wpnList;
 }
 
 // ---------- плавное движение: буфер снимков и интерполяция по кривой Эрмита ----------
@@ -600,7 +617,7 @@ function sample(rec, rt) {
 function viewState() {
   return {
     origin: S.meRec ? S.meRec.dp : [0, 0, 0], me: S.me && S.meRec ? Object.assign({}, S.me, { h: S.meRec.dh || S.me.h }) : S.me, ents: S.ghosts.size ? new Map([...S.ents, ...ghostStep()]) : S.ents, data: S.data, docked: S.docked,
-    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null, dockedLook: S.prof && S.prof.ship ? S.prof.ship.look : null, myLook: S.prof && S.prof.ship ? S.prof.ship.look : null,
+    dockedShip: S.prof && S.prof.ship ? S.prof.ship.type : null, dockedPaint: S.prof && S.prof.ship ? S.prof.ship.paint : null, dockedLook: S.prof && S.prof.ship ? S.prof.ship.look : null, dockedWeapons: hullWeapons(), myLook: S.prof && S.prof.ship ? S.prof.ship.look : null,
     roll: MAN.on ? ((MAN.keys.has('m_rollL') ? 0.9 : 0) - (MAN.keys.has('m_rollR') ? 0.9 : 0)) : 0,
     rings: CFG.rings !== false && !!S.me && !document.body.classList.contains('photo')
   };
@@ -1380,6 +1397,7 @@ function renderOverview() {
 
 $('#sel-body').innerHTML = '<div id="sel-info"></div><div class="sel-actions" id="sel-acts"></div>';
 initFold();
+onTap($('#notes-log'), (e) => { e.stopPropagation(); showNoteLog(); });
 onTap($('#sel-acts'), (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
 onTap($('#mact-btns'), (e) => { const b = e.target.closest('[data-act]'); if (b) { act(b.dataset.act); Sound.click(); } });
 
@@ -1634,13 +1652,66 @@ function updateWallet() {
   $('#flags').innerHTML = f;
 }
 
+// ---------- Уведомления: однотипные собираются в одну строку со счётчиком, на экране не больше 3–4 групп ----------
+// Тап по уведомлению убирает его; всё сказанное остаётся в «Журнале уведомлений» (кнопка 🔔 под ними).
+const NOTE_GROUPS = [
+  ['heat', /нагрев|перегре|остыва/i, '🔥'],
+  ['wave', /волна \d|пиратская база|база разгромлена/i, '☠'],
+  ['kill', /^уничтожен|награда:|сбит/i, '✦'],
+  ['loot', /подобран|в трюм|трофе|добыто|получено:/i, '📦'],
+  ['trade', /^продано|^куплено/i, '⚖'],
+  ['wing', /напарник|эскорт/i, '◆'],
+  ['drone', /дрон/i, '🛸'],
+  ['missile', /ракетн|ракета/i, '🚀']
+];
+const NOTES = { groups: new Map(), log: [] };
+function noteKey(text, kind) {
+  if (kind === 'mine') return ['mine', '⛏'];
+  for (const [k, re, ic] of NOTE_GROUPS) if (re.test(text)) return [k, ic];
+  return ['t:' + text.replace(/[\d\s.,:×]+/g, ' ').trim().slice(0, 60), ''];
+}
 function note(text, kind = 'info') {
-  const n = document.createElement('div');
-  n.className = 'note ' + kind; n.textContent = text;
-  const box = $('#notes');
-  box.appendChild(n);
-  while (box.children.length > 6) box.firstChild.remove();
-  setTimeout(() => { n.style.opacity = 0; setTimeout(() => n.remove(), 600); }, kind === 'mine' ? 2000 : 4500);
+  text = String(text);
+  NOTES.log.push({ text, kind, t: Date.now() }); if (NOTES.log.length > 120) NOTES.log.shift();
+  const box = $('#notes'), [key, icon] = noteKey(text, kind);
+  let g = NOTES.groups.get(key);
+  if (!g) {
+    const n = document.createElement('div');
+    n.innerHTML = '<span class="nt-i"></span><span class="nt-t"></span><b class="nt-c"></b>';
+    g = { el: n, n: 0, timer: 0, key };
+    NOTES.groups.set(key, g);
+    n.addEventListener('click', () => dropNote(g));
+    box.insertBefore(n, $('#notes-log'));
+  } else box.insertBefore(g.el, $('#notes-log')); // свежая группа — внизу стопки
+  g.n++;
+  // худший тип в группе остаётся видимым: «плохо» не перекрашивается в «инфо»
+  const rank = { bad: 3, warn: 2, good: 1, info: 0, mine: 0 };
+  if (!g.kind || rank[kind] >= rank[g.kind] || g.n === 1) g.kind = kind;
+  g.el.className = 'note ' + g.kind; g.el.style.opacity = 1;
+  g.el.querySelector('.nt-i').textContent = icon;
+  g.el.querySelector('.nt-t').textContent = text;
+  g.el.querySelector('.nt-c').textContent = g.n > 1 ? '×' + g.n : '';
+  if (g.n > 1) { g.el.classList.remove('bump'); void g.el.offsetWidth; g.el.classList.add('bump'); }
+  clearTimeout(g.timer);
+  g.timer = setTimeout(() => dropNote(g), kind === 'mine' ? 2500 : kind === 'bad' ? 6000 : 4500);
+  const max = MOBILE ? 3 : 4;
+  // лишние убираем начиная с самых маловажных (инфо → хорошо → предупреждение → плохо), среди равных — самые старые
+  while (NOTES.groups.size > max) {
+    const list = [...NOTES.groups.values()].filter(x => x !== g);
+    list.sort((a, b) => rank[a.kind] - rank[b.kind]);
+    dropNote(list[0], true);
+  }
+  const lb = $('#notes-log'); if (lb) { lb.classList.remove('hidden'); lb.textContent = '🔔 ' + NOTES.log.length; }
+}
+function dropNote(g, now) {
+  if (!NOTES.groups.has(g.key)) return;
+  NOTES.groups.delete(g.key); clearTimeout(g.timer);
+  if (now) return g.el.remove();
+  g.el.style.opacity = 0; setTimeout(() => g.el.remove(), 400);
+}
+function showNoteLog() {
+  const rows = NOTES.log.slice().reverse().map(x => `<div class="nl-row ${x.kind}"><span class="muted">${new Date(x.t).toTimeString().slice(0, 8)}</span> ${esc(x.text)}</div>`).join('');
+  modal(`<h3>Журнал уведомлений</h3><div class="nl-list">${rows || '<div class="muted">Пусто</div>'}</div>`, [['Очистить', () => { NOTES.log = []; const lb = $('#notes-log'); if (lb) lb.classList.add('hidden'); }], ['Закрыть', null, 'primary']]);
 }
 
 function addChat(ch, from, text) {
@@ -1720,14 +1791,15 @@ function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊')
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { corp: 'Корпорация', news: 'Сводка: рынки, погода, розыск', assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { mega: 'Великие стройки', corp: 'Корпорация', news: 'Сводка: рынки, погода, розыск', assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
   if (name === 'bots' && S.win !== 'bots') send({ t: 'botInfo' });
-  if (name === 'career' && S.win !== 'career') { send({ t: 'careerInfo' }); send({ t: 'leaders' }); }
+  if (name === 'career' && S.win !== 'career') { send({ t: 'careerInfo' }); send({ t: 'leaders' }); send({ t: 'seasonInfo' }); }
   if (name === 'assets' && S.win !== 'assets') send({ t: 'outList' });
   if (name === 'corp' && S.win !== 'corp') send({ t: 'corpInfo' });
+  if (name === 'mega' && S.win !== 'mega') send({ t: 'megaInfo' });
   if (name === 'news' && S.win !== 'news') send({ t: 'worldInfo' });
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
@@ -1760,6 +1832,7 @@ function renderWin() {
   if (S.win === 'bots') return setHTML(el, botsHTML());
   if (S.win === 'fleet') return setHTML(el, fleetHTML());
   if (S.win === 'career') return setHTML(el, careerHTML());
+  if (S.win === 'mega') { setHTML(el, megaHTML()); return; }
   if (S.win === 'corp') { const keep = ['corp-name', 'corp-tag'].map(id => [id, $('#' + id) && $('#' + id).value]); setHTML(el, corpHTML()); for (const [id, v] of keep) if (v && $('#' + id)) $('#' + id).value = v; return; }
   if (S.win === 'news') return setHTML(el, newsHTML());
   if (S.win === 'assist') { setHTML(el, assistHTML()); const log = $('#assist-log'); if (log) log.scrollTop = log.scrollHeight; return; }
@@ -2109,6 +2182,76 @@ function showUpgrade(slot, item, from) {
   modal(html, btns);
 }
 
+// ---------- Торговля товарами между регионами ----------
+function tradeHTML() {
+  const T = S.trade;
+  if (!T) return '<div class="muted">Загрузка цен…</div>';
+  const secC = (x) => x >= 0.5 ? 'var(--good)' : x > 0 ? 'var(--warn)' : 'var(--bad)';
+  let html = `<div class="muted">${esc(T.station)} · ${esc(T.region)} · свободно в трюме ${num(T.free)} м³ · торговый сбор ${Math.round(T.tax * 100)}% (навык «Торговля» снижает)</div>`;
+  html += `<h3>💰 Выгодные маршруты отсюда <span class="muted">— до 8 прыжков, с учётом насыщения рынка и вашего трюма</span></h3>`;
+  html += T.routes.length ? T.routes.map(r => `<div class="slot-row tr-route"><span class="sm"><b>${esc(r.name)}</b> ${isk(r.buy)} → <span style="color:var(--good)">${isk(r.sell)}</span> <span class="muted">(+${num(r.unit)}/ед.)</span><br>
+      <span class="muted">→ ${esc(r.toName)} · <span style="color:${secC(r.sec)}">${r.sec.toFixed(1)}</span> · ${r.jumps} ${r.jumps === 1 ? 'прыжок' : r.jumps < 5 ? 'прыжка' : 'прыжков'}</span>${r.qty ? ` · партия ${num(r.qty)} ед. → <b class="isk">+${isk(r.total)}</b>` : ' · <span class="bad">нет места в трюме</span>'}</span>
+      ${r.qty ? `<button class="primary" data-a="tradeBuy" data-item="${r.id}" data-qty="${r.qty}">Купить ${num(r.qty)}</button>` : ''}<button data-a="route" data-sys="${r.sys}">Курс</button></div>`).join('')
+    : '<div class="muted">Отсюда выгодных маршрутов нет — загляните на станцию в другом регионе.</div>';
+  html += `<h3>Товары на этой станции</h3><table class="tbl tr-tbl"><tr><th>Товар</th><th class="r">Купить</th><th class="r">Продать</th><th class="r">У вас</th><th></th></tr>` + T.goods.map(g => `<tr>
+      <td>${esc(g.name)} <span class="muted small">${g.vol} м³</span></td><td class="r">${g.buy != null ? isk(g.buy) : '<span class="muted">—</span>'}</td><td class="r">${isk(g.sell)}</td><td class="r">${g.have ? num(g.have) : ''}</td>
+      <td class="r">${g.buy != null ? `<input class="qty" type="number" min="1" value="${Math.max(1, Math.min(Math.floor(T.free / g.vol), Math.round(g.depth / 2)))}" id="tq-${g.id}"><button data-a="tradeBuyQ" data-item="${g.id}">Купить</button>` : ''}${g.have ? `<button data-a="tradeSell" data-item="${g.id}">Продать все</button>` : ''}</td></tr>`).join('') + '</table>';
+  html += '<div class="muted small">Станция продаёт только то, что производит рядом. Каждая партия сдвигает цену: продали много — цена падает, скупили — растёт; за ~40 минут рынок восстанавливается. Купленное сразу грузится в трюм.</div>';
+  return html;
+}
+// ---------- Великие стройки ----------
+function megaMats(mats) { return Object.entries(mats || {}).map(([it, q]) => `${esc((S.data.items[it] || {}).name || it)} ${num(q)}`).join(', '); }
+function megaHTML() {
+  const M = S.mega; if (!M) return '<div class="muted">Загрузка…</div>';
+  const fmtH = (ms) => { const m = Math.ceil(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} ч ${m % 60} мин` : `${m} мин`; };
+  let html = '<div class="muted">Большие цели для богатых пилотов: деньги уходят в то, что остаётся с вами навсегда.</div>';
+  // своя система
+  html += '<h3>👑 Своя система</h3>';
+  if (M.sov) {
+    const v = M.sov;
+    html += `<div class="slot-row"><span class="sm"><b>${esc(v.sysName)}</b> · ${esc(v.level.name)} <span class="muted">— ${esc(v.level.desc)}</span><br>Казна системы: <b class="isk">${isk(Math.floor(v.bank || 0))}</b> <span class="muted">(копит до 48 ч)</span></span><button class="primary" data-a="sovCollect">Забрать налоги</button></div>`;
+    if (v.level.bridge) html += `<div class="slot-row"><span class="sm">🌀 Прыжковый мост: с любой станции сразу на станцию своей системы · ${M.bridgeCells} энергоячеек</span>${M.docked ? '<button data-a="sovBridge">Прыжок домой</button>' : ''}</div>`;
+    if (v.next) html += `<div class="slot-row"><span class="sm">Следующий уровень: <b>${esc(v.next.name)}</b> — ${esc(v.next.desc)}<br><span class="isk">${isk(v.next.cost)}</span>${Object.keys(v.next.mats).length ? ` + ${megaMats(v.next.mats)}` : ''}${v.nextMiss ? ` <span class="muted">(недостающее докупится за ${isk(v.nextMiss)})</span>` : ''}</span>${M.here && M.here.id === v.sys ? `<button class="primary" data-a="sovUp">Улучшить</button>` : '<span class="muted small">улучшать — на станции своей системы</span>'}</div>`;
+  } else {
+    html += `<div class="muted">Выкупите любую систему вне Ядра. Уровни: ${M.sovLevels.map(l => `<b>${esc(l.name)}</b> (${isk(l.cost)}) — ${esc(l.desc)}`).join('; ')}.</div>`;
+    if (M.here) html += M.here.canClaim ? `<div class="slot-row"><span class="sm">Вы в системе <b>${esc(M.here.name)}</b> (${M.here.sec.toFixed(1)})</span><button class="primary" data-a="sovClaim">Выкупить за ${isk(M.sovLevels[0].cost)}</button></div>`
+      : `<div class="muted small">${esc(M.here.name)}: ${M.here.owner ? 'система уже занята пилотом ' + esc(M.here.owner) : 'системы Ядра выкупить нельзя'}. Пристыкуйтесь к станции в другой системе.</div>`;
+    else html += '<div class="muted small">Пристыкуйтесь к станции в системе, которую хотите выкупить.</div>';
+  }
+  if (M.owners.length) html += `<div class="muted small">Владельцы систем: ${M.owners.map(o => `${esc(o.name)} — ${esc(o.owner)} (${['', 'Застава', 'Крепость', 'Столица'][o.lv]})`).join(', ')}</div>`;
+  // титан
+  const L = M.levi;
+  html += `<h3>⚜ Титан «Император» <span class="muted">— ${esc(L.ship.desc)}</span></h3><div class="muted small">${esc(L.ship.lore)}</div><div class="chain">` + L.stages.map((st, i) => {
+    const done = L.done || i < L.at, cur = !L.done && i === L.at;
+    return `<div class="chain-step ${done ? 'done' : cur ? 'cur' : ''}"><b>${i + 1}. ${esc(st.name)}</b> <span class="muted">· ${st.hours} ч</span><div class="small"><span class="isk">${isk(st.cost)}</span> + ${megaMats(st.mats)}</div></div>`;
+  }).join('') + '</div>';
+  if (L.done) html += '<div class="req-ok">«Император» построен — он в ангаре верфи Арктур Прайм.</div>';
+  else if (L.building) html += `<div>⏳ Идёт этап «${esc(L.stages[L.at].name)}» — осталось ${fmtH(L.building - M.now)}</div>`;
+  else if (L.atYard) html += `<div class="slot-row"><span class="sm">Следующий этап: <b>${esc(L.stages[L.at].name)}</b>${L.stageMiss ? ` <span class="muted">(недостающие материалы докупятся за ${isk(L.stageMiss)})</span>` : ''}</span><button class="primary" data-a="leviBuild">Начать этап</button></div>`;
+  else html += `<div class="muted small">Стройка идёт на верфи «${esc(L.yardName)}» — прилетите туда.</div>`;
+  // монумент
+  const N = M.mon;
+  html += `<h3>🗿 Монумент Арктура <span class="muted">— каждый уровень +${Math.round(N.per * 100)}% к деньгам за продажу, торговлю, пиратов и задания</span></h3>
+    <div class="slot-row"><span class="sm">Ваш уровень: <b>${N.lv}</b> из ${N.max} · бонус +${Math.round(N.lv * N.per * 100)}% · вложено ${isk(N.total)}</span>${N.lv < N.max ? `<button class="primary" data-a="monGive">Вложить ${isk(N.cost)}</button>` : ''}</div>`
+    + (N.top.length ? `<div class="muted small">Меценаты: ${N.top.map(x => `${esc(x.name)} — ур. ${x.lv}`).join(', ')}</div>` : '');
+  return html;
+}
+// ---------- Страховка корабля ----------
+function insHTML() {
+  const p = S.prof, I = S.ins;
+  if ((!I || S.insFor !== p.ship.uid) && S.insReq !== p.ship.uid) { S.insReq = p.ship.uid; send({ t: 'insInfo' }); }
+  if (!I || S.insFor !== p.ship.uid) return '';
+  const cur = p.ship.ins || 'basic';
+  return `<h3>Страховка <span class="muted">— сейчас: ${esc(I.tiers[cur].name)}</span></h3>` + Object.entries(I.tiers).map(([k, v]) => `<div class="slot-row"><span class="sm"><b>${k === cur ? '✔ ' : ''}${esc(v.name)}</b> <span class="muted">— ${esc(v.desc)}</span>${v.price ? ` <span class="isk">${isk(v.price)}</span>` : ''}</span>${k !== 'basic' && k !== cur && !(cur === 'platinum') ? `<button data-a="insure" data-tier="${k}">Оформить</button>` : ''}</div>`).join('')
+    + '<div class="muted small">Полис действует до первой гибели корабля. Груз и дроны не страхуются.</div>';
+}
+// ---------- Сводка «Пока вас не было» ----------
+function showAway(m) {
+  if (!m.lines || !m.lines.length) return;
+  const t = m.mins >= 1440 ? `${Math.floor(m.mins / 1440)} д ${Math.floor(m.mins % 1440 / 60)} ч` : m.mins >= 60 ? `${Math.floor(m.mins / 60)} ч ${m.mins % 60} мин` : `${m.mins} мин`;
+  const go = () => modal(`<h3>Пока вас не было · ${t}</h3><div class="away-list">${m.lines.map(([i, x]) => `<div class="away-row"><span>${i}</span><span>${esc(x)}</span></div>`).join('')}</div>`, [['Понятно', null, 'primary']]);
+  if ($('#modal').classList.contains('hidden')) go(); else setTimeout(() => showAway(m), 2500);
+}
 const kmR = (m) => +(m / 1000).toFixed(1);
 function moduleDesc(d) {
   if (d.kind === 'launcher') return `${d.salvo ? d.salvo + '×' : ''}${d.dmg} урона / ${d.cycle}с, дальность ${kmR(d.range)} км, взрыв ${d.explR} м, боезапас: ${S.data.items[d.ammo].name}`;
@@ -2173,7 +2316,7 @@ function tutGlow(sel) {
   if (el) el.classList.add('tut-glow');
 }
 // ---------- первые 10 минут: вкладки станции открываются по мере обучения ----------
-const TAB_GATE = { refine: 'sell', fitting: 'sell', ships: 'sell', agents: 'sell', exchange: 'all', prod: 'all', war: 'all', wing: 'all' };
+const TAB_GATE = { trade: 'sell', refine: 'sell', fitting: 'sell', ships: 'sell', agents: 'sell', exchange: 'all', prod: 'all', war: 'all', wing: 'all' };
 const TAB_TITLE = { fitting: 'Оснастка', ships: 'Корабли', agents: 'Агенты', exchange: 'Биржа', prod: 'Производство', war: 'Фронт', wing: 'Напарники' };
 function tabsAllOpen() {
   const p = S.prof, v = p && p.story;
@@ -2770,9 +2913,22 @@ function careerHTML() {
   const c = S.career;
   if (!c) return '<div class="muted">Загрузка…</div>';
   const tab = S.careerTab || 'steps';
-  let html = `<div class="tabs">${[['steps', 'Карьера'], ['daily', 'Ежедневно'], ['ach', 'Достижения'], ['lead', 'Лидеры']].map(([k, l]) => `<span data-a="careerTab" data-tab2="${k}" class="${tab === k ? 'on' : ''}">${l}</span>`).join('')}</div>`;
+  let html = `<div class="tabs">${[['steps', 'Карьера'], ['season', 'Сезон'], ['daily', 'Ежедневно'], ['ach', 'Достижения'], ['lead', 'Лидеры']].map(([k, l]) => `<span data-a="careerTab" data-tab2="${k}" class="${tab === k ? 'on' : ''}">${l}</span>`).join('')}</div>`;
   html += `<div class="bm-head" style="border-color:#c8a040"><div class="bm-logo" style="border-color:#ffd060;color:#ffd060">🏆</div><div><div class="bm-name">${esc(S.name)} · «${esc(c.title)}»</div>
     <div class="muted">Звание по достижениям: ${esc(c.rank)} · достижений ${c.ach.filter(a => a.at).length} из ${c.ach.length} · карьера ${c.step}/${c.total}</div></div></div>`;
+  if (tab === 'season') {
+    const V = S.season;
+    if (!V) { send({ t: 'seasonInfo' }); return html + '<div class="muted">Загрузка…</div>'; }
+    const d = Math.floor(V.left / 86400000), hh = Math.floor(V.left % 86400000 / 3600000), maxP = V.tiers[V.tiers.length - 1].pts;
+    html += `<h3>🏅 ${esc(V.name)} <span class="muted">— до конца ${d} д ${hh} ч</span></h3>
+      <div class="season-bar"><i style="width:${Math.min(100, V.pts / maxP * 100)}%"></i>${V.tiers.map(t => `<b style="left:${t.pts / maxP * 100}%" class="${V.pts >= t.pts ? 'ok' : ''}">${esc(t.name)}</b>`).join('')}</div>
+      <div>Ваши очки: <b>${num(V.pts)}</b></div>`;
+    html += V.tiers.map(t => `<div class="slot-row"><span class="sm"><b>${esc(t.name)}</b> · ${num(t.pts)} очков — <span class="isk">${isk(t.cr)}</span>${Object.keys(t.items).length ? ' + ' + megaMats(t.items) : ''}${t.rare ? ` + редкие чертежи ×${t.rare}` : ''}${t.title ? ' + звание «Легенда сезона»' : ''}</span>${t.got ? '<span class="req-ok">✔ получено</span>' : V.pts >= t.pts ? `<button class="primary" data-a="seasonClaim" data-id="${t.id}">Забрать</button>` : `<span class="muted small">ещё ${num(t.pts - V.pts)}</span>`}</div>`).join('');
+    html += `<div class="muted small">Очки: пират ${V.w.npcKills}, 1 000 руды ${Math.round(V.w.mined * 1000)}, каждые 20 000 CR выручки с торговли 1, изделие производства ${V.w.built}, знак фронта ${V.w.medals}, босс события ${V.w.wevents}, Архонт ${V.w.archon}, победа звена ${V.w.wingKills}, пройденная история корабля ${V.w.shipChains}. Каждый месяц — новый сезон.</div>`;
+    html += `<h3>Лучшие пилоты сезона</h3>` + (V.top.length ? `<table class="tbl">${V.top.map((x, i) => `<tr><td>${i + 1}. ${esc(x.name)}</td><td class="r">${num(x.pts)}</td></tr>`).join('')}</table>` : '<div class="muted">Пока никого — будьте первым.</div>');
+    if (V.hist.length) html += `<div class="muted small">Прошлые сезоны: ${V.hist.map(h => `${h.id} — ${num(h.pts)}`).join(', ')}</div>`;
+    return html;
+  }
   if (tab === 'steps') {
     html += `<p class="muted">Десять шагов, которые знакомят со всеми системами игры. За каждый — награда; текущий шаг виден на экране вместо «Первых шагов».${tut.careerHidden ? ' <button data-a="careerShow">Показывать подсказку на экране</button>' : ''}</p>`;
     html += c.steps.map((x, i) => `<div class="tut-step ${x.done ? 'done' : x.cur ? 'cur' : ''}"><b>${x.done ? '✓' : x.cur ? '›' : i + 1}</b><div>${esc(x.title)} <span class="isk small">${isk(x.isk)}${x.extra ? ' ' + esc(x.extra) : ''}</span>${x.cur ? `<div class="tut-hint">${esc(x.hint)}</div>` : ''}</div></div>`).join('');
@@ -2851,11 +3007,22 @@ function renderWing() {
   const rows = wg.list.map(w => {
     const e = ents.find(x => x.n && x.n.startsWith(w.name));
     const hp = e ? (e.sh + e.ar + e.hu) / 3 : 0;
-    return `<div class="dr-row"><span>${WING_ICON[w.role]} ${esc(w.name.split(' ')[0])} <span class="muted">${w.lv}</span></span><span class="bar hu" style="flex:1"><i style="width:${(hp * 100).toFixed(0)}%"></i></span><span class="muted">${w.dead ? 'ремонт' : e ? '' : '…'}</span></div>`;
+    return `<div class="dr-row" data-wgrp="${w.id}" title="Тап — сменить группу"><span>${WING_ICON[w.role]} ${esc(w.name.split(' ')[0])} <span class="muted">${w.lv}</span>${w.grp ? `<i class="wg-g g${w.grp}">${w.grp}</i>` : ''}</span><span class="bar hu" style="flex:1"><i style="width:${(hp * 100).toFixed(0)}%"></i></span><span class="muted">${w.dead ? 'ремонт' : e ? '' : '…'}</span></div>`;
   }).join('');
-  setHTML($('#wing-body'), `<div class="wg-rows${wg.list.length > 6 ? ' many' : ''}">${rows}</div>` + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${wg.order === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять', goto: '📍 Точка' }[k] || l}</button>`).join('')}</div>`);
+  const X = S.wingx || { form: 'orbit', forms: {}, orders: {} }, G = S.wingGrp || 0;
+  const curOrder = G ? (X.orders[G] || wg.order) : wg.order;
+  const grpBar = `<div class="wg-grp">${[0, 1, 2, 3].map(k => `<button data-wgsel="${k}" class="${G === k ? 'on' : ''}">${k ? `<i class="wg-g g${k}">${k}</i>${X.orders[k] ? ' ' + ({ follow: 'за мной', attack: 'атака', mine: 'копать', hold: 'стоят', goto: 'точка' }[X.orders[k]] || '') : ''}` : 'Все'}</button>`).join('')}</div>`;
+  const formBar = `<div class="wg-form">${Object.entries(X.forms).map(([k, l]) => `<button data-wf="${k}" class="${X.form === k ? 'on' : ''}">${{ orbit: '◌', wedge: '⋀', wall: '═', guard: '◎' }[k] || ''} ${esc(l)}</button>`).join('')}</div>`;
+  setHTML($('#wing-body'), `<div class="wg-rows${wg.list.length > 6 ? ' many' : ''}">${rows}</div>` + grpBar + `<div class="dr-btns dr-mode">${Object.entries(wg.orders).map(([k, l]) => `<button data-wo="${k}" class="${curOrder === k ? 'on' : ''}">${{ follow: 'За мной', attack: 'Атака', mine: 'Копать', hold: 'Стоять', goto: '📍 Точка' }[k] || l}</button>`).join('')}</div>` + formBar);
 }
-onTap($('#wingp'), (e) => { const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click(); if (b.dataset.wo === 'goto') return tacOpen('goto'); send({ t: 'wingOrder', order: b.dataset.wo }); });
+onTap($('#wingp'), (e) => {
+  const sel = e.target.closest('[data-wgsel]'); if (sel) { S.wingGrp = +sel.dataset.wgsel; Sound.click(); return renderWing(); }
+  const f = e.target.closest('[data-wf]'); if (f) { Sound.click(); return send({ t: 'wingForm', form: f.dataset.wf }); }
+  const r = e.target.closest('[data-wgrp]'); if (r) { Sound.click(); return send({ t: 'wingGrp', id: r.dataset.wgrp }); }
+  const b = e.target.closest('[data-wo]'); if (!b) return; Sound.click();
+  if (b.dataset.wo === 'goto') { S.wingGotoGrp = S.wingGrp || 0; return tacOpen('goto'); }
+  send({ t: 'wingOrder', order: b.dataset.wo, grp: S.wingGrp || undefined });
+});
 // телефон: круглая кнопка приказов напарникам рядом с модулями — без открытия боковой панели
 onTap($('#wing-fab'), (e) => {
   const menu = $('#wing-fab-menu'), b = e.target.closest('[data-wo]');
@@ -3086,6 +3253,10 @@ function settingsHTML() {
       ${rng('cfg-ui', 'Масштаб интерфейса', CFG.ui, 0.8, 1.5, 0.05, pct)}
       ${chk('cfg-threats', CFG.threats, 'Стрелки направления угрозы у краёв экрана')}
       ${chk('cfg-cb', CFG.cb, 'Режим для дальтоников: враги — оранжевые с обводкой, свои — синие')}
+      ${MOBILE ? chk('cfg-onehand', CFG.onehand, 'Режим одной руки: кнопки ☰ ◫ » ◎ 💬 и меню — внизу справа под большим пальцем, уведомления — внизу слева') : ''}
+      <div class="kb-g">Что показывать на экране</div>
+      ${HIDE_EL.map(([id, label]) => chk('cfg-hide-' + id, !(CFG.hide || {})[id], label)).join('')}
+      <div class="muted small">Свернуть отдельное окно можно и тапом по его шапке, а нижнюю панель на телефоне — кнопкой ✕.</div>
     </div>
     <div class="set-p ${(S.setTab || 0) === 3 ? '' : 'hidden'}">
       ${rng('cfg-sens', 'Чувствительность мыши / камеры', CFG.sens, 0.3, 2.5, 0.1, (v) => (+v).toFixed(1))}
@@ -3253,6 +3424,8 @@ function cloudHTML() {
 }
 if (OFFLINE) cloudInit();
 function applyCfg() {
+  for (const [id] of HIDE_EL) document.body.classList.toggle('hide-' + id, !!(CFG.hide || {})[id]);
+  document.body.classList.toggle('onehand', !!CFG.onehand);
   R.setGraphics(effectiveGfx());
   perfShow(CFG.perf);
   $('#ui').style.zoom = CFG.ui;
@@ -3289,6 +3462,8 @@ $('#win-body').addEventListener('input', (e) => {
   const fmtv = { 'cfg-sens': (v) => (+v).toFixed(1), 'cfg-fov': (v) => v + '°' }[id] || ((v) => Math.round(v * 100) + '%');
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
   for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake', 'rings']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
+  if (id === 'cfg-onehand') CFG.onehand = e.target.checked;
+  if (id.startsWith('cfg-hide-')) { CFG.hide = { ...(CFG.hide || {}), [id.slice(9)]: !e.target.checked }; }
   if (id === 'cfg-awake') keepAwake(CFG.awake);
   if (id === 'cfg-diff') { send({ t: 'difficulty', v: e.target.value }); return; }
   saveCfg(); applyCfg();
@@ -3418,6 +3593,7 @@ $('#st-tabs').onclick = (e) => {
   for (const s of $('#st-tabs').children) s.classList.toggle('on', s.dataset.tab === t);
   if (t === 'market' || t === 'exchange') send({ t: 'market' });
   if (t === 'refine') { send({ t: 'refineInfo' }); send({ t: 'foundryInfo' }); }
+  if (t === 'trade') send({ t: 'tradeInfo' });
   if (t === 'agents') send({ t: 'agents' });
   if (t === 'prod') send({ t: 'prodInfo' });
   if (t === 'war') send({ t: 'warInfo' });
@@ -3455,7 +3631,7 @@ function renderStation() {
         const d = S.data.modules[id];
         return `<div class="slot-row"><span class="st ${d.slot}">${{ high: 'Верх', mid: 'Сред', low: 'Ниж' }[d.slot]}</span><span class="sm">${lvBadge(d)}${esc(d.name)} ×${q}<br><span class="muted">${moduleDesc(d)}</span></span>${upBtn(id, null, id)}<button data-a="fit" data-item="${id}">Установить</button></div>`;
       }).join('');
-      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}</div>
+      html = `<div class="cols"><div><h3>${esc(t.name)} — слоты</h3>${slots}<h3>Характеристики</h3>${shipStatsHTML(t, p.shipStats)}${insHTML()}</div>
         <div>${droneBayHTML()}<h3>Модули в ангаре</h3>${mods || '<div class="muted">Нет модулей. Купите их на рынке.</div>'}</div></div>`;
       break;
     }
@@ -3495,6 +3671,7 @@ function renderStation() {
     case 'ships': html = shipsTabHTML(); break;
     case 'factory': html = factoryHTML(); break;
     case 'refine': html = refineHTML(h); break;
+    case 'trade': html = tradeHTML(); break;
     case 'prod': html = prodHTML(); break;
     case 'war': html = warHTML(); break;
     case 'wing': html = wingHTML(); break;
@@ -3574,6 +3751,16 @@ function onActionClick(e) {
     case 'routeCmd': send({ t: 'routeCmd', id: d.id, cmd: d.cmd }); break;
     case 'addRoute': send({ t: 'addRoute', from: $('#rt-from').value, to: $('#rt-to').value, item: $('#rt-item').value, keep: +$('#rt-keep').value }); break;
     case 'buyCons': send({ t: 'buy', item: d.item, qty: +$('#cq-' + d.item).value }); break;
+    case 'insure': send({ t: 'insure', tier: d.tier }); break;
+    case 'sovCollect': case 'sovBridge': send({ t: d.a }); break;
+    case 'sovClaim': case 'monGive': case 'sovUp': case 'leviBuild': { // крупные траты — с подтверждением
+      const what = { sovClaim: 'Выкупить систему', monGive: 'Вложить в Монумент', sovUp: 'Улучшить систему (недостающие материалы докупятся)', leviBuild: 'Начать этап стройки титана (недостающие материалы докупятся)' }[d.a];
+      modal(`<h3>${what}?</h3><div class="muted">${esc(b.textContent)}</div>`, [['Отмена', null], ['Да', () => send({ t: d.a, buy: true }), 'primary']]); break;
+    }
+    case 'tradeBuy': send({ t: 'tradeBuy', item: d.item, qty: +d.qty }); break;
+    case 'tradeBuyQ': send({ t: 'tradeBuy', item: d.item, qty: +($('#tq-' + d.item) || {}).value || 1 }); break;
+    case 'tradeSell': send({ t: 'tradeSell', item: d.item }); break;
+    case 'seasonClaim': send({ t: 'seasonClaim', id: d.id }); break;
     case 'upgradeMod': showUpgrade(d.slot !== undefined ? +d.slot : undefined, d.item, d.from); break;
     case 'rebind': rebinding = d.id; renderWin(); break;
     case 'bench': runBench(); break;
@@ -3604,7 +3791,7 @@ function onActionClick(e) {
     case 'cmAbandon': modal('<p>Отменить особое задание? Награды не будет.</p>', [['Нет', null], ['Отменить', () => send({ t: 'cmAbandon' }), 'danger']]); break;
     case 'talkStop': if (S.talk && S.talk.ctl) S.talk.ctl.abort(); break;
     case 'talkDeal': talkDeal(); break;
-    case 'careerTab': S.careerTab = d.tab2; if (d.tab2 === 'lead') send({ t: 'leaders' }); renderWin(); break;
+    case 'careerTab': S.careerTab = d.tab2; if (d.tab2 === 'lead') send({ t: 'leaders' }); if (d.tab2 === 'season') send({ t: 'seasonInfo' }); renderWin(); break;
     case 'careerShow': tut.careerHidden = false; saveTut(); renderTutorial(); renderWin(); break;
     case 'setTitle': send({ t: 'setTitle', title: ($('#title-sel') || {}).value || '' }); break;
     case 'leadersRefresh': send({ t: 'leaders' }); break;
@@ -4379,7 +4566,7 @@ function tacTap(e) {
     if (fleet && (best.npc || best.ol || best.ag || best.tg) && best.wg !== S.name) { send({ t: 'wingOrder', order: 'attack', target: best.id }); note(`Флоту: атаковать «${best.n}»`, 'info'); }
   } else if (fleet) {
     const pos = [me[0] + dx, me[1], me[2] + dz];
-    send({ t: 'wingOrder', order: 'goto', pos }); TAC.goto = { pos, sys: S.sys && S.sys.id }; TAC.mode = null;
+    send({ t: 'wingOrder', order: 'goto', pos, grp: S.wingGotoGrp || undefined }); TAC.goto = { pos, sys: S.sys && S.sys.id }; TAC.mode = null;
   } else note('Флота и напарников нет — наймите на станции (вкладка «Напарники»)', 'warn');
   tacDraw();
 }
@@ -4521,21 +4708,22 @@ setInterval(() => {
 // ======================================================================
 // «Что нового» — один раз после обновления (новичкам не показываем: у них вступление)
 // ======================================================================
-const NEWS_VER = '55';
+const NEWS_VER = '65';
 function whatsNew() {
   try { if (localStorage.getItem('vf-news') === NEWS_VER) return; localStorage.setItem('vf-news', NEWS_VER); } catch { return; }
   if (S.surface || !$('#modal').classList.contains('hidden')) return;
-  const ships = ['kometa', 'meduza', 'peleng', 'avrora', 'gonchaya', 'burevestnik', 'veche', 'porog'].filter(t => S.data.ships[t]);
   modal(`<h3>Что нового в Arktur</h3>
-    <p><b>8 кораблей вольных гильдий</b> — у каждого своя история и особое умение:</p>
-    <div class="news-ships">${ships.map(t => `<div>${artImg(t, 'ship-thumb')}<b>${esc(S.data.ships[t].name)}</b><span class="muted small">${esc(S.data.ships[t].cls)}</span></div>`).join('')}</div>
+    <div class="news-ships"><div>${artImg('imperator', 'ship-thumb')}<b>Император</b><span class="muted small">титан из Великих строек</span></div></div>
     <ul class="small">
-      <li>⚔ <b>«В бой»</b> одной кнопкой (или двойной тап по врагу): захват, орбита на дальности орудий и огонь из всех стволов.</li>
-      <li>🔥 Дым и огонь на повреждённых кораблях, искры при попаданиях по броне.</li>
-      <li>☰ Меню разбито на группы: Пилот, Мир, Хозяйство, Прочее.</li>
-      <li>🏆 Новые достижения, звания и цели в «Карьере» — за гонки, зонды, корпорацию, розыск и Архонта.</li>
-    </ul>
-    <p class="muted small">Корабли — на рынке любой станции, вкладка «Корабли».</p>`, [['Отлично!', null, 'primary']]);
+      <li>🔔 <b>Уведомления группами</b>: одинаковые собираются в строку «×N», тап убирает, 🔔 — журнал.</li>
+      <li>⚖ <b>Торговля</b>: 14 товаров, разные цены по регионам, вкладка «Торговля» ищет выгодные маршруты.</li>
+      <li>👑 <b>Великие стройки</b>: своя система с налогами и прыжковым мостом, титан «Император», Монумент Арктура.</li>
+      <li>🛡 <b>Страховка</b> «Серебро» и «Платина» — во вкладке «Оснастка»; при входе — сводка «Пока вас не было».</li>
+      <li>◆ <b>Звено</b>: построения «Клин», «Стена», «Охрана» и три группы с отдельными приказами.</li>
+      <li>🔫 Установленное оружие теперь видно на корпусе, улучшенное светится.</li>
+      <li>📱 Режим одной руки и выбор, какие окна показывать (Настройки → Интерфейс).</li>
+      <li>📘 Третья кампания <b>«Голос за Краем»</b> и <b>сезоны</b> с наградами (Карьера → Сезон).</li>
+    </ul>`, [['Отлично!', null, 'primary']]);
 }
 
 // ======================================================================

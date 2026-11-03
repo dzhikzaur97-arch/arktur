@@ -775,8 +775,63 @@ function addTurret(g, x, y, z, s, mat) {
     const b = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.07, s * 0.09, s * 1.4, 8), darkMetal());
     b.rotation.x = Math.PI / 2; b.position.set(dx * s, s * 0.35, s * 0.7); t.add(b);
   }
-  t.position.set(x, y, z); g.add(t);
+  t.position.set(x, y, z); t.userData.hp = s; g.add(t);
 }
+
+// ---------- Видимое оружие: установленные модули верхних слотов вместо типовых турелей ----------
+// w: { kind, fam, base, lv, color }. Вид зависит от типа оружия, улучшенный модуль светится кольцом цвета уровня.
+const LV_GLOW = [0, 0, 0x60ff90, 0x60b0ff, 0xc070ff, 0xffc040];
+function weaponMesh(w, s) {
+  const t = new THREE.Group(), D = darkMetal(), M = cachedMat('wpnM', () => new THREE.MeshStandardMaterial({ color: 0x8a929c, metalness: 0.75, roughness: 0.35 }));
+  const col = w.color != null ? w.color : 0x9fd8ff;
+  const fam = w.fam || (/^rail/.test(w.base) ? 'rg' : /^laser|^beam/.test(w.base) ? 'pl' : /^ac|^auto/.test(w.base) ? 'ac' : /^plasma/.test(w.base) ? 'pt' : '');
+  const cyl = (r1, r2, h, mat, x, y, z, rx = Math.PI / 2, seg = 10) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), mat); m.rotation.x = rx; m.position.set(x, y, z); t.add(m); return m; };
+  t.add(new THREE.Mesh(new THREE.CylinderGeometry(s * 0.62, s * 0.78, s * 0.38, 16), D));
+  if (w.kind === 'launcher') {
+    const box = new THREE.Mesh(rbox(s * 1.1, s * 0.6, s * 1.0), M); box.position.y = s * 0.45; t.add(box);
+    for (const [dx, dy] of [[-0.25, 0.32], [0.25, 0.32], [-0.25, 0.58], [0.25, 0.58]]) cyl(s * 0.12, s * 0.12, s * 0.06, glowMat(0xff7040, 1.4), dx * s, dy * s, s * 0.51);
+  } else if (w.kind === 'miner') {
+    const head = new THREE.Mesh(new THREE.SphereGeometry(s * 0.45, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), M); head.position.y = s * 0.18; t.add(head);
+    const c = cyl(s * 0.08, s * 0.3, s * 0.9, D, 0, s * 0.35, s * 0.5); c.rotation.x = -Math.PI / 2;
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(s * 0.12, 10, 8), glowMat(w.gas ? 0x9fd0ff : 0x60ff90, 3)); tip.position.set(0, s * 0.35, s * 0.98); t.add(tip);
+  } else {
+    const head = new THREE.Mesh(new THREE.SphereGeometry(s * 0.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), M); head.position.y = s * 0.18; t.add(head);
+    if (fam === 'rg') { // рельсотрон: две длинные шины и катушки
+      for (const dx of [-0.13, 0.13]) cyl(s * 0.06, s * 0.06, s * 2.2, D, dx * s, s * 0.36, s * 1.1);
+      for (let i = 0; i < 3; i++) cyl(s * 0.24, s * 0.24, s * 0.08, glowMat(col, 1.6), 0, s * 0.36, s * (0.45 + i * 0.5));
+    } else if (fam === 'ac') { // автопушка: блок из трёх коротких стволов
+      for (const [dx, dy] of [[-0.14, 0.3], [0.14, 0.3], [0, 0.46]]) cyl(s * 0.07, s * 0.08, s * 1.1, D, dx * s, dy * s, s * 0.65);
+      cyl(s * 0.2, s * 0.2, s * 0.18, M, 0, s * 0.36, s * 0.25);
+    } else if (fam === 'pt') { // плазмомёт: толстый ствол и светящаяся камера
+      cyl(s * 0.16, s * 0.2, s * 1.1, D, 0, s * 0.35, s * 0.65);
+      const ch = new THREE.Mesh(new THREE.SphereGeometry(s * 0.24, 12, 8), glowMat(col, 2.4)); ch.position.set(0, s * 0.42, s * 0.15); t.add(ch);
+    } else if (fam === 'ion') { // ионный разрядник: вилка из двух зубцов
+      for (const dx of [-0.2, 0.2]) { const p = cyl(s * 0.05, s * 0.08, s * 1.2, D, dx * s, s * 0.36, s * 0.7); p.rotation.y = -dx * 0.5; }
+      const arc = new THREE.Mesh(new THREE.SphereGeometry(s * 0.1, 8, 6), glowMat(col, 3)); arc.position.set(0, s * 0.36, s * 1.25); t.add(arc);
+    } else { // лазер: один длинный ствол с линзой
+      cyl(s * 0.07, s * 0.1, s * 1.5, D, 0, s * 0.36, s * 0.8);
+      cyl(s * 0.13, s * 0.13, s * 0.12, glowMat(col, 2.6), 0, s * 0.36, s * 1.55);
+    }
+  }
+  if (w.lv >= 2) { const ring = new THREE.Mesh(new THREE.TorusGeometry(s * 0.72, s * 0.06, 6, 24), glowMat(LV_GLOW[w.lv], 2.2)); ring.rotation.x = Math.PI / 2; ring.position.y = s * 0.2; t.add(ring); }
+  t.userData.wpn = true;
+  return t;
+}
+function applyWeapons(model, weapons) {
+  if (!weapons || !weapons.length) return;
+  const hps = []; model.traverse(o => { if (o.userData.hp) hps.push(o); });
+  const box = new THREE.Box3().setFromObject(model), sz = box.getSize(new THREE.Vector3());
+  weapons.forEach((w, i) => {
+    let hp = hps[i], s, pos;
+    if (hp) { s = hp.userData.hp; pos = hp.position.clone(); hp.visible = false; }
+    else { // турелей в модели меньше, чем орудий: ставим по хребту сверху
+      const k = (i - hps.length), n = Math.max(1, weapons.length - hps.length);
+      s = Math.max(sz.x, sz.z) * 0.045; pos = new THREE.Vector3(((k % 2) ? 1 : -1) * sz.x * 0.12, box.max.y * 0.85, box.max.z - sz.z * (0.3 + 0.4 * (k + 0.5) / n));
+    }
+    const m = weaponMesh(w, s); m.position.copy(pos); (hp ? hp.parent : model).add(m);
+  });
+}
+export { applyWeapons };
 
 function addLights(g, pts, color) {
   for (const p of pts) {
@@ -800,7 +855,7 @@ const SHIP_BASE_R = { iskra: 40, klinok: 45, burlak: 120, tyagach: 110, strazh: 
   gadyuka: 42, burya: 105, bastion: 280, matka: 300, fortress: 2400, pbase: 900, pdrone: 7, pdrone_h: 16,
   merkuriy: 44, prorab: 85, argus: 110, senator: 300, brodyaga: 42, pastuh: 75, kovcheg: 200, taran: 140,
   iskatel: 40, prizma: 44, orakul: 115, relikvariy: 290, serafim: 600, colossus: 1800, wb_gen: 140,
-  kometa: 34, meduza: 110, peleng: 42, avrora: 160, gonchaya: 90, burevestnik: 85, veche: 170, porog: 320 };
+  kometa: 34, meduza: 110, peleng: 42, avrora: 160, gonchaya: 90, burevestnik: 85, veche: 170, porog: 320, imperator: 420 };
 // Фракционные линейки: свой стиль корпуса, окраски и цвет дюз у каждой фракции
 const DESIGN_FAC = { merkuriy: 'cons', prorab: 'cons', argus: 'cons', senator: 'cons', brodyaga: 'liga', pastuh: 'liga', kovcheg: 'liga', taran: 'liga',
   iskatel: 'orden', prizma: 'orden', orakul: 'orden', relikvariy: 'orden', serafim: 'seraph' };
@@ -1325,6 +1380,36 @@ const DESIGN = {
     K.eng(0, 0, -1.08, 0.15);
     K.greeb(20, 0.5, 0.22, 1.2, -0.3);
     K.lights([[0.7, 0, 0.6], [-0.7, 0, 0.6]], 0xff2020);
+  },
+  imperator(K) { // титан «Император»: хребет-кинжал, два бортовых корпуса-ангара на фермах, золотое кольцо реактора, башня мостика
+    const spine = [[-1.1, 0.2, 0.2], [-0.8, 0.28, 0.26, 0.02], [0.2, 0.26, 0.24, 0.03], [0.8, 0.15, 0.14, 0.01], [1.28, 0.025, 0.03]];
+    K.loft(spine, 'keel');
+    K.loft([[-0.88, 0.2, 0.1, 0.26], [0.1, 0.18, 0.1, 0.28], [0.6, 0.05, 0.04, 0.22]], 'flat', K.D);
+    K.loft([[-0.8, 0.12, 0.08, 0.4], [-0.35, 0.11, 0.08, 0.42], [-0.12, 0.03, 0.03, 0.38]], 'wedge');
+    K.loft([[-0.9, 0.16, 0.08, -0.26], [0.3, 0.15, 0.08, -0.27], [0.75, 0.04, 0.03, -0.2]], 'flat', K.D); // брюшной ярус
+    K.box(0.1, 0.24, 0.13, 0, 0.6, -0.64); K.canopy(0, 0.73, -0.58, 0.07, 0.03, 0.05);
+    K.fin(0, 0.74, -0.76, 0.2, 0.22, 0.12, 0.03, K.D);
+    K.dish(0.06, 0.74, -0.68, 0.05, 0.5);
+    K.mirror(sd => {
+      const side = [[-0.98, 0.1, 0.12, -0.02, 0.52 * sd], [-0.45, 0.14, 0.16, -0.02, 0.54 * sd], [0.45, 0.13, 0.15, -0.02, 0.52 * sd], [0.9, 0.05, 0.07, -0.02, 0.47 * sd]];
+      K.loft(side, 'oct');
+      for (const z of [-0.65, -0.15, 0.35]) K.truss([0.24 * sd, 0.02, z], [0.41 * sd, 0.02, z], 0.012, K.D, 4, 0.05);
+      K.trim(0.012, 0.1, 0.75, 0.395 * sd, -0.02, 0.0, 0xffc060, 1.8); // светящийся проём ангара
+      K.windows(0.69, 0.02, -0.15, 1.1, 0.05, sd, true);
+      K.box(0.035, 0.26, 0.55, 0.69 * sd, -0.02, 0.15, K.D); // бронепояс
+      for (let i = 0; i < 4; i++) K.turret(0.53 * sd, 0.15, 0.55 - i * 0.32, 0.065);
+      K.eng(0.53 * sd, -0.02, -1.04, 0.1);
+      K.eng(0.2 * sd, 0.1, -1.13, 0.1);
+      K.box(0.08, 0.04, 0.3, 0.3 * sd, 0.3, -0.45, K.D);
+    });
+    // золотое кольцо реактора вокруг хребта
+    for (const [z, r] of [[-0.42, 0.37], [-0.3, 0.33]]) { const ring = new THREE.Mesh(new THREE.TorusGeometry(K.s(r), K.s(0.022), 10, 72), K.G); ring.position.z = K.s(z); ring.userData.spin = ['z', 0.12]; K.g.add(ring); }
+    K.trim(0.06, 0.06, 0.06, 0, 0, -0.36, 0xffc060, 2.4);
+    for (let i = 0; i < 4; i++) K.turret(0, 0.38, 0.5 - i * 0.22, 0.085);
+    K.seam(spine, 'side', 0xffc060, 2.0);
+    K.eng(0, 0, -1.17, 0.16);
+    K.greeb(44, 0.46, 0.3, 1.7, -0.1);
+    K.lights([[0.72, -0.02, 0.85], [-0.72, -0.02, 0.85], [0, 0.86, -0.64], [0, 0, 1.28]], 0xffc060);
   },
   citadel(K) { // линкор: длинный киль, ярусы палуб, рубка-башня, восемь башен, бортовая броня
     K.loft([[-1.05, 0.34, 0.3], [-0.6, 0.44, 0.36, 0.02], [0.4, 0.42, 0.34, 0.03], [0.85, 0.26, 0.22], [1.15, 0.06, 0.06, -0.02]], 'keel');
@@ -3509,14 +3594,15 @@ function removeEnt(id) {
 }
 
 let myShip = null, myShipType = null;
-export function setMyShip(type, data, paint, look) {
-  const key = type && type + ':' + (paint == null ? '' : paint) + ':' + lookKey(look);
+export function setMyShip(type, data, paint, look, weapons) {
+  const key = type && type + ':' + (paint == null ? '' : paint) + ':' + lookKey(look) + ':' + JSON.stringify(weapons || []);
   if (myShip && myShipType === key) return;
   if (myShip) entGroup.remove(myShip);
   myShipType = key;
   if (!type) { myShip = null; return; }
   const t = data.ships[type];
   myShip = shipModel(type, paint == null ? t.color : paint, t.radius, 'player', look);
+  try { applyWeapons(myShip, weapons); } catch (e) { console.warn('weapons', e); }
   cam.target = cam.dist = t.radius * 9;
   entGroup.add(myShip);
 }
@@ -3866,11 +3952,12 @@ function stationFrame(view, dt, time) {
     scene.add(stationView);
     celGroup.visible = entGroup.visible = false; dust.visible = false;
   }
-  const dkey = view.dockedShip && view.dockedShip + ':' + (view.dockedPaint == null ? '' : view.dockedPaint) + ':' + lookKey(view.dockedLook);
+  const dkey = view.dockedShip && view.dockedShip + ':' + (view.dockedPaint == null ? '' : view.dockedPaint) + ':' + lookKey(view.dockedLook) + ':' + JSON.stringify(view.dockedWeapons || []);
   if (view.dockedShip && stationView.userData.shipType !== dkey) {
     if (stationView.userData.ship) stationView.remove(stationView.userData.ship);
     const t = view.data.ships[view.dockedShip];
     const sh = shipModel(view.dockedShip, view.dockedPaint == null ? t.color : view.dockedPaint, 900, 'player', view.dockedLook);
+    try { applyWeapons(sh, view.dockedWeapons); } catch (e) {}
     sh.position.set(2200, -1200, 5200);
     stationView.add(sh); stationView.userData.ship = sh; stationView.userData.shipType = dkey;
   }

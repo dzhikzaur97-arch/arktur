@@ -61,6 +61,7 @@
     <div class="nc-g">Хозяйство</div>
     <button data-win="corp" title="Своя корпорация: ИИ-пилоты, казна, общий склад, герб">🏛<small>Корп.</small></button>
     <button data-win="build" title="Постройки: завод, электростанции, транспортный хаб">⚒<small>Стройка</small></button>
+    <button data-win="mega" title="Великие стройки: своя система, титан «Император», Монумент Арктура">👑<small>Стройки</small></button>
     <div class="nc-g">Прочее</div>
     <button data-win="assist" title="Бортовой помощник: вопросы об игре (отвечает Claude)">✧<small>Помощник</small></button>
     <button data-win="bots" title="Обучение ИИ-пилотов: как боты учатся играть">🎓<small>ИИ</small></button>
@@ -162,7 +163,7 @@
     <input id="chat-in" placeholder="Сообщение… (Enter)" maxlength="300">
   </div>
 
-  <div id="notes"></div>
+  <div id="notes"><button id="notes-log" class="hidden" title="Журнал уведомлений">🔔</button></div>
   <div id="jump-banner"></div>
   <div id="ctx" class="hidden"></div>
 
@@ -190,7 +191,7 @@
     </div>
     <div id="st-tabs" class="tabs big">
       <span data-tab="factory" class="hidden" style="color:#ffa040">Завод</span><span data-tab="hangar" class="on">Ангар</span><span data-tab="ships">Корабли</span><span data-tab="fitting">Оснастка</span><span data-tab="market">Рынок</span>
-      <span data-tab="refine">Переработка</span><span data-tab="prod">Производство</span><span data-tab="war">Фронт</span><span data-tab="wing">Напарники</span><span data-tab="exchange">Биржа</span><span data-tab="agents">Агенты</span><span data-tab="skills">Навыки</span>
+      <span data-tab="trade">Торговля</span><span data-tab="refine">Переработка</span><span data-tab="prod">Производство</span><span data-tab="war">Фронт</span><span data-tab="wing">Напарники</span><span data-tab="exchange">Биржа</span><span data-tab="agents">Агенты</span><span data-tab="skills">Навыки</span>
     </div>
     <div id="st-body" class="panel"></div>
   </div>
