@@ -910,3 +910,5 @@ body.mobile.ov-open #advice, body.mobile.chat-open #advice, body.docked #advice 
 details.faq { border: 1px solid var(--line); padding: 6px 8px; margin: 4px 0; }
 details.faq summary { cursor: pointer; color: #fff; }
 details.faq div { margin-top: 6px; font-size: 13px; color: #cfe; line-height: 1.4; }
+.trait { margin: 4px 0; padding: 4px 8px; border-left: 3px solid #ffd060; background: rgba(255, 208, 96, .07); font-size: 12px; color: #f0e6c8; }
+.trait b { color: #ffd88a; }

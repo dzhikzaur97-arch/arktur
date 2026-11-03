@@ -10,5 +10,11 @@
   "dependencies": {
     "three": "^0.169.0",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^0.21.0"
   }
 }

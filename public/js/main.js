@@ -387,7 +387,13 @@ function startReconnect() {
 }
 function stopReconnect() { RC.until = 0; clearTimeout(RC.timer); const el = $('#reconnect'); if (el) el.remove(); }
 addEventListener('beforeunload', () => { try { send({ t: 'bye' }); } catch {} });
-$('#lg-go').onclick = () => { S.kicked = null; Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {} if (S.ws) S.ws.close(); connect(); };
+R.loadShipModels(); // модели кораблей из Blender расжимаются, пока игрок вводит имя
+$('#lg-go').onclick = async () => {
+  S.kicked = null; Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {}
+  const b = $('#lg-go'), t = b.textContent; b.disabled = true; b.textContent = 'Загрузка кораблей…';
+  try { await R.loadShipModels(); } catch (e) {} finally { b.disabled = false; b.textContent = t; }
+  if (S.ws) S.ws.close(); connect();
+};
 $('#lg-pass').onkeydown = (e) => { if (e.key === 'Enter') $('#lg-go').click(); };
 try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 (function loginSlides() {
@@ -1766,7 +1772,7 @@ function showInfo(o) {
     html = artImg(o.st, 'ship-art big') + html;
     const t = S.data.ships[o.st];
     html += `<span>Класс</span><span>${esc(t.cls)}</span><span>Пилот</span><span>${esc(o.o || 'NPC')}</span>`;
-    html += `</div><p class="muted">${esc(t.desc || '')}</p>`;
+    html += `</div><p class="muted">${esc(t.desc || '')}</p>${traitHTML(t)}`;
   } else if (o.kind === 'planet') html += `<span>Тип планеты</span><span>${esc(o.ptype)}</span><span>Радиус</span><span>${num(o.radius / 1000)} км</span></div>`;
   else if (o.kind === 'gate') html += `<span>Ведут в</span><span>${esc(S.sysById[o.dest].name)} (${S.sysById[o.dest].sec.toFixed(1)})</span></div>`;
   else html += '</div>';
@@ -1857,7 +1863,7 @@ function fleetHTML() {
     ${facs.length ? `<div class="fac-legend">${facs.map(f => `<div class="fac-tag" style="--fc:${f.color}"><b>${esc(f.name)}</b> — ${esc(f.style)}. Продаются на станциях фракции, тяжёлые — только союзникам.</div>`).join('')}</div>` : ''}` +
     shipGroups(all).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div>
     <div class="grid-cards">${ids.map(id => { const t = S.data.ships[id], mine = S.prof && S.prof.ship.type === id;
-      return `<div class="shipcard${mine ? ' mine' : ''}">${artImg(id)}<div class="sname">${esc(t.name)} <span class="muted">${esc(t.cls)}</span></div><div class="small">${esc(t.desc)}</div>${shipFacHTML(id)}
+      return `<div class="shipcard${mine ? ' mine' : ''}">${artImg(id)}<div class="sname">${esc(t.name)} <span class="muted">${esc(t.cls)}</span></div><div class="small">${esc(t.desc)}</div>${traitHTML(t)}${shipFacHTML(id)}
         <div class="pw" title="Прочность относительно самого крепкого корабля"><i style="width:${Math.max(4, Math.sqrt(ehp(t) / maxE) * 100).toFixed(0)}%"></i></div>
         <div class="kv small"><span>Класс мощи</span><span>${ROMAN[t.tier]}</span><span>Прочность</span><span>${num(ehp(t))}</span><span>Скорость</span><span>${num(t.maxSpeed)} м/с</span><span>Трюм</span><span>${num(t.cargo)} м³</span><span>Слоты</span><span>${t.slots.high}/${t.slots.mid}/${t.slots.low}${t.droneBay ? ` · дроны ${t.droneBay} м³` : ''}</span><span>Цена</span><span class="isk">${t.price ? isk(t.price) : 'стартовый'}</span></div>
         ${mine ? '<div class="muted" style="color:var(--good)">● ваш корабль</div>' : ''}</div>`; }).join('')}</div>`).join('');
@@ -2256,6 +2262,8 @@ function showAway(m) {
   if ($('#modal').classList.contains('hidden')) go(); else setTimeout(() => showAway(m), 2500);
 }
 const kmR = (m) => +(m / 1000).toFixed(1);
+// уникальная черта корабля (server/traits.js)
+function traitHTML(t) { return t && t.trait ? `<div class="trait">✦ <b>${esc(t.trait.name)}</b> — ${esc(t.trait.desc)}</div>` : ''; }
 function moduleDesc(d) {
   if (d.kind === 'launcher') return `${d.salvo ? d.salvo + '×' : ''}${d.dmg} урона / ${d.cycle}с, дальность ${kmR(d.range)} км, взрыв ${d.explR} м, боезапас: ${S.data.items[d.ammo].name}`;
   if (d.kind === 'pd') return `сбивает ракеты в ${kmR(d.range)} км, ${d.shots} за ${d.cycle}с`;
@@ -3727,7 +3735,7 @@ function renderStation() {
           <td class="r"><input class="qty" type="number" min="1" value="${id === 'turret_kit' ? 1 : 50}" id="cq-${id}"> <button class="primary" data-a="buyCons" data-item="${id}">Купить</button></td></tr>`).join('')}</table>` : ''}
 
         <h3>Корабли <span class="muted">— по назначению и классу мощи</span></h3>${shipGroups(Object.keys(mk.ships)).map(([role, ids]) => `<div class="role-head" style="--rc:${role.color}">${esc(role.name)} <span class="muted">— ${esc(role.desc)}</span></div><div class="grid-cards">${ids.map((id) => { const pr = mk.ships[id], st = S.data.ships[id]; const req = Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(S.prof.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
-          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${shipFacHTML(id)}${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div>${shipBuyBtns(id, true)}</div>`; }).join('')}</div>`).join('')}`;
+          return `<div class="shipcard">${artImg(id)}<div class="sname">${esc(st.name)}</div><div class="muted">${esc(st.cls)}${st.code ? ` · ${esc(st.code)}` : ''}</div>${st.maker ? `<div class="muted small">Верфи «${esc(st.maker)}» · длина ${num(st.length)} м · экипаж ${esc(st.crew)}</div>` : ''}<div>${esc(st.desc)}</div>${traitHTML(st)}${shipFacHTML(id)}${shipStatsHTML(st)}${req ? `<div class="muted">Навыки для управления: ${req}</div>` : ''}<div class="isk">${isk(pr)}</div>${shipBuyBtns(id, true)}</div>`; }).join('')}</div>`).join('')}`;
       break;
     }
     case 'exchange': {
@@ -3765,7 +3773,7 @@ function shipsTabHTML() {
   const reqHTML = (st) => Object.entries(st.req || {}).map(([sk, lv]) => `<span class="${(p.skills[sk] || 0) >= lv ? 'req-ok' : 'req-no'}">${esc(S.data.skills[sk].name)} ${lv}</span>`).join(', ');
   const card = (type, btn) => {
     const st = S.data.ships[type], req = reqHTML(st);
-    return `<div class="shipcard">${artImg(type)}<div class="sname">${esc(st.name)} <span class="muted">${esc(st.cls)}</span></div><div class="muted">${esc(st.desc)}</div>${shipFacHTML(type)}
+    return `<div class="shipcard">${artImg(type)}<div class="sname">${esc(st.name)} <span class="muted">${esc(st.cls)}</span></div><div class="muted">${esc(st.desc)}</div>${traitHTML(st)}${shipFacHTML(type)}
       <div class="kv"><span>Скорость</span><span>${num(st.maxSpeed)} м/с</span><span>Щит / броня / корпус</span><span>${num(st.shield)} / ${num(st.armor)} / ${num(st.hull)}</span><span>Трюм</span><span>${num(st.cargo)} м³</span><span>Слоты</span><span>${st.slots.high}/${st.slots.mid}/${st.slots.low}</span></div>
       ${req ? `<div class="muted">Навыки: ${req}</div>` : ''}${btn}</div>`;
   };

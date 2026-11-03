@@ -20,7 +20,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 const THREE_FILES = ['build/three.module.js', 'LICENSE',
   ...['EffectComposer', 'MaskPass', 'Pass', 'ShaderPass', 'RenderPass', 'OutputPass', 'SMAAPass', 'UnrealBloomPass', 'AfterimagePass'].map(f => `examples/jsm/postprocessing/${f}.js`),
   ...['AfterimageShader', 'CopyShader', 'LuminosityHighPassShader', 'OutputShader', 'SMAAShader', 'FXAAShader'].map(f => `examples/jsm/shaders/${f}.js`),
-  'examples/jsm/geometries/RoundedBoxGeometry.js', 'examples/jsm/utils/BufferGeometryUtils.js'];
+  'examples/jsm/geometries/RoundedBoxGeometry.js', 'examples/jsm/utils/BufferGeometryUtils.js', 'examples/jsm/loaders/GLTFLoader.js', 'examples/jsm/libs/meshopt_decoder.module.js'];
 
 // 1) обычная одиночная сборка
 execFileSync(process.execPath, [path.join(__dirname, 'build-standalone.js')], { stdio: 'inherit' });

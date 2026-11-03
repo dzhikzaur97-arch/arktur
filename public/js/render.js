@@ -11,6 +11,8 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -1880,6 +1882,87 @@ const DESIGN = {
 // вспомогательная: добавить готовую геометрию в долях R
 function add2(K, geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) { const m = new THREE.Mesh(geo, mat); m.position.set(K.s(x), K.s(y), K.s(z)); m.scale.set(sx, sy, sz); K.g.add(m); return m; }
 
+// ======================================================================
+// Модели кораблей из Blender (tools/blender/ships.py): .glb с узлами HP (орудия), ENG (дюзы), LIGHT (огни), MAW (зев «Бегемота»)
+// ======================================================================
+const GLB_SHIPS = {};
+let shipModelsReady = null;
+export function loadShipModels() {
+  if (shipModelsReady) return shipModelsReady;
+  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  const parse = (buf) => new Promise((res, rej) => loader.parse(buf, '', res, rej));
+  const b64 = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  shipModelsReady = (async () => {
+    let src = window.VF_SHIP_GLB && Object.keys(window.VF_SHIP_GLB).length ? Object.entries(window.VF_SHIP_GLB).map(([id, d]) => [id, () => b64(d)]) : null;
+    if (!src) { // сетевая версия: файлы рядом со страницей
+      try { const ids = await (await fetch('models/ships/index.json')).json(); src = ids.map(id => [id, async () => (await fetch(`models/ships/${id}.glb`)).arrayBuffer()]); } catch (e) { src = []; }
+    }
+    await MeshoptDecoder.ready;
+    for (const [id, get] of src) { try { GLB_SHIPS[id] = (await parse(await get())).scene; } catch (e) { console.warn('модель корабля', id, e); } }
+    shipCache.clear();
+    return Object.keys(GLB_SHIPS).length;
+  })();
+  return shipModelsReady;
+}
+export function hasShipModel(type) { return !!GLB_SHIPS[type]; }
+// атрибут glTF (часто квантованный Int16) → обычный Float32
+function floatAttr(a) {
+  const n = a.count, k = a.itemSize, out = new Float32Array(n * k);
+  for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) out[i * k + j] = a.getComponent ? a.getComponent(i, j) : [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)][j];
+  return new THREE.BufferAttribute(out, k);
+}
+// модель из Blender → детали в координатах корабля (нос +Z, единица = радиус модели R), материалы — игровые
+function buildFromGlb(g, type, R, M, D, eng, faction, LK) {
+  const src = GLB_SHIPS[type];
+  const root = new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matrix4().makeScale(R, R, R)); // Blender +Y (glTF −Z) → нос +Z
+  src.updateMatrixWorld(true);
+  const M2 = pbrMat(new THREE.Color(LK.second != null ? LK.second : color2(M)).getHex(), faction === 'pirate' || faction === 'guard' ? faction : 'dark');
+  const accent = LK.accent != null ? LK.accent : FACTION_ACCENT[DESIGN_FAC[type] || faction] || 0x2a8fd0;
+  const winM = cachedMat('glbWin', () => new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffe2b0, emissiveIntensity: 1.5, roughness: 0.6 }));
+  const matOf = (m) => {
+    const n = (m.name || '').split('.')[0];
+    if (n === 'hull') return M;
+    if (n === 'hull2') return M2;
+    if (n === 'dark') return D;
+    if (n === 'glass') return glassMat();
+    if (n === 'window') return winM;
+    if (n === 'glow') return glowMat(eng, 2.4);
+    if (n === 'accent') return glowMat(accent, 1.7);
+    if (m.emissiveIntensity > 1.6 && !m.userData.capped) { m.emissiveIntensity = 1.6; m.userData.capped = true; } // свечение из Blender — мягче, без пересвета
+    return m; // золото, кристаллы, купола, контейнеры — как в Blender
+  };
+  const mw = new THREE.Matrix4(), tmp = new THREE.Vector3();
+  const hpOf = (o) => { for (let p = o.parent; p && p !== src; p = p.parent) if (p.userData && p.userData.hp != null) return p; return null; };
+  const hpGroups = new Map();
+  src.traverse(o => {
+    const ud = o.userData || {};
+    if (ud.hp != null && !hpGroups.has(o)) { // точка орудия: своя группа в координатах корабля
+      const hg = new THREE.Group(); mw.multiplyMatrices(root, o.matrixWorld); tmp.setFromMatrixPosition(mw);
+      hg.position.copy(tmp); hg.userData.hp = ud.hp * R; g.add(hg); hpGroups.set(o, hg);
+    }
+    if (ud.eng != null) { mw.multiplyMatrices(root, o.matrixWorld); tmp.setFromMatrixPosition(mw); addEngine(g, tmp.x, tmp.y, tmp.z + ud.eng * R * 0.4, ud.eng * R * 0.95, eng, 0.6); }
+    if (ud.light) { mw.multiplyMatrices(root, o.matrixWorld); tmp.setFromMatrixPosition(mw); addLights(g, [[tmp.x, tmp.y, tmp.z, R * 0.018]], new THREE.Color(ud.light[0], ud.light[1], ud.light[2]).getHex()); }
+    if (ud.maw != null) { mw.multiplyMatrices(root, o.matrixWorld); const m = new THREE.Object3D(); m.position.setFromMatrixPosition(mw); m.userData.maw = ud.maw * R; g.add(m); }
+  });
+  src.traverse(o => {
+    if (!o.isMesh) return;
+    const geo = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal']) if (o.geometry.attributes[k]) geo.setAttribute(k, floatAttr(o.geometry.attributes[k]));
+    if (o.geometry.index) geo.setIndex(o.geometry.index.clone());
+    mw.multiplyMatrices(root, o.matrixWorld); geo.applyMatrix4(mw);
+    // нулевые и битые нормали (вершины конусов, центры тарелок) дают NaN в освещении — а свечение размазывает его на весь кадр
+    const nm = geo.attributes.normal;
+    if (nm) for (let i = 0; i < nm.count; i++) { const x = nm.getX(i), y = nm.getY(i), z = nm.getZ(i), l = Math.hypot(x, y, z); if (!(l > 1e-4) || !isFinite(l)) nm.setXYZ(i, 0, 1, 0); }
+    else geo.computeVertexNormals();
+    const ps = geo.attributes.position; for (let i = 0; i < ps.array.length; i++) if (!isFinite(ps.array[i])) ps.array[i] = 0;
+    const hp = hpOf(o), parent = hp ? hpGroups.get(hp) : g;
+    if (hp) geo.translate(-parent.position.x, -parent.position.y, -parent.position.z);
+    const mesh = new THREE.Mesh(geo, matOf(o.material)); mesh.userData.uvTile = 2.2;
+    parent.add(mesh);
+  });
+}
+const color2 = (M) => { const c = (M.color || new THREE.Color(0x888888)).clone(); return c.multiplyScalar(0.55); };
+
 function buildShip(type, color, faction) {
   const g = new THREE.Group();
   const DF = DESIGN_FAC[type], own = DF && faction !== 'pirate' && faction !== 'guard'; // фракционный корабль в своей окраске
@@ -1888,7 +1971,8 @@ function buildShip(type, color, faction) {
   const eng = LK.engine != null ? LK.engine : own ? FAC_ENGINE[DF] : faction === 'pirate' ? 0xff3a1a : faction === 'guard' ? 0x9fd0ff : 0x40b8ff;
   const R = SHIP_BASE_R[type] || 50;
   const add = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
-  if (DESIGN[type]) { const K = shipKit(g, R, M, D, eng, faction, add); DESIGN[type](K); autoWindows(K); }
+  if (GLB_SHIPS[type]) buildFromGlb(g, type, R, M, D, eng, faction, LK);
+  else if (DESIGN[type]) { const K = shipKit(g, R, M, D, eng, faction, add); DESIGN[type](K); autoWindows(K); }
   else switch (type) {
     case 'iskra': {
       add(lathe(R * 1.9, R * 0.32, [[0, 0.55], [0.1, 0.8], [0.45, 1], [0.75, 0.8], [0.92, 0.4], [1, 0.05]]), M, 0, 0, 0, 1, 0.7, 1);

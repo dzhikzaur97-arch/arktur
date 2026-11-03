@@ -11,7 +11,7 @@ const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).ve
 // --- серверные модули в мини-загрузчике CommonJS ---
 // генератор планет общий для сервера и клиента — лежит в public/js
 const modPath = (name) => name === 'planetgen' ? 'public/js/planetgen.js' : `server/${name}.js`;
-const serverMods = ['catalog', 'data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'sleep', 'cmissions', 'dailies', 'outposts', 'wormholes', 'shipyard', 'marks', 'gas', 'probes', 'activities', 'passengers', 'corp', 'tech', 'raid', 'world', 'newships', 'refine', 'shipstory', 'insure', 'trade', 'mega', 'fleetx', 'season', 'heat', 'game'].map(name =>
+const serverMods = ['catalog', 'data', 'universe', 'planetgen', 'features', 'ai', 'story', 'contracts', 'infra', 'combat', 'drones', 'pirates', 'pbases', 'surface', 'bot', 'autoplay', 'relics', 'industry', 'war', 'wingmen', 'worldevents', 'career', 'npctalk', 'sleep', 'cmissions', 'dailies', 'outposts', 'wormholes', 'shipyard', 'marks', 'gas', 'probes', 'activities', 'passengers', 'corp', 'tech', 'raid', 'world', 'newships', 'refine', 'shipstory', 'insure', 'trade', 'mega', 'fleetx', 'season', 'heat', 'traits', 'game'].map(name =>
   `'./${name}': function (module, exports, require) {\nconst Date = __VDate;\n${read(modPath(name))}\n}`).join(',\n');
 
 const serverBundle = `
@@ -197,11 +197,14 @@ const art = embed(artDir, 960, 70);
 // единая серия фото кораблей (tools/make-photos.js)
 const photoDir = path.join(ROOT, 'public/img/photos');
 const photos = embed(photoDir, 800, 72);
+// модели кораблей из Blender (tools/blender/ships.py → tools/compress-ships.mjs): base64, расжимаются в браузере
+const shipDir = path.join(ROOT, 'public/models/ships');
+const shipGlb = fs.existsSync(shipDir) ? Object.fromEntries(fs.readdirSync(shipDir).filter(f => f.endsWith('.glb')).sort().map(f => [f.slice(0, -4), fs.readFileSync(path.join(shipDir, f)).toString('base64')])) : {};
 const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
 if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
 const page = `<title>Arktur</title>
 <script>${i18n}</script>
-<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)};</script>
+<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
 <style>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }

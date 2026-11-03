@@ -1823,5 +1823,6 @@ require('./mega')(Game);
 require('./fleetx')(Game);
 require('./season')(Game);
 require('./heat')(Game);
+require('./traits')(Game);
 
 module.exports = { Game };
