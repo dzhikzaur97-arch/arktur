@@ -399,7 +399,7 @@ try { $('#lg-name').value = localStorage.getItem('vf-name') || ''; } catch {}
 (function loginSlides() {
   const box = $('#login-art');
   if (!box) return;
-  const order = ['begemot', 'strizh', 'citadel', 'piligrim', 'leviafan', 'vihr', 'kit', 'sokol', 'staratel'];
+  const order = ['porog', 'molot', 'senator', 'strazh', 'orakul', 'flagman', 'gonchaya', 'imperator', 'kit', 'begemot'];
   const layers = [0, 1].map(() => { const d = document.createElement('div'); d.className = 'login-slide'; box.appendChild(d); return d; });
   let i = 0, top = 0;
   const show = () => {
