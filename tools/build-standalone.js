@@ -199,7 +199,7 @@ const photoDir = path.join(ROOT, 'public/img/photos');
 const photos = embed(photoDir, 800, 72);
 // модели кораблей из Blender (tools/blender/ships.py → tools/compress-ships.mjs): base64, расжимаются в браузере
 const shipDir = path.join(ROOT, 'public/models/ships');
-const shipGlb = fs.existsSync(shipDir) ? Object.fromEntries(fs.readdirSync(shipDir).filter(f => f.endsWith('.glb')).sort().map(f => [f.slice(0, -4), fs.readFileSync(path.join(shipDir, f)).toString('base64')])) : {};
+const shipGlb = fs.existsSync(shipDir) ? Object.fromEntries(fs.readdirSync(shipDir).filter(f => f.endsWith('.glb')).sort().map(f => [f.slice(0, -4), require('zlib').gzipSync(fs.readFileSync(path.join(shipDir, f)), { level: 9 }).toString('base64')])) : {};
 const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
 if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
 const page = `<title>Arktur</title>

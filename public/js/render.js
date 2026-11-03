@@ -12,7 +12,7 @@ import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { gunzipSync } from 'three/addons/libs/fflate.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -1889,18 +1889,20 @@ const GLB_SHIPS = {};
 let shipModelsReady = null;
 export function loadShipModels() {
   if (shipModelsReady) return shipModelsReady;
-  const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+  const loader = new GLTFLoader();
   const parse = (buf) => new Promise((res, rej) => loader.parse(buf, '', res, rej));
-  const b64 = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  // встроенные модели — gzip в base64; распаковка чистым JS, без WebAssembly
+  const b64 = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const g = u[0] === 0x1f && u[1] === 0x8b ? gunzipSync(u) : u; return g.buffer.slice(g.byteOffset, g.byteOffset + g.byteLength); };
   shipModelsReady = (async () => {
     let src = window.VF_SHIP_GLB && Object.keys(window.VF_SHIP_GLB).length ? Object.entries(window.VF_SHIP_GLB).map(([id, d]) => [id, () => b64(d)]) : null;
     if (!src) { // сетевая версия: файлы рядом со страницей
       try { const ids = await (await fetch('models/ships/index.json')).json(); src = ids.map(id => [id, async () => (await fetch(`models/ships/${id}.glb`)).arrayBuffer()]); } catch (e) { src = []; }
     }
-    await MeshoptDecoder.ready;
     for (const [id, get] of src) { try { GLB_SHIPS[id] = (await parse(await get())).scene; } catch (e) { console.warn('модель корабля', id, e); } }
     shipCache.clear();
-    return Object.keys(GLB_SHIPS).length;
+    const n = Object.keys(GLB_SHIPS).length; window.__VF_GLB_N = n;
+    if (!n) console.warn('модели кораблей из Blender не загрузились — показываю запасные корпуса');
+    return n;
   })();
   return shipModelsReady;
 }

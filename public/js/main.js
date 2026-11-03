@@ -3394,7 +3394,8 @@ function sysInfoHTML() {
   return `<div class="small">Видеокарта: <b>${esc(g.gpu || 'неизвестно')}</b><br>
     Экран: <b>${Math.round(screen.width * dpr)}×${Math.round(screen.height * dpr)}</b> (масштаб системы ${Math.round(dpr * 100)}%), окно игры ${Math.round(innerWidth * dpr)}×${Math.round(innerHeight * dpr)}, буфер рендера ${g.buffer ? g.buffer.join('×') : '?'}<br>
     Процессор: ${navigator.hardwareConcurrency || '?'} логических потоков · ОЗУ: ${mem}<br>
-    MSAA до ${g.maxSamples || '?'}× · анизотропия до ${g.aniso || '?'}×</div>
+    MSAA до ${g.maxSamples || '?'}× · анизотропия до ${g.aniso || '?'}×<br>
+    Модели кораблей из Blender: <b>${window.__VF_GLB_N == null ? 'загружаются…' : window.__VF_GLB_N ? window.__VF_GLB_N + ' загружено' : 'не загрузились — показаны запасные корпуса'}</b></div>
     <div class="muted small">Точную модель процессора и объём памяти браузер не раскрывает — их видно в «Диспетчер задач → Производительность» (Windows).</div>`;
 }
 function savesHTML() {
