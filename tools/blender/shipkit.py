@@ -332,3 +332,82 @@ def mount(x, y, s, M, top=True):
     p = surf(x, y, top)
     if p is None: return None
     return turret_base(p.x, p.y, p.z - (s * 0.03 if top else -s * 0.03), s, M, 1 if top else -1)
+
+# =====================================================================
+# Гранёные формы (v70): корпуса без скругления — плоские панели и рёбра-скулы
+# =====================================================================
+PROF = {
+    # точки сечения в квадрате [-1, 1] (x — ширина, z — высота)
+    'oct':   [(1, 0.4), (0.55, 1), (-0.55, 1), (-1, 0.4), (-1, -0.35), (-0.6, -1), (0.6, -1), (1, -0.35)],
+    'hex':   [(1, 0), (0.55, 1), (-0.55, 1), (-1, 0), (-0.6, -0.85), (0.6, -0.85)],
+    'keel':  [(1, 0.35), (0.65, 1), (-0.65, 1), (-1, 0.35), (-0.45, -0.55), (0, -1), (0.45, -0.55)],
+    'diam':  [(1, 0), (0, 1), (-1, 0), (0, -1)],
+    'trap':  [(1, -1), (0.62, 1), (-0.62, 1), (-1, -1)],
+    'slab':  [(1, 0.55), (0.82, 1), (-0.82, 1), (-1, 0.55), (-1, -0.7), (-0.8, -1), (0.8, -1), (1, -0.7)],
+    'tri':   [(1, -1), (0.12, 1), (-0.12, 1), (-1, -1)],
+    'arrow': [(1, 0.05), (0.75, 0.6), (-0.75, 0.6), (-1, 0.05), (-0.45, -1), (0.45, -1)],
+    'blade': [(1, 0), (0.25, 1), (-0.25, 1), (-1, 0), (-0.25, -1), (0.25, -1)],
+}
+
+def _finish(name, bm, material, bev=0.006, angle=28):
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    ob = bpy.data.objects.new(name, me); ob.data.materials.append(material); link(ob)
+    for p in me.polygons: p.use_smooth = False
+    if bev: bevel(ob, bev, 1, angle)
+    return ob
+
+def hull(name, secs, prof, material, bev=0.006):
+    """Гранёный корпус: сечения (y, w, h, z0=0, x0=0, prof=None) соединены прямыми гранями — без сглаживания."""
+    bm = bmesh.new(); rings = []
+    for s in secs:
+        y, w, h = s[0], max(s[1], 0.0008), max(s[2], 0.0008)
+        z0 = s[3] if len(s) > 3 else 0; x0 = s[4] if len(s) > 4 else 0
+        pr = PROF[s[5] if len(s) > 5 and s[5] else prof]
+        rings.append([bm.verts.new((x0 + px * w, y, z0 + pz * h)) for px, pz in pr])
+    n = len(rings[0])
+    for a, b in zip(rings, rings[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            bm.faces.new((a[i], a[j], b[j], b[i]))
+    bm.faces.new(rings[0]); bm.faces.new(rings[-1][::-1])
+    return _finish(name, bm, material, bev)
+
+def plate(name, outline, z, t, material, bev=0.004, side=1, rot=None, taper=1.0):
+    """Плита по контуру сверху: outline — [(x, y)], толщина t вверх от z; side=-1 — зеркально по X.
+    taper < 1 — верхняя грань меньше нижней (скос кромок)."""
+    pts = [(x * side, y) for x, y in outline]
+    cx = sum(p[0] for p in pts) / len(pts); cy = sum(p[1] for p in pts) / len(pts)
+    bm = bmesh.new()
+    lo = [bm.verts.new((x, y, z)) for x, y in pts]
+    hi = [bm.verts.new((cx + (x - cx) * taper, cy + (y - cy) * taper, z + t)) for x, y in pts]
+    n = len(pts)
+    bm.faces.new(lo); bm.faces.new(hi)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((lo[i], lo[j], hi[j], hi[i]))
+    ob = _finish(name, bm, material, bev, 25)
+    if rot:
+        ob.rotation_euler = rot
+    return ob
+
+def vplate(name, outline, x, t, material, bev=0.004):
+    """Вертикальная плита (кили, гребни): контур в плоскости Y-Z, толщина t по X вокруг x."""
+    bm = bmesh.new()
+    a = [bm.verts.new((x - t / 2, y, z)) for y, z in outline]
+    b = [bm.verts.new((x + t / 2, y, z)) for y, z in outline]
+    n = len(outline)
+    bm.faces.new(a); bm.faces.new(b)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((a[i], a[j], b[j], b[i]))
+    return _finish(name, bm, material, bev, 25)
+
+def facet_canopy(x, y, z, w, l, h, M):
+    """Гранёный фонарь кабины: стекло-клин с рамой."""
+    hull('Кабина', [(y + l * 0.5, w * 0.05, h * 0.1, z), (y + l * 0.15, w, h, z), (y - l * 0.5, w * 0.85, h * 0.7, z)], 'hex', M['glass'], 0.002)
+    plate('Рама_кабины', [(-w * 0.15, y - l * 0.1), (w * 0.15, y - l * 0.1), (w * 0.1, y + l * 0.3), (-w * 0.1, y + l * 0.3)], z + h * 0.92, h * 0.12, M['hull2'], 0.002)
+
+def mir(fn):
+    for sd in (1, -1): fn(sd)
