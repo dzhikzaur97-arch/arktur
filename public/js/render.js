@@ -779,44 +779,123 @@ function addTurret(g, x, y, z, s, mat) {
 }
 
 // ---------- Видимое оружие: установленные модули верхних слотов вместо типовых турелей ----------
-// w: { kind, fam, base, lv, color }. Вид зависит от типа оружия, улучшенный модуль светится кольцом цвета уровня.
+// w: { kind, fam, base, lv, color }. Каждое орудие — угловатая бронебашня своего типа: лазер, рельсотрон, автопушка,
+// плазмомёт, ионный разрядник, ракетная установка, буровой излучатель. Уровень улучшения — светящиеся насечки на борту башни.
 const LV_GLOW = [0, 0, 0x60ff90, 0x60b0ff, 0xc070ff, 0xffc040];
+// клин-корпус башни: профиль сбоку (скошенный лоб и корма), вытянутый по ширине; вперёд — +z
+function wedgeGeo(w, h, d, front = 0.45, back = 0.15) {
+  const sh = new THREE.Shape();
+  sh.moveTo(-d / 2, 0); sh.lineTo(-d / 2, h * 0.7); sh.lineTo(-d / 2 + d * back, h); sh.lineTo(d / 2 - d * front, h); sh.lineTo(d / 2, h * 0.38); sh.lineTo(d / 2, 0); sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: w, bevelEnabled: true, bevelThickness: w * 0.04, bevelSize: w * 0.04, bevelSegments: 1 });
+  g.rotateY(-Math.PI / 2); g.translate(w / 2, 0, 0); g.computeVertexNormals();
+  return g;
+}
 function weaponMesh(w, s) {
-  const t = new THREE.Group(), D = darkMetal(), M = cachedMat('wpnM', () => new THREE.MeshStandardMaterial({ color: 0x8a929c, metalness: 0.75, roughness: 0.35 }));
-  const col = w.color != null ? w.color : 0x9fd8ff;
+  const t = new THREE.Group();
+  const M = cachedMat('wpnM2', () => new THREE.MeshStandardMaterial({ color: 0xa9b1ba, metalness: 0.5, roughness: 0.38 }));
+  const P = cachedMat('wpnP2', () => new THREE.MeshStandardMaterial({ color: 0x646c76, metalness: 0.55, roughness: 0.42 }));
+  const D = cachedMat('wpnD2', () => new THREE.MeshStandardMaterial({ color: 0x343a41, metalness: 0.7, roughness: 0.3 }));
+  const col = w.color != null ? w.color : 0x9fd8ff, G = glowMat(col, 2.2);
   const fam = w.fam || (/^rail/.test(w.base) ? 'rg' : /^laser|^beam/.test(w.base) ? 'pl' : /^ac|^auto/.test(w.base) ? 'ac' : /^plasma/.test(w.base) ? 'pt' : '');
-  const cyl = (r1, r2, h, mat, x, y, z, rx = Math.PI / 2, seg = 10) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), mat); m.rotation.x = rx; m.position.set(x, y, z); t.add(m); return m; };
-  t.add(new THREE.Mesh(new THREE.CylinderGeometry(s * 0.62, s * 0.78, s * 0.38, 16), D));
-  if (w.kind === 'launcher') {
-    const box = new THREE.Mesh(rbox(s * 1.1, s * 0.6, s * 1.0), M); box.position.y = s * 0.45; t.add(box);
-    for (const [dx, dy] of [[-0.25, 0.32], [0.25, 0.32], [-0.25, 0.58], [0.25, 0.58]]) cyl(s * 0.12, s * 0.12, s * 0.06, glowMat(0xff7040, 1.4), dx * s, dy * s, s * 0.51);
-  } else if (w.kind === 'miner') {
-    const head = new THREE.Mesh(new THREE.SphereGeometry(s * 0.45, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), M); head.position.y = s * 0.18; t.add(head);
-    const c = cyl(s * 0.08, s * 0.3, s * 0.9, D, 0, s * 0.35, s * 0.5); c.rotation.x = -Math.PI / 2;
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(s * 0.12, 10, 8), glowMat(w.gas ? 0x9fd0ff : 0x60ff90, 3)); tip.position.set(0, s * 0.35, s * 0.98); t.add(tip);
-  } else {
-    const head = new THREE.Mesh(new THREE.SphereGeometry(s * 0.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), M); head.position.y = s * 0.18; t.add(head);
-    if (fam === 'rg') { // рельсотрон: две длинные шины и катушки
-      for (const dx of [-0.13, 0.13]) cyl(s * 0.06, s * 0.06, s * 2.2, D, dx * s, s * 0.36, s * 1.1);
-      for (let i = 0; i < 3; i++) cyl(s * 0.24, s * 0.24, s * 0.08, glowMat(col, 1.6), 0, s * 0.36, s * (0.45 + i * 0.5));
-    } else if (fam === 'ac') { // автопушка: блок из трёх коротких стволов
-      for (const [dx, dy] of [[-0.14, 0.3], [0.14, 0.3], [0, 0.46]]) cyl(s * 0.07, s * 0.08, s * 1.1, D, dx * s, dy * s, s * 0.65);
-      cyl(s * 0.2, s * 0.2, s * 0.18, M, 0, s * 0.36, s * 0.25);
-    } else if (fam === 'pt') { // плазмомёт: толстый ствол и светящаяся камера
-      cyl(s * 0.16, s * 0.2, s * 1.1, D, 0, s * 0.35, s * 0.65);
-      const ch = new THREE.Mesh(new THREE.SphereGeometry(s * 0.24, 12, 8), glowMat(col, 2.4)); ch.position.set(0, s * 0.42, s * 0.15); t.add(ch);
-    } else if (fam === 'ion') { // ионный разрядник: вилка из двух зубцов
-      for (const dx of [-0.2, 0.2]) { const p = cyl(s * 0.05, s * 0.08, s * 1.2, D, dx * s, s * 0.36, s * 0.7); p.rotation.y = -dx * 0.5; }
-      const arc = new THREE.Mesh(new THREE.SphereGeometry(s * 0.1, 8, 6), glowMat(col, 3)); arc.position.set(0, s * 0.36, s * 1.25); t.add(arc);
-    } else { // лазер: один длинный ствол с линзой
-      cyl(s * 0.07, s * 0.1, s * 1.5, D, 0, s * 0.36, s * 0.8);
-      cyl(s * 0.13, s * 0.13, s * 0.12, glowMat(col, 2.6), 0, s * 0.36, s * 1.55);
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x * s, y * s, z * s); m.rotation.set(rx, ry, rz); t.add(m); return m; };
+  const bx = (wd, h, d, mat, x, y, z, rx, ry, rz) => add(new THREE.BoxGeometry(wd * s, h * s, d * s), mat, x, y, z, rx, ry, rz);
+  const tube = (r1, r2, len, mat, x, y, z, seg = 8) => add(new THREE.CylinderGeometry(r1 * s, r2 * s, len * s, seg), mat, x, y, z + len / 2, Math.PI / 2); // ствол вдоль +z от точки z
+  // погон: шестигранная плита и поворотный узел
+  add(new THREE.CylinderGeometry(0.62 * s, 0.72 * s, 0.14 * s, 6), P, 0, 0.05, 0, 0, Math.PI / 6);
+  bx(0.46, 0.12, 0.46, D, 0, 0.17, 0);
+  let topY = 0.62, markX = 0.63, markY = 0.72; // высота оси стволов; где насечки уровня
+  const housing = (wd = 0.9, h = 0.42, d = 1.05, z = -0.05, front = 0.45) => {
+    add(wedgeGeo(wd * s, h * s, d * s, front), M, 0, 0.22, z);
+    for (const sd of [1, -1]) bx(0.05, h * 0.7, d * 0.7, P, sd * (wd / 2 + 0.03), 0.22 + h * 0.42, z - d * 0.05, 0, sd * 0.06, 0); // боковая броня
+    bx(wd * 0.5, 0.05, d * 0.35, P, 0, 0.22 + h + 0.02, z - d * 0.22); // люк на крыше
+    topY = 0.22 + h * 0.62; markX = wd / 2 + 0.065; markY = 0.22 + h * 0.42;
+  };
+  if (w.kind === 'launcher') { // ракетная установка: бронированный пакет 3×2 квадратных шахт
+    bx(1.05, 0.62, 0.95, M, 0, 0.55, 0);
+    add(wedgeGeo(1.1 * s, 0.14 * s, 1.0 * s, 0.6, 0.1), P, 0, 0.86, 0); // скошенная крышка
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+      const x = (i - 1) * 0.32, y = 0.42 + j * 0.27;
+      bx(0.25, 0.21, 0.08, D, x, y, 0.47);              // устье шахты
+      bx(0.13, 0.1, 0.04, glowMat(0xff7a40, 1.6), x, y, 0.45); // боеголовка в глубине
     }
+    for (const sd of [1, -1]) bx(0.08, 0.5, 0.7, P, sd * 0.58, 0.5, -0.05);
+  } else if (w.kind === 'miner') { // буровой излучатель: угловатая стрела и гранёный фокусатор
+    housing(0.7, 0.34, 0.8, -0.15, 0.5);
+    bx(0.18, 0.18, 0.7, P, 0, 0.5, 0.35, -0.25, 0, 0);
+    const em = add(new THREE.CylinderGeometry(0.06 * s, 0.26 * s, 0.45 * s, 6), D, 0, 0.64, 0.85, -Math.PI / 2 - 0.25);
+    em.rotation.order = 'XYZ';
+    add(new THREE.OctahedronGeometry(0.12 * s), glowMat(w.gas ? 0x9fd0ff : 0x60ff90, 3), 0, 0.7, 1.12);
+    for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3; bx(0.03, 0.03, 0.32, P, Math.cos(a) * 0.18, 0.7 + Math.sin(a) * 0.18, 1.05); }
+  } else if (fam === 'rg') { // рельсотрон: две плоские шины, разряд между ними, конденсаторные блоки
+    housing(0.95, 0.44, 1.1, -0.15, 0.4);
+    for (const sd of [1, -1]) bx(0.08, 0.2, 2.0, D, sd * 0.12, topY + 0.05, 0.85);
+    bx(0.05, 0.06, 1.7, glowMat(col, 1.9), 0, topY + 0.05, 0.95);
+    for (let i = 0; i < 3; i++) { // квадратные обоймы катушек
+      const z = 0.25 + i * 0.4;
+      bx(0.42, 0.06, 0.1, P, 0, topY + 0.2, z); bx(0.42, 0.06, 0.1, P, 0, topY - 0.1, z);
+      for (const sd of [1, -1]) bx(0.06, 0.36, 0.1, P, sd * 0.21, topY + 0.05, z);
+    }
+    bx(0.36, 0.3, 0.12, M, 0, topY + 0.05, 1.82); // дульный блок
+  } else if (fam === 'ac') { // автопушка: вращающийся блок из трёх стволов, кожух и короб с лентой
+    housing(0.9, 0.42, 1.0, -0.1, 0.5);
+    bx(0.42, 0.42, 0.3, P, 0, topY, 0.45);
+    for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3 + Math.PI / 2; tube(0.055, 0.055, 0.95, D, Math.cos(a) * 0.11, topY + Math.sin(a) * 0.11, 0.55, 6); }
+    bx(0.36, 0.36, 0.08, P, 0, topY, 1.15); // передняя обойма
+    bx(0.26, 0.3, 0.42, M, 0.6, 0.45, -0.15); bx(0.12, 0.08, 0.3, D, 0.43, 0.62, 0.05); // короб и лента
+  } else if (fam === 'pt') { // плазмомёт: квадратный конический ствол, гранёная камера в клетке
+    housing(1.0, 0.46, 1.05, -0.12, 0.42);
+    add(new THREE.CylinderGeometry(0.12 * s, 0.2 * s, 1.0 * s, 4), D, 0, topY, 0.95, Math.PI / 2, Math.PI / 4, 0); // квадратный ствол: поворот вокруг своей оси, затем вперёд
+    bx(0.34, 0.34, 0.1, P, 0, topY, 1.45); // дульный срез
+    const ch = add(new THREE.IcosahedronGeometry(0.2 * s, 0), G, 0, topY + 0.22, -0.2);
+    for (const [dx, dz] of [[-0.18, -0.38], [0.18, -0.38], [-0.18, -0.02], [0.18, -0.02]]) bx(0.04, 0.42, 0.04, P, dx, topY + 0.22, dz);
+    bx(0.44, 0.04, 0.44, P, 0, topY + 0.43, -0.2);
+  } else if (fam === 'ion') { // ионный разрядник: вилка из двух разведённых зубцов на изоляторах
+    housing(0.95, 0.42, 1.0, -0.12, 0.45);
+    for (const sd of [1, -1]) {
+      bx(0.08, 0.12, 1.15, D, sd * 0.17, topY + 0.04, 0.75, 0, -sd * 0.1, 0);
+      for (let i = 0; i < 3; i++) bx(0.14, 0.16, 0.06, P, sd * (0.15 + i * 0.02), topY + 0.04, 0.3 + i * 0.25); // изоляторы
+      add(new THREE.OctahedronGeometry(0.07 * s), G, sd * 0.26, topY + 0.04, 1.32);
+    }
+    bx(0.08, 0.08, 0.5, G, 0, topY + 0.04, 0.7);
+  } else { // лазер (импульсный и лучевой): один ствол с радиаторами и гранёной линзой
+    const beam = fam === 'bl';
+    housing(0.88, 0.42, 1.0, -0.08, 0.5);
+    bx(0.26, 0.26, 0.42, P, 0, topY, 0.45);
+    const len = beam ? 1.5 : 1.15;
+    tube(0.075, 0.09, len, D, 0, topY, 0.6, 8);
+    for (let i = 0; i < (beam ? 4 : 3); i++) bx(0.3, 0.3, 0.035, P, 0, topY, 0.75 + i * 0.16); // радиаторы
+    add(new THREE.CylinderGeometry(0.11 * s, 0.11 * s, 0.1 * s, 6), G, 0, topY, 0.6 + len + 0.04, Math.PI / 2);
   }
-  if (w.lv >= 2) { const ring = new THREE.Mesh(new THREE.TorusGeometry(s * 0.72, s * 0.06, 6, 24), glowMat(LV_GLOW[w.lv], 2.2)); ring.rotation.x = Math.PI / 2; ring.position.y = s * 0.2; t.add(ring); }
+  // уровень улучшения: светящиеся насечки на бортах башни (по одной за уровень сверх первого)
+  if (w.lv >= 2) {
+    const lg = glowMat(LV_GLOW[w.lv], 2.2);
+    for (let i = 0; i < w.lv - 1; i++) for (const sd of [1, -1]) bx(0.035, 0.07, 0.11, lg, sd * markX, markY, -0.35 + i * 0.15); // поверх бортовой брони
+  }
   t.userData.wpn = true;
   return t;
 }
+// витрина всех орудий (инструмент проверки): тип × уровень, крупно, в три четверти
+export function weaponSheet(tw = 360, th = 260) {
+  const kinds = [['Импульсный лазер', { kind: 'weapon', fam: 'pl', color: 0xff6040 }], ['Лучевой лазер', { kind: 'weapon', fam: 'bl', color: 0xff8030 }], ['Рельсотрон', { kind: 'weapon', fam: 'rg', color: 0x60c0ff }], ['Автопушка', { kind: 'weapon', fam: 'ac', color: 0xffd060 }],
+    ['Плазмомёт', { kind: 'weapon', fam: 'pt', color: 0x60ffd0 }], ['Ионный разрядник', { kind: 'weapon', fam: 'ion', color: 0xa080ff }], ['Ракетная установка', { kind: 'launcher' }], ['Буровой лазер', { kind: 'miner' }]];
+  const lvs = [1, 3, 5];
+  const out = document.createElement('canvas'); out.width = tw * lvs.length; out.height = th * kinds.length; const c = out.getContext('2d');
+  const prev = renderer.getSize(new THREE.Vector2()), pr = renderer.getPixelRatio();
+  renderer.setPixelRatio(1); renderer.setSize(tw, th, false);
+  kinds.forEach(([name, w], r) => lvs.forEach((lv, k) => {
+    const ps = new THREE.Scene(); ps.background = new THREE.Color(0x1c2128); ps.environment = scene.environment; ps.environmentIntensity = 0.9;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 3), new THREE.MeshStandardMaterial({ color: 0x5a6068, metalness: 0.6, roughness: 0.5 })); plate.position.y = -0.1; ps.add(plate);
+    const m = weaponMesh({ ...w, lv }, 1); ps.add(m);
+    const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(-2, 4, 3); ps.add(key);
+    const fill = new THREE.DirectionalLight(0xb0c8ff, 0.8); fill.position.set(3, 1, -2); ps.add(fill); ps.add(new THREE.AmbientLight(0x9098a8, 0.6));
+    const cam = new THREE.PerspectiveCamera(32, tw / th, 0.05, 50); cam.position.set(-3.3, 2.3, 3.0); cam.lookAt(0, 0.45, 0.55);
+    renderer.render(ps, cam); c.drawImage(renderer.domElement, k * tw, r * th, tw, th);
+    c.fillStyle = '#cfe0ee'; c.font = '14px sans-serif'; c.fillText(`${name} · ур.${lv}`, k * tw + 8, r * th + 18);
+  }));
+  renderer.setPixelRatio(pr); renderer.setSize(prev.x, prev.y, false);
+  return out.toDataURL('image/jpeg', 0.9);
+}
+
 function applyWeapons(model, weapons) {
   if (!weapons || !weapons.length) return;
   // считаем в собственных координатах модели: временно снимаем масштаб, поворот и родителя
