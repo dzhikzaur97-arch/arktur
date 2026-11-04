@@ -503,6 +503,38 @@ function applyBoxUV(root, tile, shadows) {
   });
 }
 
+// Фототекстуры CC0 (ambientCG, public/img/tex): мелкая фактура металла и царапины на корпусах, камень астероидов.
+// В одиночной сборке встроены в страницу (window.VF_TEX), в сетевой — файлы рядом со страницей.
+const PHOTO = {};
+function photoTex(name, srgb) {
+  if (PHOTO[name]) return PHOTO[name];
+  const src = (window.VF_TEX && window.VF_TEX[name]) || `img/tex/${name}.jpg`;
+  const t = new THREE.TextureLoader().load(src);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = maxAniso();
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return (PHOTO[name] = t);
+}
+// второй слой фактуры поверх нарисованных панелей: металл (яркость, рельеф, шероховатость) и блестящие царапины
+function hullDetail(m) {
+  if (texLevel === 'low') return; // слабые телефоны — без лишних выборок
+  const U = { vfDM: { value: photoTex('metal_d') }, vfDN: { value: photoTex('metal_n') }, vfDR: { value: photoTex('metal_r') }, vfSC: { value: photoTex('scratch') }, vfDS: { value: 4.0 } };
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D vfDM, vfDN, vfDR, vfSC; uniform float vfDS;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  // крупные пятна выцветания и копоти (металл в низкой частоте) + мелкое зерно + блестящие царапины
+  float vfB = texture2D(vfDM, vMapUv * vfDS * 0.23 + 0.31).r, vfM = texture2D(vfDM, vMapUv * vfDS).r, vfS = texture2D(vfSC, vMapUv * vfDS * 0.3 + 0.17).r;
+  diffuseColor.rgb *= (0.62 + 0.76 * vfB) * (0.85 + 0.3 * vfM);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.6 + 0.06, clamp(vfS * 1.6, 0.0, 1.0) * 0.7);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  roughnessFactor = clamp(roughnessFactor * (0.6 + 0.8 * vfB) - vfS * 0.45, 0.05, 1.0);`)
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;',
+        'mapN.xy *= normalScale; { vec3 vfN = texture2D(vfDN, vNormalMapUv * vfDS).xyz * 2.0 - 1.0; mapN.xy += vfN.xy * 0.8; }'));
+  };
+  m.customProgramCacheKey = () => 'vf-hull-detail';
+}
+
 let TEX = null;
 function sharedTextures() {
   if (TEX) return TEX;
@@ -722,6 +754,7 @@ function pbrMat(paint, faction, opts = {}, accent = null, second = null) {
     clearcoat: faction === 'dark' ? 0 : 0.25, clearcoatRoughness: 0.4, envMapIntensity: 1.2, ...opts
   });
   m.userData.boxUV = true;
+  hullDetail(m);
   matCache.set(key, m);
   return m;
 }
@@ -3007,24 +3040,41 @@ function asteroidGeo(variant, detail = 24) {
 
 // Мелкий рельеф и пятна на камне считаются в шейдере — поверхность детальна на любом расстоянии
 function rockDetail(mat) {
+  const photo = texLevel !== 'low';
+  const U = photo ? { vfRC: { value: photoTex('rock_c') }, vfRN: { value: photoTex('rock_n') }, vfRR: { value: photoTex('rock_r') } } : {};
   mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vObjP; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjP = position; vNM0 = normalMatrix[0]; vNM1 = normalMatrix[1]; vNM2 = normalMatrix[2];');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjP; varying vec3 vObjN; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjP = position; vObjN = normal; vNM0 = normalMatrix[0]; vNM1 = normalMatrix[1]; vNM2 = normalMatrix[2];');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec3 vObjP; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;
-${GLSL_NOISE}`)
-      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse * (0.74 + 0.36 * fbm3(vObjP * 6.0) + 0.12 * fbm3(vObjP * 31.0)), opacity );')
+varying vec3 vObjP; varying vec3 vObjN; varying vec3 vNM0; varying vec3 vNM1; varying vec3 vNM2;
+${photo ? 'uniform sampler2D vfRC, vfRN, vfRR;' : ''}
+${GLSL_NOISE}
+// фото камня с трёх осей (без UV и без растяжений), веса — по нормали в пространстве объекта
+vec3 vfW() { vec3 w = pow(abs(normalize(vObjN)), vec3(4.0)); return w / (w.x + w.y + w.z); }
+${photo ? `vec3 vfTri(sampler2D t, float s) { vec3 w = vfW(); return texture2D(t, vObjP.zy * s).rgb * w.x + texture2D(t, vObjP.xz * s).rgb * w.y + texture2D(t, vObjP.xy * s).rgb * w.z; }
+vec3 vfTriN(float s) { // нормали трипланарно, смешивание «whiteout»
+  vec3 n0 = normalize(vObjN), w = vfW();
+  vec3 tx = texture2D(vfRN, vObjP.zy * s).xyz * 2.0 - 1.0, ty = texture2D(vfRN, vObjP.xz * s).xyz * 2.0 - 1.0, tz = texture2D(vfRN, vObjP.xy * s).xyz * 2.0 - 1.0;
+  tx = vec3(tx.xy + n0.zy, abs(tx.z) * n0.x); ty = vec3(ty.xy + n0.xz, abs(ty.z) * n0.y); tz = vec3(tz.xy + n0.xy, abs(tz.z) * n0.z);
+  return normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z); }` : ''}`)
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', photo
+        ? 'vec3 vfRock = vfTri(vfRC, 1.6); float vfL = dot(vfRock, vec3(0.3, 0.59, 0.11)) / 0.09;\n  vec4 diffuseColor = vec4( diffuse * clamp(0.45 + 0.4 * vfL, 0.4, 1.25) * (0.72 + 0.28 * fbm3(vObjP * 6.0)), opacity );'
+        : 'vec4 diffuseColor = vec4( diffuse * (0.74 + 0.36 * fbm3(vObjP * 6.0) + 0.12 * fbm3(vObjP * 31.0)), opacity );')
+      .replace('#include <roughnessmap_fragment>', photo ? '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(roughnessFactor * (0.75 + 0.4 * vfTri(vfRR, 1.6).r), 0.3, 1.0);' : '#include <roughnessmap_fragment>')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-  { // градиент шума в пространстве объекта → возмущение нормали (без экранных производных)
-    // два слоя: крупные бугры и мелкая «щебёнка» — камень не похож на гладкий пластилин
+  { // крупные бугры — градиент шума в пространстве объекта; мелкий рельеф — фото камня
     vec3 q = vObjP * 7.0; float e = 0.03; float h0 = fbm3(q);
     vec3 g = vec3(fbm3(q + vec3(e, 0.0, 0.0)) - h0, fbm3(q + vec3(0.0, e, 0.0)) - h0, fbm3(q + vec3(0.0, 0.0, e)) - h0) / e;
-    vec3 q2 = vObjP * 34.0; float h1 = fbm3(q2);
+    mat3 NM = mat3(vNM0, vNM1, vNM2);
+    ${photo ? 'normal = normalize(mix(normal, NM * vfTriN(1.6), 0.75) - NM * (g * 0.08));'
+      : `vec3 q2 = vObjP * 34.0; float h1 = fbm3(q2);
     vec3 g2 = vec3(fbm3(q2 + vec3(e, 0.0, 0.0)) - h1, fbm3(q2 + vec3(0.0, e, 0.0)) - h1, fbm3(q2 + vec3(0.0, 0.0, e)) - h1) / e;
-    normal = normalize(normal - mat3(vNM0, vNM1, vNM2) * (g * 0.1 + g2 * 0.03)); }`);
+    normal = normalize(normal - NM * (g * 0.1 + g2 * 0.03));`} }`);
   };
+  mat.customProgramCacheKey = () => 'vf-rock-' + (photo ? 1 : 0);
 }
 
 const ORE_LOOK = {

@@ -1,0 +1,6 @@
+Фототекстуры из библиотеки ambientCG (https://ambientcg.com), лицензия CC0 1.0 — общественное достояние, без ограничений.
+Photo textures from ambientCG (https://ambientcg.com), licensed CC0 1.0 Universal (public domain).
+  metal_d, metal_n, metal_r — Metal 032
+  scratch                   — Scratches 002
+  rock_c, rock_n, rock_r    — Rock 035
+Уменьшены до 512×512 для игры.

@@ -197,6 +197,8 @@ const art = embed(artDir, 960, 70);
 // единая серия фото кораблей (tools/make-photos.js)
 const photoDir = path.join(ROOT, 'public/img/photos');
 const photos = embed(photoDir, 800, 72);
+// фототекстуры CC0 (ambientCG): фактура металла и камень астероидов
+const photoTex = embed(path.join(ROOT, 'public/img/tex'), 512, 86);
 // модели кораблей из Blender (tools/blender/ships.py → tools/compress-ships.mjs): base64, расжимаются в браузере
 const shipDir = path.join(ROOT, 'public/models/ships');
 const shipGlb = fs.existsSync(shipDir) ? Object.fromEntries(fs.readdirSync(shipDir).filter(f => f.endsWith('.glb')).sort().map(f => [f.slice(0, -4), require('zlib').gzipSync(fs.readFileSync(path.join(shipDir, f)), { level: 9 }).toString('base64')])) : {};
@@ -204,7 +206,7 @@ const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
 if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
 const page = `<title>Arktur</title>
 <script>${i18n}</script>
-<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
+<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_TEX = ${JSON.stringify(photoTex)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
 <style>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }
