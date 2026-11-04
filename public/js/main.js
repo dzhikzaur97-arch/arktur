@@ -487,7 +487,7 @@ function onMsg(m) {
     case 'daily': S.daily = m; if (S.win === 'career') renderWin(); if (S.docked && S.stTab === 'hangar') renderStation(); break;
     case 'career': S.career = m; renderTutorial(); if (S.win === 'career') renderWin(); break;
     case 'paths': S.paths = m; renderDreamTrack(); applyUnlocks(); askDream(); if (S.win === 'paths') renderWin(); break;
-    case 'board': S.board = m; if (S.win === 'board') renderWin(); break;
+    case 'sectorBoard': S.board = m; if (S.win === 'board') renderWin(); break;
     case 'chronicle': S.chronicle = m.list || []; if (S.win === 'paths') renderWin(); break;
     case 'leaders': S.leaders = m; boardSync(); if (S.win === 'career') renderWin(); break;
     case 'achieve': Sound.beep(880, 1320, 0.12); showAchieve(m); break;
@@ -1823,7 +1823,7 @@ function openWin(name, html, keep) {
   if (name === 'corp' && S.win !== 'corp') send({ t: 'corpInfo' });
   if (name === 'mega' && S.win !== 'mega') send({ t: 'megaInfo' });
   if (name === 'news' && S.win !== 'news') send({ t: 'worldInfo' });
-  if (name === 'board' && S.win !== 'board') send({ t: 'board' });
+  if (name === 'board' && S.win !== 'board') send({ t: 'sectorBoard' });
   if (name === 'paths' && S.win !== 'paths') { send({ t: 'pathsInfo' }); send({ t: 'chronicle' }); }
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
@@ -3814,7 +3814,7 @@ function onActionClick(e) {
   const d = b.dataset;
   switch (d.a) {
     case 'boardGo': boardGo(d.id); break;
-    case 'boardRefresh': send({ t: 'board' }); break;
+    case 'boardRefresh': send({ t: 'sectorBoard' }); break;
     case 'nemCall': send({ t: 'nemesisCall', id: d.id }); closeWin(); break;
     case 'setDream': send({ t: 'dream', id: d.id }); break;
     case 'reportShare': reportShare(); break;

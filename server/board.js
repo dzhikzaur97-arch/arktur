@@ -76,7 +76,7 @@ module.exports = function install(Game) {
     try { for (const t of this.dailyView(p).tasks) if (!t.done) items.push({ id: 'daily_' + t.text, kind: 'daily', path: null, icon: '☀', title: `Ежедневное: ${t.text}`, desc: `${fmt(t.prog)} / ${fmt(t.need)}`, reward: `${fmt(t.isk)} CR`, sys: here, jumps: 0, sysName: this.U.byId[here].name, sec: +this.U.byId[here].sec.toFixed(1), risk: '—', act: null }); } catch (e) {}
     const dream = p.dream;
     items.sort((a, b) => ((b.path === dream) - (a.path === dream)) || (a.kind === 'nemesis' ? -1 : b.kind === 'nemesis' ? 1 : 0) || a.jumps - b.jumps);
-    return { t: 'board', here, dream, dreamName: dream && PATHS[dream] ? PATHS[dream].name : null, honor: this.honorView ? this.honorView(p, here) : null, items: items.slice(0, 40) };
+    return { t: 'sectorBoard', here, dream, dreamName: dream && PATHS[dream] ? PATHS[dream].name : null, honor: this.honorView ? this.honorView(p, here) : null, items: items.slice(0, 40) };
   };
-  P.c_board = function (s, m, p) { s.send(this.boardView(s, p)); };
+  P.c_sectorBoard = function (s, m, p) { s.send(this.boardView(s, p)); }; // не c_board: так называется «пересесть на корабль»
 };
