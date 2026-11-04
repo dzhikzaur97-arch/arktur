@@ -129,7 +129,9 @@ try {
   localStorage.setItem('vf-boot', 'starting');
 } catch {}
 // любая ошибка — текстом на экране, а не пустая страница (пилот сможет прислать её разработчику)
+const ERR_LOG = window.__VF_ERRLOG = [];
 function showFatal(msg) {
+  try { ERR_LOG.push({ t: new Date().toISOString(), msg: String(msg).slice(0, 600) }); if (ERR_LOG.length > 15) ERR_LOG.shift(); } catch {}
   try {
     let el = document.getElementById('vf-fatal');
     if (!el) { el = document.createElement('div'); el.id = 'vf-fatal'; el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:rgba(40,8,8,.92);color:#ffd0c0;font:12px/1.4 monospace;padding:8px 10px;border:1px solid #a33;border-radius:6px;white-space:pre-wrap;max-height:40vh;overflow:auto'; document.body.appendChild(el); }
@@ -484,6 +486,9 @@ function onMsg(m) {
     case 'ransomInfo': if (!m.ok) note(m.why, 'warn'); else openTalk(pirateSpec(m)); break;
     case 'daily': S.daily = m; if (S.win === 'career') renderWin(); if (S.docked && S.stTab === 'hangar') renderStation(); break;
     case 'career': S.career = m; renderTutorial(); if (S.win === 'career') renderWin(); break;
+    case 'paths': S.paths = m; renderDreamTrack(); applyUnlocks(); askDream(); if (S.win === 'paths') renderWin(); break;
+    case 'board': S.board = m; if (S.win === 'board') renderWin(); break;
+    case 'chronicle': S.chronicle = m.list || []; if (S.win === 'paths') renderWin(); break;
     case 'leaders': S.leaders = m; boardSync(); if (S.win === 'career') renderWin(); break;
     case 'achieve': Sound.beep(880, 1320, 0.12); showAchieve(m); break;
     case 'wevent': S.wev = m.sys ? m : null; if (!$('#map').classList.contains('hidden')) drawMap(); break;
@@ -1801,13 +1806,14 @@ $('#mbar').onclick = (e) => {
   const k = b.dataset.m;
   if (k === 'warp') { togglePanel('x', false); spaceMenu(innerWidth / 2 - 100, 70); }
   else if (k === 'scan') send({ t: 'scan' });
+  else if (k === 'board') { togglePanel('x', false); openWin('board'); }
   else togglePanel(k);
 };
 function updateSoundBtn(muted) { $('#snd').innerHTML = (muted ? '🔇' : '🔊') + '<small>Звук</small>'; }
 try { updateSoundBtn(localStorage.getItem('vf-mute') === '1'); } catch { updateSoundBtn(false); }
 $('#win-close').onclick = closeWin;
 function closeWin() { $('#win').classList.add('hidden'); S.win = null; }
-const WIN_TITLES = { mega: 'Великие стройки', corp: 'Корпорация', news: 'Сводка: рынки, погода, розыск', assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
+const WIN_TITLES = { board: 'Доска сектора: чем заняться', paths: 'Мечта и пути пилота', report: 'Сообщить о проблеме', mega: 'Великие стройки', corp: 'Корпорация', news: 'Сводка: рынки, погода, розыск', assist: 'Бортовой помощник', talk: 'Разговор', career: 'Карьера и достижения', fleet: 'Флот: все корабли', bots: 'Обучение ИИ-пилотов', missions: 'Журнал', pilots: 'Пилоты галактики', build: 'Постройки', black: 'Чёрный рынок', settings: 'Настройки', bench: 'Тест производительности', cargo: 'Трюм корабля', skills: 'Навыки', missions: 'Задания', assets: 'Имущество', help: 'Управление', info: 'Информация' };
 function openWin(name, html, keep) {
   if (name === 'build' && S.win !== 'build') { send({ t: 'structInfo' }); send({ t: 'infraInfo' }); }
   if (name === 'pilots' && S.win !== 'pilots') send({ t: 'aiList' });
@@ -1817,6 +1823,8 @@ function openWin(name, html, keep) {
   if (name === 'corp' && S.win !== 'corp') send({ t: 'corpInfo' });
   if (name === 'mega' && S.win !== 'mega') send({ t: 'megaInfo' });
   if (name === 'news' && S.win !== 'news') send({ t: 'worldInfo' });
+  if (name === 'board' && S.win !== 'board') send({ t: 'board' });
+  if (name === 'paths' && S.win !== 'paths') { send({ t: 'pathsInfo' }); send({ t: 'chronicle' }); }
   if (S.win === name && !html && !keep) return closeWin();
   S.win = name; S.winHtml = html;
   $('#win-title').textContent = WIN_TITLES[name] || '';
@@ -1851,6 +1859,9 @@ function renderWin() {
   if (S.win === 'mega') { setHTML(el, megaHTML()); return; }
   if (S.win === 'corp') { const keep = ['corp-name', 'corp-tag'].map(id => [id, $('#' + id) && $('#' + id).value]); setHTML(el, corpHTML()); for (const [id, v] of keep) if (v && $('#' + id)) $('#' + id).value = v; return; }
   if (S.win === 'news') return setHTML(el, newsHTML());
+  if (S.win === 'board') return setHTML(el, boardHTML());
+  if (S.win === 'paths') return setHTML(el, pathsHTML());
+  if (S.win === 'report') { if (!$('#rep-text')) el.innerHTML = reportHTML(); return; }
   if (S.win === 'assist') { setHTML(el, assistHTML()); const log = $('#assist-log'); if (log) log.scrollTop = log.scrollHeight; return; }
   if (S.win === 'talk') { setHTML(el, talkHTML()); const log = $('#talk-log'); if (log) log.scrollTop = log.scrollHeight; return; }
 }
@@ -3802,6 +3813,12 @@ function onActionClick(e) {
   if (!b) return;
   const d = b.dataset;
   switch (d.a) {
+    case 'boardGo': boardGo(d.id); break;
+    case 'boardRefresh': send({ t: 'board' }); break;
+    case 'nemCall': send({ t: 'nemesisCall', id: d.id }); closeWin(); break;
+    case 'setDream': send({ t: 'dream', id: d.id }); break;
+    case 'reportShare': reportShare(); break;
+    case 'reportCopy': reportCopy(); break;
     case 'jettison': send({ t: 'jettison', item: d.item }); break;
     case 'unload': send({ t: 'unload', item: d.item }); break;
     case 'unloadAll': send({ t: 'unload' }); break;
@@ -4925,3 +4942,119 @@ function shipStoryHTML() {
   if (s.done) html += '<div class="good small">Цепочка пройдена: вы знаете этот корабль досконально. Прочность +5% на кораблях этого типа.</div>';
   return html;
 }
+
+// ======================================================================
+// Доска сектора, мечта и пути пилота, постепенное открытие меню, отчёт о проблеме (v75)
+// ======================================================================
+const PATH_COLORS = { hunter: '#ff7a5c', industry: '#e8b04a', trader: '#5cd08a', explorer: '#6cc8ff', hero: '#c89cff', commander: '#ffd76a' };
+function boardHTML() {
+  const b = S.board;
+  if (!b) return '<div class="muted">Загружаю дела сектора…</div>';
+  const P = (S.paths && S.paths.list) || [];
+  const pname = (id) => (P.find(x => x.id === id) || {}).name || '';
+  let h = `<div class="bd-head">${b.dreamName ? `🎯 Мечта: <b>${esc(b.dreamName)}</b> — её дела сверху` : '🎯 <a href="#" data-a="setDreamOpen">Выберите мечту</a>, и дела её пути будут сверху'}`;
+  if (b.honor) h += ` · 🤝 Почёт здесь: ${b.honor.lv ? `<b>${esc(b.honor.name)}</b>, скидка ${Math.round(b.honor.disc * 100)}%` : `${b.honor.pts}/${b.honor.next} (сбивайте пиратов в системе)`}`;
+  h += ` <button class="small" data-a="boardRefresh">↻</button></div>`;
+  if (!b.items.length) return h + '<div class="muted">Рядом пока тихо. Слетайте в соседнюю систему или загляните позже.</div>';
+  h += '<div class="bd-list">' + b.items.map(it => {
+    const c = PATH_COLORS[it.path] || '#8aa';
+    const btn = it.act === 'nemesis' ? `<button class="primary" data-a="nemCall" data-id="${esc(it.id)}">${esc(it.actText)}</button>`
+      : it.act ? `<button class="primary" data-a="boardGo" data-id="${esc(it.id)}">${esc(it.actText || (it.sys === b.here ? '» Лететь' : '» Маршрут'))}</button>`
+      : it.actText ? `<span class="muted small">${esc(it.actText)}</span>` : '';
+    return `<div class="bd-item${it.path && it.path === b.dream ? ' dream' : ''}" style="border-left-color:${c}">
+      <div class="bd-t"><span class="bd-i">${esc(it.icon || '•')}</span>${esc(it.title)}</div>
+      <div class="bd-m small">${esc(it.sysName || '')}${it.jumps ? ` · ${it.jumps} пр.` : ' · здесь'} · риск: ${esc(it.risk)} · <span class="isk">${esc(it.reward)}</span>${it.path ? ` · <span style="color:${c}">${esc(pname(it.path))}</span>` : ''}</div>
+      <div class="bd-d small">${esc(it.desc || '')}</div>${btn ? `<div class="bd-b">${btn}</div>` : ''}</div>`;
+  }).join('') + '</div>';
+  return h;
+}
+function boardGo(id) {
+  const b = S.board, it = b && b.items.find(x => x.id === id); if (!it) return;
+  if (it.act === 'missions') { openWin('missions'); return; }
+  if (it.act === 'tab') { if (S.docked) { closeWin(); const t = document.querySelector(`#st-tabs [data-tab="${it.tab}"]`); if (t) t.click(); } return; }
+  if (it.sys && it.sys !== (S.sys && S.sys.id)) {
+    send({ t: 'autopilot', dest: it.sys, go: !S.docked });
+    note(S.docked ? `Маршрут в ${it.sysName} проложен — отстыкуйтесь, автопилот поведёт` : `Автопилот: ${it.sysName}, ${it.jumps} пр. По прибытии откройте доску ещё раз`, 'info');
+    closeWin(); return;
+  }
+  if (S.docked) { note('Отстыкуйтесь — цель в этой системе', 'info'); return; }
+  if (it.target) { const o = getObj(it.target); send({ t: o && distTo(o) < 150000 ? 'approach' : 'warp', id: it.target }); closeWin(); }
+}
+function pathsHTML() {
+  const v = S.paths; if (!v) return '<div class="muted">Загружаю…</div>';
+  let h = `<p class="muted small">Шесть путей собраны из всего, что есть в игре. Ранги растут от ваших дел сами; за каждый новый ранг — награда. <b>Мечта</b> — главный путь: опыт ×1.25, награды ×1.5, следующий шаг всегда на экране.</p>`;
+  for (const x of v.list) {
+    const c = PATH_COLORS[x.id], lo = v.rankXp[x.rank - 1] || 0, hi = v.rankXp[x.rank] || x.xp, pct = x.rank >= 10 ? 100 : Math.round((x.xp - lo) / Math.max(1, hi - lo) * 100);
+    h += `<div class="pt-card${v.dream === x.id ? ' dream' : ''}" style="border-color:${c}">
+      <div class="pt-h"><span style="color:${c}">${x.icon} ${esc(x.name)}</span> <span class="pt-r">ранг ${x.rank}/10 · «${esc(x.rankName)}»</span>${v.dream === x.id ? ' <span class="pt-dream">🎯 мечта</span>' : ` <button class="small" data-a="setDream" data-id="${x.id}">Сделать мечтой</button>`}</div>
+      <div class="pt-bar"><i style="width:${pct}%;background:${c}"></i></div>
+      <div class="small muted">${esc(x.desc)} Вершина: ${esc(x.top)}.</div>
+      ${x.next && x.rank < 10 ? `<div class="small">▶ Следующий шаг: <b>${esc(x.next.text)}</b> <span class="muted">(${esc(x.next.hint)})</span> · до «${esc(x.nextRankName)}»: ${num(x.need)} оп.</div>` : '<div class="small isk">Вершина пути достигнута</div>'}
+      <details><summary class="small">Из чего растёт путь</summary><ul class="small">${x.steps.map(st => `<li>${esc(st.text)} — ${st.pts} оп.${st.per > 1 ? ` за ${num(st.per)}` : ''} <span class="muted">· у вас: ${num(st.have)}</span></li>`).join('')}</ul></details></div>`;
+  }
+  const ch = S.chronicle || [];
+  h += `<h3>📜 Хроника пилота</h3>${ch.length ? '<ul class="small chron">' + ch.slice(0, 20).map(c => `<li><span class="muted">${new Date(c.t).toLocaleDateString('ru-RU')}</span> ${esc(c.text)}</li>`).join('') + '</ul>' : '<div class="muted small">Пока пусто: здесь будут ваши победы, враги и почёт в системах.</div>'}`;
+  return h;
+}
+function renderDreamTrack() {
+  const el = $('#dream-track'); if (!el) return;
+  const v = S.paths, x = v && v.dream && v.list.find(p => p.id === v.dream);
+  el.classList.toggle('hidden', !x);
+  if (!x) return;
+  setHTML(el, `<div class="st-t" style="color:${PATH_COLORS[x.id]}">🎯 ${esc(x.name)} · ${x.rank}/10</div><div class="st-x">${x.rank < 10 && x.next ? `▶ ${esc(x.next.text)} · до ранга ${x.rank + 1}: ${num(x.need)} оп.` : 'Вершина пути достигнута'}</div>`);
+}
+$('#dream-track').onclick = () => openWin('paths');
+document.addEventListener('click', (e) => { const a = e.target.closest('[data-a="setDreamOpen"]'); if (a) { e.preventDefault(); openWin('paths'); } });
+// выбор мечты — один раз, когда пилот уже освоился (после вступления и первого вылета)
+const DREAM_T0 = Date.now();
+setInterval(() => askDream(), 10000);
+function askDream() {
+  const v = S.paths; if (!v || v.dream || S.surface || S.win) return;
+  if (Date.now() - DREAM_T0 < 150000) return; // сначала вступление и первые минуты полёта
+  try { if (localStorage.getItem('vf-dream-asked')) return; } catch {}
+  if (!$('#modal').classList.contains('hidden') || !S.prof) return;
+  try { localStorage.setItem('vf-dream-asked', '1'); } catch {}
+  modal(`<h3>🎯 Кем вы хотите стать?</h3><p class="small">Выберите мечту — главный путь пилота. Игра будет подсказывать следующий шаг к ней, её опыт пойдёт ×1.25, а награды за ранги ×1.5. Остальные пути тоже растут; мечту можно сменить в любой момент (меню → 🎯 Пути).</p>
+    <div class="small">${v.list.map(x => `<div><b style="color:${PATH_COLORS[x.id]}">${x.icon} ${esc(x.name)}</b> — ${esc(x.desc)}</div>`).join('')}</div>`,
+    v.list.map(x => [`${x.icon} ${x.name}`, () => send({ t: 'dream', id: x.id }), 'primary']).concat([['Позже', null]]));
+}
+// сложные разделы меню открываются по мере роста пилота: сначала — главное
+const UNLOCKS = [
+  { win: 'bots', need: 3, name: 'Обучение ИИ-пилотов' },
+  { win: 'corp', need: 4, name: 'Корпорация', has: () => S.prof && S.prof.corp },
+  { win: 'build', need: 6, name: 'Постройки' },
+  { win: 'mega', need: 10, name: 'Великие стройки', has: () => S.prof && S.prof.credits >= 1e8 }
+];
+function applyUnlocks() {
+  const v = S.paths; if (!v) return;
+  const earned = v.list.reduce((a, x) => a + x.rank, 0) - v.list.length;
+  let seen = {}; try { seen = JSON.parse(localStorage.getItem('vf-unlocked') || '{}'); } catch {}
+  for (const u of UNLOCKS) {
+    const btn = document.querySelector(`#neocom [data-win="${u.win}"]`); if (!btn) continue;
+    const open = earned >= u.need || (u.has && u.has()) || seen[u.win] === 2;
+    btn.classList.toggle('nc-locked', !open);
+    btn.title = open ? btn.title.replace(/^🔒 [^:]*: /, '') : (btn.title.startsWith('🔒') ? btn.title : `🔒 Откроется на ${u.need} заработанных рангах путей: ${btn.title}`);
+    if (open && seen[u.win] !== 2) { if (seen[u.win] === 1) note(`🔓 Открыт раздел меню: ${u.name}`, 'good'); seen[u.win] = 2; }
+    else if (!open && !seen[u.win]) seen[u.win] = 1;
+  }
+  try { localStorage.setItem('vf-unlocked', JSON.stringify(seen)); } catch {}
+}
+// ---------- отчёт о проблеме ----------
+function reportText() {
+  const g = R.gpuInfo ? R.gpuInfo() : {};
+  const lines = [`ARKTUR — отчёт о проблеме`, `Время: ${new Date().toISOString()}`, `Сборка: ${document.querySelector('meta[name="vf-build"]') ? document.querySelector('meta[name="vf-build"]').content : 'одиночная'}`,
+    `Устройство: ${navigator.userAgent}`, `Экран: ${screen.width}×${screen.height} @${devicePixelRatio}, окно ${innerWidth}×${innerHeight}`, `Видеокарта: ${g.gpu || '?'}`,
+    `Модели кораблей: ${window.__VF_GLB_N == null ? '?' : window.__VF_GLB_N}`, `Пилот: ${S.name || '?'}, корабль ${S.prof ? S.prof.ship.type : '?'}, система ${S.sys ? S.sys.name : '?'}, ${S.docked ? 'в доке' : S.surface ? 'на планете' : 'в космосе'}`,
+    `Ошибки (${ERR_LOG.length}):`, ...ERR_LOG.map(e => `  ${e.t} ${e.msg.replace(/\n/g, ' | ')}`), `Объекты без координат: ${BAD_POS.length ? BAD_POS.map(b => b.where + ' ← ' + b.st).join(' ;; ') : 'нет'}`];
+  return lines.join('\n');
+}
+function reportHTML() {
+  return `<p class="small">Опишите, что случилось, — к отчёту автоматически приложатся последние ошибки игры, модель устройства и где вы находитесь. Ничего не отправляется само: вы сами выбираете, куда переслать.</p>
+    <textarea id="rep-text" rows="4" placeholder="Что вы делали и что пошло не так?" style="width:100%"></textarea>
+    <div class="btn2"><button class="primary" data-a="reportShare">📤 Поделиться отчётом</button><button data-a="reportCopy">📋 Скопировать</button></div>
+    <details><summary class="small">Что попадёт в отчёт</summary><pre class="small rep-pre">${esc(reportText())}</pre></details>`;
+}
+function reportFull() { const t = ($('#rep-text') || {}).value || ''; return (t.trim() ? 'Описание: ' + t.trim() + '\n\n' : '') + reportText(); }
+async function reportCopy() { try { await navigator.clipboard.writeText(reportFull()); note('Отчёт скопирован — вставьте его в сообщение разработчику', 'good'); } catch { note('Не удалось скопировать — выделите текст в «Что попадёт в отчёт»', 'warn'); } }
+async function reportShare() { const text = reportFull(); if (navigator.share) { try { await navigator.share({ title: 'ARKTUR: отчёт о проблеме', text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } } reportCopy(); }
+addEventListener('keydown', (e) => { if (e.code === 'KeyB' && !e.ctrlKey && !e.metaKey && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && S.prof && !S.surface) openWin('board'); });

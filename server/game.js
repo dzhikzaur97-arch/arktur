@@ -1824,5 +1824,8 @@ require('./fleetx')(Game);
 require('./season')(Game);
 require('./heat')(Game);
 require('./traits')(Game);
+require('./paths')(Game);
+require('./nemesis')(Game);
+require('./board')(Game);
 
 module.exports = { Game };

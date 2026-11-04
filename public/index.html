@@ -40,6 +40,7 @@
     <div id="wallet"></div>
     <div id="flags"></div>
     <div id="story-track" class="hidden" title="Сюжетная миссия — открыть журнал (J)"></div>
+    <div id="dream-track" class="hidden" title="Мечта пилота: следующий шаг — открыть пути"></div>
   </div>
 
   <div id="tut" class="panel hidden"></div>
@@ -47,10 +48,12 @@
   <!-- Боковая панель (Неоком) -->
   <div id="neocom">
     <div class="nc-g">Пилот</div>
+    <button data-win="board" class="nc-hot" title="Доска сектора: всё, чем можно заняться рядом (B)">🧭<small>Дела</small></button>
     <button data-win="map" title="Звёздная карта (M)">✦<small>Карта</small></button>
     <button data-win="cargo" title="Трюм (C)">▣<small>Трюм</small></button>
     <button data-win="skills" title="Навыки (K)">✪<small>Навыки</small></button>
     <button data-win="missions" title="Задания (J)">☰<small>Задания</small></button>
+    <button data-win="paths" title="Мечта и пути пилота: ранги, следующий шаг, хроника">🎯<small>Пути</small></button>
     <button data-win="career" title="Карьера, достижения, звания и таблица лидеров">🏆<small>Карьера</small></button>
     <button data-win="assets" title="Имущество (A)">◫<small>Имущ.</small></button>
     <div class="nc-g">Мир</div>
@@ -67,6 +70,7 @@
     <button data-win="bots" title="Обучение ИИ-пилотов: как боты учатся играть">🎓<small>ИИ</small></button>
     <button id="b-photo" title="Фоторежим: без интерфейса, свободная камера, снимок">📷<small>Фото</small></button>
     <button id="snd" title="Звук вкл/выкл">🔊<small>Звук</small></button>
+    <button data-win="report" title="Сообщить о проблеме: отчёт с ошибками и устройством">🐞<small>Ошибка?</small></button>
     <button data-win="help" title="Управление (H)">?<small>Помощь</small></button>
     <button data-win="settings" title="Настройки (O)">⚙<small>Настр.</small></button>
   </div>
@@ -75,6 +79,7 @@
   <div id="mbar">
     <button data-m="menu" title="Меню">☰</button>
     <button data-m="ov" title="Обзор">◫</button>
+    <button data-m="board" class="sp" title="Чем заняться">🧭</button>
     <button data-m="warp" class="sp" title="Варп">»</button>
     <button data-m="scan" class="sp" title="Скан">◎</button>
     <button data-m="chat" title="Чат">💬</button>

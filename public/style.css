@@ -912,3 +912,29 @@ details.faq summary { cursor: pointer; color: #fff; }
 details.faq div { margin-top: 6px; font-size: 13px; color: #cfe; line-height: 1.4; }
 .trait { margin: 4px 0; padding: 4px 8px; border-left: 3px solid #ffd060; background: rgba(255, 208, 96, .07); font-size: 12px; color: #f0e6c8; }
 .trait b { color: #ffd88a; }
+
+/* v75: доска сектора, пути пилота, мечта, отчёт */
+#dream-track { margin-top: 6px; padding: 5px 7px; border-left: 2px solid #6cc8ff; background: rgba(108, 200, 255, .07); cursor: pointer; max-width: 300px; }
+#dream-track .st-t { font-size: 12px; font-weight: 600; }
+#dream-track .st-x { font-size: 12px; margin-top: 2px; }
+body.on-surface #dream-track { display: none !important; }
+#neocom .nc-locked { display: none; }
+#neocom .nc-hot { color: #9fe0ff; }
+.bd-head { margin-bottom: 8px; font-size: 13px; }
+.bd-list { display: flex; flex-direction: column; gap: 6px; }
+.bd-item { border-left: 3px solid #8aa; background: rgba(255, 255, 255, .03); padding: 6px 8px; border-radius: 4px; }
+.bd-item.dream { background: rgba(108, 200, 255, .07); }
+.bd-t { font-weight: 600; font-size: 13px; }
+.bd-i { display: inline-block; width: 20px; }
+.bd-m { margin-top: 2px; color: #9ab; }
+.bd-d { margin-top: 2px; }
+.bd-b { margin-top: 5px; }
+.pt-card { border: 1px solid #456; border-left-width: 3px; border-radius: 4px; padding: 7px 9px; margin: 7px 0; background: rgba(255, 255, 255, .02); }
+.pt-card.dream { background: rgba(108, 200, 255, .06); }
+.pt-h { font-weight: 600; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pt-r { color: #bcd; font-weight: 400; font-size: 12px; }
+.pt-dream { color: #6cc8ff; font-size: 12px; }
+.pt-bar { height: 5px; background: rgba(255, 255, 255, .08); border-radius: 3px; margin: 5px 0; overflow: hidden; }
+.pt-bar i { display: block; height: 100%; }
+.chron li { margin: 2px 0; }
+.rep-pre { white-space: pre-wrap; max-height: 200px; overflow: auto; background: rgba(0, 0, 0, .3); padding: 6px; }
