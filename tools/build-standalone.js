@@ -124,9 +124,24 @@ window.VF_SAVES = {
   // (иначе новое устройство «с ботами» не предложило бы восстановить облачную копию и затёрло бы её)
   current() { const humans = Object.values(__db.players || {}).filter(p => !p.bot); return { when: humans.length ? (__lastSave || __db.savedAt || 0) : 0, pilots: humans.map(p => p.name) }; },
   status() { return window.VF_SAVE_STATUS; },
-  flush() { return __save(true); }
+  flush() { __snapshotLive(); return __save(true); }
 };
+// корабли пилотов в космосе: прочность и место — в сохранение (иначе после выгрузки страницы пилот оказался бы на старой станции)
+function __snapshotLive() {
+  try {
+    for (const s of GAME.sessions) {
+      if (!s.player || s.isBot || !s.ent) continue;
+      GAME.storeShipState(s.player, s.ent);
+      if (!s.ent.warp && Array.isArray(s.ent.pos) && s.ent.pos.every(Number.isFinite)) s.player.loc = { sys: s.ent.sys, pos: s.ent.pos.slice() };
+    }
+  } catch (e) {}
+}
 const GAME = new __Game(__db, __save);
+// сохранение не только по событиям: каждые 20 с, при сворачивании и закрытии страницы
+// (iPhone выгружает вкладку без предупреждения — терялись добыча, награды и место корабля)
+setInterval(() => { if (!__noSave) { __snapshotLive(); __save(true); } }, 20000);
+document.addEventListener('visibilitychange', () => { if (document.hidden && !__noSave) { __snapshotLive(); __save(true); } });
+addEventListener('pagehide', () => { if (!__noSave) { __snapshotLive(); __save(true); } });
 window.__VF_GAME = GAME; // для отладки из консоли браузера
 // симуляция — фиксированный шаг 0,1 с с накопителем: таймеры браузера «плавают», а физика не должна
 let __last = Date.now(), __acc = 0;
@@ -213,7 +228,7 @@ ${css}
 </style>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@${THREE_VER}/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@${THREE_VER}/examples/jsm/" } }</script>
 ${body.replace('<p class="hint">Новый пилот создаётся автоматически при первом входе.</p>',
-  '<p class="hint">Новый пилот создаётся автоматически при первом входе.<span class="offline-tag">Одиночный режим: вселенная работает в вашем браузере, прогресс сохраняется на этом устройстве.</span></p>')}
+  '<p class="hint">Новый пилот создаётся автоматически при первом входе.<span class="offline-tag">Одиночный режим: вселенная работает в вашем браузере, прогресс сохраняется на этом устройстве каждые 20 секунд и копируется в облако claude.ai.</span></p>')}
 <script type="module">
 import * as THREE from 'three';
 ${[...new Set([...renderImports, ...surfImports])].join('\n')}

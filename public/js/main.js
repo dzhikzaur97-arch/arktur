@@ -3458,10 +3458,15 @@ async function cloudInit() {
   if (!uid) return;
   CLOUD.db = db; CLOUD.uid = uid;
   try { const m = await cloudDoc('cloud').get(); if (m.exists) CLOUD.meta = m.data(); } catch (e) { CLOUD.err = e.code || 'ошибка чтения'; }
-  const local = window.VF_SAVES.current(), cm = CLOUD.meta;
-  // в облаке есть пилоты, а здесь пусто (память очищена, новое устройство) или облачная копия заметно новее — предлагаем восстановить
-  if (cm && cm.pilots && cm.pilots.length && (!local.pilots.length || cm.when > local.when + 60000)) cloudOffer(cm, local);
-  else cloudStart();
+  const local = LOCAL0 || window.VF_SAVES.current(), cm = CLOUD.meta;
+  // облачная копия новее (или на этом устройстве пусто: память очищена, новое устройство) — восстанавливаем САМИ:
+  // раньше игра спрашивала, и если пилот входил, не ответив, или отвечал «не нужно», старая игра затирала облако.
+  // Текущая игра этого устройства перед заменой уходит в автосохранение — её можно вернуть в «Сохранениях».
+  if (cm && cm.pilots && cm.pilots.length && (!local.pilots.length || cm.when > local.when + 60000)) {
+    try { if (local.pilots.length) window.VF_SAVES.save('auto2'); } catch (e) {}
+    try { sessionStorage.setItem('vf-cloud-restored', JSON.stringify({ when: cm.when, pilots: cm.pilots })); } catch (e) {}
+    cloudLoad();
+  } else cloudStart();
 }
 // предложение восстановить: на экране входа — прямо в форме (окна игры там ещё скрыты), в игре — модальным окном
 function cloudOffer(cm, local) {
@@ -3477,6 +3482,7 @@ function cloudOffer(cm, local) {
   } else modal(`<h3>☁ Облачное сохранение</h3><p>${info}</p><p class="muted">${why}</p>`, [['Не восстанавливать', () => cloudStart()], ['Восстановить', () => cloudLoad(), 'primary']]);
 }
 function cloudStart() {
+  if (CLOUD.started) return; CLOUD.started = true;
   setInterval(() => cloudSave(false), 90000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) cloudSave(false); });
   setTimeout(() => cloudSave(false), 15000);
@@ -3515,7 +3521,7 @@ async function cloudLoad() {
     if (text.length !== meta.len) throw new Error('копия неполная');
     const r = window.VF_SAVES.importText(text);
     if (!r.ok) note('Облако: ' + r.msg, 'bad');
-  } catch (e) { note('Облако: не удалось загрузить — ' + ((e && (e.code || e.message)) || 'ошибка'), 'bad'); }
+  } catch (e) { note('Облако: не удалось загрузить — ' + ((e && (e.code || e.message)) || 'ошибка'), 'bad'); if (!CLOUD.started) cloudStart(); }
 }
 function cloudHTML() {
   if (!CLAUDE_OK) return '';
@@ -3525,7 +3531,12 @@ function cloudHTML() {
     <div class="muted small">Игра сама копирует сохранение в облако раз в полторы минуты и при сворачивании. Копия личная — её видите только вы.</div>
     <p><button data-a="cloudSave">Сохранить в облако сейчас</button> ${m ? '<button data-a="cloudLoad">Загрузить из облака</button>' : ''}</p>`;
 }
+// что было на устройстве ДО входа: иначе быстрый вход на новом устройстве создал бы «свежую» игру, которая выглядит новее облачной копии
+const LOCAL0 = OFFLINE ? window.VF_SAVES.current() : null;
+// сохранение не удалось (нет места, браузер запретил запись) — сразу говорим пилоту, а не только в окне «Сохранения»
+if (OFFLINE) { let lastBad = ''; setInterval(() => { const st = window.VF_SAVES.status(); if (st && !st.ok && st.msg !== lastBad) { lastBad = st.msg; note('⚠ Сохранение не удалось: ' + st.msg, 'bad'); } else if (st && st.ok) lastBad = ''; }, 21000); }
 if (OFFLINE) cloudInit();
+try { const r = JSON.parse(sessionStorage.getItem('vf-cloud-restored') || 'null'); if (r) { sessionStorage.removeItem('vf-cloud-restored'); setTimeout(() => note(`☁ Загружена облачная копия игры от ${new Date(r.when).toLocaleString('ru-RU')} (${r.pilots.join(', ')}). Прежняя игра этого устройства — в «Сохранениях», автосохранение 3`, 'good'), 4000); } } catch (e) {}
 function applyCfg() {
   for (const [id] of HIDE_EL) document.body.classList.toggle('hide-' + id, !!(CFG.hide || {})[id]);
   document.body.classList.toggle('onehand', !!CFG.onehand);
