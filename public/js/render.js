@@ -3417,7 +3417,8 @@ const PTYPE_ID = { 'Каменистая': 0, 'Газовый гигант': 1, 
 // Поверхность планеты считается в шейдере для каждого пикселя — детализация не теряется вблизи
 const PLANET_FRAG = `
 uniform int ptype; uniform float seed; uniform vec3 sunDir; uniform vec3 tint; uniform vec3 sunDir2; uniform vec3 sunCol2;
-varying vec3 vP; varying vec3 vWN;
+uniform sampler2D pRock, pRockN; uniform float pPhoto;
+varying vec3 vP; varying vec3 vWN; varying float vNear;
 float ridge(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * (1.0 - abs(vnoise(p) * 2.0 - 1.0)); p *= 2.1; a *= 0.5; } return s; }
 float fbm8(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 9; i++) { s += a * vnoise(p); p = p * 2.02 + 0.37; a *= 0.5; } return s; }
 float fbm6(vec3 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 6; i++) { s += a * vnoise(p); p = p * 2.02 + 0.37; a *= 0.5; } return s; }
@@ -3490,13 +3491,26 @@ void main(){
     col = mix(col, vec3(0.42, 0.4, 0.38), smoothstep(0.7, 0.85, r) * 0.45);
     col *= 1.0 + clamp(crH * 0.6, -0.25, 0.2);
   }
+  // фото камня (CC0) с трёх осей: на подлёте у твёрдых планет видны трещины, осыпи, зерно породы
+  float pk = vNear * pPhoto * (ptype == 1 ? 0.0 : ptype == 4 ? smoothstep(0.52, 0.56, h) : 1.0);
+  vec3 photoN = vec3(0.0);
+  if (pk > 0.001) {
+    vec3 w = pow(abs(p), vec3(4.0)); w /= (w.x + w.y + w.z);
+    float S = 36.0;
+    vec3 tc = texture2D(pRock, p.zy * S).rgb * w.x + texture2D(pRock, p.xz * S).rgb * w.y + texture2D(pRock, p.xy * S).rgb * w.z;
+    float L = dot(tc, vec3(0.3, 0.59, 0.11)) / 0.09;
+    col *= mix(1.0, clamp(0.5 + 0.5 * L, 0.45, 1.5), pk * (ptype == 2 ? 0.6 : 0.9));
+    vec3 tx = texture2D(pRockN, p.zy * S).xyz * 2.0 - 1.0, ty = texture2D(pRockN, p.xz * S).xyz * 2.0 - 1.0, tz = texture2D(pRockN, p.xy * S).xyz * 2.0 - 1.0;
+    tx = vec3(tx.xy + p.zy, abs(tx.z) * p.x); ty = vec3(ty.xy + p.xz, abs(ty.z) * p.y); tz = vec3(tz.xy + p.xy, abs(tz.z) * p.z);
+    photoN = (normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z) - p) * pk * 0.7;
+  }
   col *= tint;
   vec3 n = normalize(vWN);
   float d = dot(n, sunDir);
   // нормаль с рельефом: градиент высоты проецируем на касательную плоскость и поворачиваем в мир
   vec3 gt = grad - p * dot(grad, p);
   if (ptype == 4) gt *= smoothstep(0.52, 0.56, h); // море гладкое
-  vec3 nb = normalize(vRot * normalize(p - gt * bumpK));
+  vec3 nb = normalize(vRot * normalize(p - gt * bumpK + photoN));
   // свет по рельефу, но ночная сторона остаётся тёмной (терминатор — по геометрической нормали)
   float light = clamp(dot(nb, sunDir) * 1.05, 0.0, 1.0) * smoothstep(-0.08, 0.12, d);
   float light2 = clamp(dot(nb, sunDir2) * 1.05, 0.0, 1.0) * smoothstep(-0.08, 0.12, dot(n, sunDir2)); // вторая звезда двойной системы
@@ -3521,8 +3535,10 @@ void main(){
   gl_FragColor = vec4(vec3(1.0, 0.98, 0.95) * light * 1.2 + sunCol2 * light2 * 1.2, c * 0.85 * amount);
 }`;
 
-const PLANET_VERT = `varying vec3 vP; varying vec3 vWN; varying mat3 vRot;
+const PLANET_VERT = `varying vec3 vP; varying vec3 vWN; varying mat3 vRot; varying float vNear;
   void main(){ vP = position; vWN = normalize(mat3(modelMatrix) * normal);
+    // близость камеры в радиусах планеты: фотофактура поверхности проявляется на подлёте
+    vNear = smoothstep(4.0, 1.15, length(cameraPosition - (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz) / max(length(modelMatrix[0].xyz), 1e-6));
     vRot = mat3(normalize(modelMatrix[0].xyz), normalize(modelMatrix[1].xyz), normalize(modelMatrix[2].xyz)); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`;
 
 function planetModel(c) {
@@ -3534,6 +3550,7 @@ function planetModel(c) {
   const sunDir2 = { value: new THREE.Vector3(0, 1, 0) }, sunCol2 = { value: new THREE.Vector3(0, 0, 0) };
   const body = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 80), logShader({
     uniforms: { ptype: { value: PTYPE_ID[c.ptype] || 0 }, seed: { value: seed }, sunDir, sunDir2, sunCol2,
+      pRock: { value: photoTex('rock_c') }, pRockN: { value: photoTex('rock_n') }, pPhoto: { value: texLevel === 'low' ? 0 : 1 },
       tint: { value: new THREE.Vector3(0.9 + r() * 0.2, 0.9 + r() * 0.2, 0.9 + r() * 0.2) } },
     vertex: PLANET_VERT, fragment: PLANET_FRAG
   }));
