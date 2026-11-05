@@ -787,19 +787,73 @@ function wingGeo(span, chord, sweep, thick) {
   return g;
 }
 
+// ---------- Факелы дюз и следы: свой характер у каждого класса кораблей ----------
+// len/core — длина факела и горячего ядра (в радиусах сопла), w — ширина, diamonds — «ударные ромбы» в струе,
+// hot — яркость белого ядра, trail — жизнь следа (с), tw — ширина следа, tb — яркость следа, rough — рваное пламя
+const ENGINE_STYLES = {
+  ion:    { tl: 5, len: 9,  core: 3.4, w: 0.95, diamonds: 0.45, hot: 2.4, trail: 1.5, tw: 1.25, tb: 0.55, rough: 0 },
+  racer:  { tl: 7, len: 15, core: 5.2, w: 0.7,  diamonds: 1.0,  hot: 3.0, trail: 2.6, tw: 0.95, tb: 0.8,  rough: 0 },
+  heavy:  { tl: 3, len: 7,  core: 2.6, w: 1.2,  diamonds: 0.25, hot: 2.0, trail: 1.2, tw: 1.9,  tb: 0.5,  rough: 0.25 },
+  pirate: { tl: 4, len: 8,  core: 2.8, w: 1.05, diamonds: 0,    hot: 1.7, trail: 1.4, tw: 1.6,  tb: 0.55, rough: 0.8 },
+  seraph: { tl: 5.5, len: 13, core: 4.8, w: 0.9,  diamonds: 0.7,  hot: 3.2, trail: 2.2, tw: 1.3,  tb: 0.75, rough: 0 }
+};
+const ENGINE_BY_TYPE = {
+  racer: ['kometa', 'merkuriy', 'strizh', 'iskra', 'sokol', 'klinok', 'peleng', 'iskatel', 'gonchaya', 'vihr', 'prizma'],
+  heavy: ['begemot', 'imperator', 'kit', 'tyagach', 'burlak', 'leviafan', 'citadel', 'bastion', 'matka', 'flagman', 'senator', 'kovcheg', 'porog',
+    'argus', 'veche', 'staratel', 'prorab', 'pastuh', 'avrora', 'relikvariy', 'strazh', 'molot', 'taran', 'meduza', 'burya', 'colossus', 'fortress', 'pbase'],
+  seraph: ['serafim']
+};
+function engineStyleOf(type, faction) {
+  if (faction === 'pirate') return 'pirate';
+  for (const [k, list] of Object.entries(ENGINE_BY_TYPE)) if (list.includes(type)) return k;
+  return 'ion';
+}
+let ENG_STYLE = 'ion'; // выставляется на время сборки корабля
+function plumeMat(color, styleName, layer) {
+  const key = 'plume:' + color + ':' + styleName + ':' + layer;
+  if (matCache.has(key)) return matCache.get(key);
+  const st = ENGINE_STYLES[styleName] || ENGINE_STYLES.ion;
+  const m = logShader({
+    uniforms: { color: { value: new THREE.Color(color) }, time: GU.time, diamonds: { value: layer ? 0 : st.diamonds }, hot: { value: st.hot }, rough: { value: st.rough }, core: { value: layer } },
+    vertex: `varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; /*LOGDEPTH*/ }`,
+    fragment: `uniform vec3 color; uniform float time, diamonds, hot, rough, core; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ /*LOGDEPTH*/
+        float t = clamp(vUv.y, 0.0, 1.0);
+        float face = pow(abs(dot(normalize(vN), normalize(vV))), 1.3);           // середина струи ярче краёв
+        float fall = pow(1.0 - t, core > 0.5 ? 2.2 : 1.5);
+        float n = vnoise(vec3(t * 7.0 - time * 11.0, vUv.x * 9.0, time * 2.0));
+        float turb = mix(1.0, 0.55 + 0.9 * n, rough);
+        float shock = diamonds * pow(0.5 + 0.5 * cos(t * 6.2831 * 4.5), 7.0) * smoothstep(0.85, 0.05, t);
+        float flick = 0.88 + 0.12 * sin(time * 47.0 + vUv.x * 6.2831);
+        vec3 c = core > 0.5 ? mix(vec3(1.0, 0.98, 0.94) * hot, color * 2.2, smoothstep(0.1, 1.0, t))
+                            : mix(vec3(1.0, 0.95, 0.9) * hot * 0.6, color * 1.7, smoothstep(0.0, 0.4, t));
+        float I = (fall * (0.35 + 0.65 * face) * turb + shock * 0.9) * flick * (core > 0.5 ? 1.0 : 0.75);
+        gl_FragColor = vec4(c * I, 1.0); }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  });
+  m.toneMapped = false;
+  matCache.set(key, m);
+  return m;
+}
 function addEngine(g, x, y, z, r, color, len = 1) {
-  const T = sharedTextures();
+  const T = sharedTextures(), st = ENGINE_STYLES[ENG_STYLE] || ENGINE_STYLES.ion;
   const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, r * 1.2 * len, 20, 1, true), darkMetal());
   nozzle.rotation.x = Math.PI / 2; nozzle.position.set(x, y, z); g.add(nozzle);
   const core = new THREE.Mesh(new THREE.CircleGeometry(r * 0.8, 20), glowMat(color, 2.6));
   core.position.set(x, y, z - r * 0.55 * len); core.rotation.y = Math.PI; g.add(core);
-  const plume = new THREE.Mesh(new THREE.ConeGeometry(r * 0.75, r * 8, 16, 1, true),
-    new THREE.MeshBasicMaterial({ map: T.plume, color: new THREE.Color(color).multiplyScalar(1.4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
-  plume.geometry.translate(0, -r * 4, 0); plume.rotation.x = -Math.PI / 2;
-  plume.position.set(x, y, z - r * 0.6 * len);
-  plume.userData.plume = r; g.add(plume);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(color).multiplyScalar(0.75), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
-  glow.position.set(x, y, z - r * 1.2 * len); glow.scale.setScalar(r * 3); glow.userData.glow = r * 3; g.add(glow);
+  // широкий цветной факел и узкое горячее ядро; ось — назад от сопла, uv.y: 0 у сопла → 1 на конце
+  for (const [layer, rad, L] of [[0, r * st.w, r * st.len], [1, r * st.w * 0.48, r * st.core]]) {
+    const geo = new THREE.CylinderGeometry(rad * 0.18, rad, L, 18, 6, true);
+    geo.translate(0, -L / 2, 0);
+    const plume = new THREE.Mesh(geo, plumeMat(color, ENG_STYLE, layer));
+    plume.rotation.x = -Math.PI / 2; plume.position.set(x, y, z - r * 0.6 * len);
+    plume.userData.plume = r; plume.userData.trailStyle = ENG_STYLE; plume.userData.trailColor = color;
+    if (layer) plume.userData.coreLayer = 1;
+    g.add(plume);
+  }
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: new THREE.Color(color).multiplyScalar(0.85), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  glow.position.set(x, y, z - r * 1.2 * len); glow.scale.setScalar(r * 3.4); glow.userData.glow = r * 3.4; g.add(glow);
 }
 
 function addTurret(g, x, y, z, s, mat) {
@@ -1263,6 +1317,8 @@ function buildSerafim(g, R) {
       for (const y of [0.025, -0.025]) { wg.updateMatrix(); const v = new THREE.Vector3(x * R, y * R, z * R).applyMatrix4(wg.matrix); arcPts.push([v.x, v.y, v.z]); }
   }
   addLights(g, [[R * 1.2, R * 0.2, -R * 0.68, R * 0.012], [-R * 1.2, R * 0.2, -R * 0.68, R * 0.012]], 0xffd070);
+  // кормовые дюзы внутри «астролябии»: четыре бледно-золотых факела вокруг оси — шлейф идёт сквозь кольца
+  for (let i = 0; i < 4; i++) { const a = Math.PI / 4 + i * Math.PI / 2; addEngine(g, Math.cos(a) * R * 0.25, Math.sin(a) * R * 0.25, -R * 0.98, R * 0.07, 0xffd890, 1); }
   // кормовая «астролябия»: кольца разного диаметра, зубчатый обод, спицы; часть колец вращается
   const astro = new THREE.Group(); astro.position.z = -R * 1.06; g.add(astro);
   const ring = (r, tube, mat, z = 0, spin = 0) => { const m = new THREE.Mesh(new THREE.TorusGeometry(R * r, R * tube, 12, 160), mat); m.position.z = R * z; if (spin) m.userData.spin = ['z', spin]; astro.add(m); return m; };
@@ -2982,7 +3038,7 @@ function addEmblem(g, R, ch, color) {
 function shipModel(type, color, radius, faction, look) {
   if (type === 'archon') type = 'colossus'; // Архонт Края — та же машина Предтеч, крупнее
   const key = type + color + faction + lookKey(look);
-  if (!shipCache.has(key)) { LOOK = look || null; try { shipCache.set(key, buildShip(type, color, faction)); } finally { LOOK = null; } }
+  if (!shipCache.has(key)) { LOOK = look || null; ENG_STYLE = engineStyleOf(type, faction); try { shipCache.set(key, buildShip(type, color, faction)); } finally { LOOK = null; ENG_STYLE = 'ion'; } }
   const m = shipCache.get(key).clone();
   const base = SHIP_BASE_R[type] || 50;
   m.scale.setScalar(radius / base);
@@ -4135,7 +4191,7 @@ export function frame(view, dt, time) {
     myShip.rotateZ(myShip.userData.bank);
     const sf = Math.hypot(...view.me.v) / (view.me.max.spd || 1);
     setEngines(myShip, sf, time);
-    if (quality !== 'low') updateTrail('me', origin, view.me.h, view.data.ships[view.me.st].radius, sf, (view.myLook && view.myLook.engine != null) ? view.myLook.engine : 0x3aa8ff, origin, time, !!view.me.warp);
+    if (quality !== 'low') updateEngineTrails('me', myShip, origin, sf, time, !!view.me.warp, null, 4, Math.hypot(...view.me.v));
     const mx = view.me.max || {};
     damageFx(myShip, view.me.st, mx.ar ? view.me.ar / mx.ar : 1, mx.hu ? view.me.hu / mx.hu : 1, time);
   }
@@ -4158,7 +4214,7 @@ export function frame(view, dt, time) {
       setEngines(rec.obj, sf, time);
       if (e.st !== 'pbase' && e.st !== 'fortress' && Math.hypot(...rel) < 40000 * distK()) damageFx(rec.obj, e.st, e.ar == null ? 1 : e.ar, e.hu == null ? 1 : e.hu, time);
       if (e.pbs) { if (!rec.dome) rec.obj.traverse(o => { if (o.userData.dome) rec.dome = o; }); if (rec.dome) rec.dome.visible = e.pbs === 'waves'; } // щит пиратской базы
-      if (quality !== 'low' && eh && Math.hypot(...rel) < (gfx.fx === 'high' ? 60000 : 20000) * distK()) updateTrail(e.id, e.dp, eh, e.r || 50, sf, e.npc ? 0xff4020 : e.gd ? 0x9fd0ff : 0x3aa8ff, origin, time, !!e.w);
+      if (quality !== 'low' && eh && Math.hypot(...rel) < (gfx.fx === 'high' ? 60000 : 20000) * distK()) updateEngineTrails(e.id, rec.obj, origin, sf, time, !!e.w, null, gfx.fx === 'high' ? 3 : 2, e.v ? Math.hypot(...e.v) : 0);
     } else if (e.k === 'd') {
       if (e.v && Math.hypot(...e.v) > 1) { tmpV.set(rel[0] + e.v[0], rel[1] + e.v[1], rel[2] + e.v[2]); rec.obj.lookAt(tmpV); }
       setEngines(rec.obj, 1, time);
@@ -4195,55 +4251,109 @@ export function frame(view, dt, time) {
 
 // ---------- инверсионные следы двигателей ----------
 const trails = new Map(); // id -> { pts: [{p, t}], mesh }
-const TRAIL_LIFE = 1.0, TRAIL_N = 40;
+const TRAIL_N = 48;
+// след: лента к камере, мягкие края (u поперёк: 0..1), яркость — в цвете вершин
+function trailMat() {
+  if (matCache.has('trailMat')) return matCache.get('trailMat');
+  const m = logShader({
+    uniforms: {},
+    vertex: `varying vec3 vC; varying float vU; attribute float side;
+      void main(){ vC = color; vU = side; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); /*LOGDEPTH*/ }`,
+    fragment: `varying vec3 vC; varying float vU;
+      void main(){ /*LOGDEPTH*/ float e = sin(vU * 3.14159); gl_FragColor = vec4(vC * (e * e * 0.7 + pow(e, 8.0) * 0.6), 1.0); }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, vertexColors: true
+  });
+  m.toneMapped = false;
+  matCache.set('trailMat', m);
+  return m;
+}
 function trailFor(id, color) {
   let tr = trails.get(id);
   if (tr) return tr;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
+  const sd = new Float32Array(TRAIL_N * 2); for (let i = 0; i < TRAIL_N; i++) { sd[i * 2] = 0; sd[i * 2 + 1] = 1; }
+  geo.setAttribute('side', new THREE.BufferAttribute(sd, 1));
   const idx = [];
   for (let i = 0; i < TRAIL_N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   geo.setIndex(idx);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+  const mesh = new THREE.Mesh(geo, trailMat());
   mesh.frustumCulled = false;
   fxGroup.add(mesh);
-  tr = { pts: [], mesh, color: new THREE.Color(color), seen: 0 };
+  tr = { pts: [], mesh, color: new THREE.Color(color), seen: 0, lastPush: 0 };
   trails.set(id, tr);
   return tr;
 }
-function updateTrail(id, abs, heading, radius, speedFrac, color, origin, time, warping) {
+// tail — точка истечения (абсолютные координаты), w — полуширина у сопла, life — жизнь следа (с), bright — яркость
+// ex — скорость истечения [x,y,z] (м/с): газ сам уходит назад от сопла, след виден даже у медленных кораблей
+function updateTrailPt(id, tail, w, life, bright, speedFrac, color, origin, time, warping, ex) {
   const tr = trailFor(id, color);
-  tr.seen = 1;
-  if (warping) { tr.pts.length = 0; }
-  const tail = [abs[0] - heading[0] * radius * 0.95, abs[1] - heading[1] * radius * 0.95, abs[2] - heading[2] * radius * 0.95];
-  const last = tr.pts[tr.pts.length - 1];
-  if (!warping && speedFrac > 0.08 && (!last || Math.hypot(tail[0] - last.p[0], tail[1] - last.p[1], tail[2] - last.p[2]) > radius * 0.15)) {
-    tr.pts.push({ p: tail, t: time });
-    if (tr.pts.length > TRAIL_N) tr.pts.shift();
-  }
-  while (tr.pts.length && time - tr.pts[0].t > TRAIL_LIFE) tr.pts.shift();
+  tr.seen = 1; tr.color.set(color);
+  if (warping) tr.pts.length = 0;
+  // точки ставим по времени — след всегда тянется на всю свою жизнь, при любой скорости
+  if (!warping && speedFrac > 0.06 && time - tr.lastPush >= life / (TRAIL_N - 3)) { tr.pts.push({ p: tail.slice(), t: time, s: Math.min(1.3, speedFrac), e: ex || null }); tr.lastPush = time; if (tr.pts.length > TRAIL_N - 1) tr.pts.shift(); }
+  while (tr.pts.length && time - tr.pts[0].t > life) tr.pts.shift();
   const pos = tr.mesh.geometry.attributes.position.array, col = tr.mesh.geometry.attributes.color.array;
-  pos.fill(0); col.fill(0);
-  const n = tr.pts.length;
-  const w = radius * 0.14;
+  // последняя точка — всегда у сопла: лента не отрывается от корабля между выборками
+  const pts = speedFrac > 0.06 && !warping ? tr.pts.concat([{ p: tail, t: time, s: Math.min(1.3, speedFrac) }]) : tr.pts;
+  const n = Math.min(TRAIL_N, pts.length);
   const v = new THREE.Vector3(), dir = new THREE.Vector3(), side = new THREE.Vector3(), view = new THREE.Vector3();
+  const P = TRAIL_TMP;
+  for (let i = 0; i < n; i++) { const a = pts[i], e = a.e, dt = time - a.t; P[i * 3] = a.p[0] + (e ? e[0] * dt : 0); P[i * 3 + 1] = a.p[1] + (e ? e[1] * dt : 0); P[i * 3 + 2] = a.p[2] + (e ? e[2] * dt : 0); }
+  const at = (i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
   for (let i = 0; i < n; i++) {
-    const p = tr.pts[i].p, q = tr.pts[Math.min(n - 1, i + 1)].p, o = tr.pts[Math.max(0, i - 1)].p;
+    const p = at(i), q = at(Math.min(n - 1, i + 1)), o = at(Math.max(0, i - 1));
     v.set(p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]);
-    dir.set(q[0] - o[0], q[1] - o[1], q[2] - o[2]).normalize();
+    dir.set(q[0] - o[0], q[1] - o[1], q[2] - o[2]); if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1); dir.normalize();
     view.copy(camera.position).sub(v);
-    side.crossVectors(dir, view).normalize();
-    const age = (time - tr.pts[i].t) / TRAIL_LIFE;
-    const k = (1 - age) * (i / Math.max(1, n - 1));
-    const ww = w * (0.3 + 0.7 * (1 - age));
+    side.crossVectors(dir, view); if (side.lengthSq() < 1e-9) side.set(1, 0, 0); side.normalize();
+    const age = Math.min(1, (time - pts[i].t) / life);
+    // у сопла узко и ярко, к хвосту лента расширяется (рассеивается) и гаснет
+    const ww = w * (0.55 + 1.6 * age);
     pos.set([v.x + side.x * ww, v.y + side.y * ww, v.z + side.z * ww, v.x - side.x * ww, v.y - side.y * ww, v.z - side.z * ww], i * 6);
-    const c = tr.color, b = k * k * k * 0.25;
-    col.set([c.r * b, c.g * b, c.b * b, c.r * b, c.g * b, c.b * b], i * 6);
+    const k = Math.pow(1 - age, 1.7) * (0.6 + 0.4 * (pts[i].s || 1)), c = tr.color, b = k * bright;
+    // у самого сопла цвет светлеет (горячий газ), дальше — цвет двигателя
+    const hot = Math.max(0, 1 - age * 4) * 0.5;
+    col.set([(c.r + hot) * b, (c.g + hot) * b, (c.b + hot) * b, (c.r + hot) * b, (c.g + hot) * b, (c.b + hot) * b], i * 6);
   }
   tr.mesh.geometry.setDrawRange(0, Math.max(0, n - 1) * 6);
   tr.mesh.geometry.attributes.position.needsUpdate = true;
   tr.mesh.geometry.attributes.color.needsUpdate = true;
+}
+// старый вызов (ракеты): след из хвоста по курсу
+const TRAIL_TMP = new Float64Array(TRAIL_N * 3 + 3);
+function updateTrail(id, abs, heading, radius, speedFrac, color, origin, time, warping) {
+  const tail = [abs[0] - heading[0] * radius * 0.95, abs[1] - heading[1] * radius * 0.95, abs[2] - heading[2] * radius * 0.95];
+  updateTrailPt(id, tail, radius * 0.18, 1.0, 0.5, speedFrac, color, origin, time, warping);
+}
+// следы из каждой дюзы корабля (до max штук — самые крупные)
+const ENG_LIST = new WeakMap();
+const _ev = new THREE.Vector3(), _es = new THREE.Vector3(), _fw = new THREE.Vector3();
+function updateEngineTrails(id, obj, origin, speedFrac, time, warping, colorOverride, max, spd) {
+  let list = ENG_LIST.get(obj);
+  if (!list) {
+    list = [];
+    obj.traverse(o => { if (o.userData.plume && !o.userData.coreLayer) list.push(o); });
+    list.sort((a, b) => b.userData.plume - a.userData.plume);
+    ENG_LIST.set(obj, list);
+  }
+  if (!list.length) return;
+  obj.updateMatrixWorld(true);
+  // размер корпуса (без масштаба мира) — длина следа должна быть соразмерна кораблю, а не только скорости
+  if (!list.R) { obj.getWorldScale(_es); const b = new THREE.Box3().setFromObject(obj); b.getSize(_ev); list.R = Math.max(1, Math.max(_ev.x, _ev.y, _ev.z) / 2 / Math.max(1e-6, _es.x)); }
+  obj.getWorldScale(_es);
+  const R = list.R * _es.x, n = Math.min(max, list.length);
+  obj.getWorldDirection(_fw); // нос корабля (+Z)
+  for (let i = 0; i < n; i++) {
+    const pl = list[i], st = ENGINE_STYLES[pl.userData.trailStyle] || ENGINE_STYLES.ion;
+    // крупный корабль тянет след дольше; газ уходит назад со скоростью истечения — длина ≈ st.tl радиусов корпуса при любой скорости
+    const life = st.trail * Math.min(3, Math.max(1, Math.sqrt(R / 80))), vx = st.tl * R / life * 0.5;
+    const ex = [-_fw.x * vx, -_fw.y * vx, -_fw.z * vx];
+    pl.getWorldPosition(_ev); pl.getWorldScale(_es);
+    const tail = [_ev.x + origin[0], _ev.y + origin[1], _ev.z + origin[2]];
+    updateTrailPt(id + ':' + i, tail, pl.userData.plume * _es.x * st.tw * 1.6, life, st.tb, speedFrac, colorOverride != null ? colorOverride : pl.userData.trailColor, origin, time, warping, ex);
+  }
 }
 function sweepTrails() {
   for (const [id, tr] of trails) {
@@ -5036,7 +5146,7 @@ export function shipPhoto(type, info = {}, w = 800, h = 450) {
   c.filter = 'brightness(0.55) contrast(3.2) blur(10px)'; c.globalAlpha = 0.55; c.drawImage(renderer.domElement, 0, 0, w, h);
   c.filter = 'none'; c.globalAlpha = 1;
   const engines = [];
-  m.traverse(o => { if (o.userData.plume) engines.push(o.getWorldPosition(new THREE.Vector3())); });
+  m.traverse(o => { if (o.userData.plume && !o.userData.coreLayer) engines.push(o.getWorldPosition(new THREE.Vector3())); });
   const toScr = (v) => { const p = v.clone().project(cam); return [(p.x * 0.5 + 0.5) * w, (-p.y * 0.5 + 0.5) * h]; };
   const back = new THREE.Vector3(0, 0, -1).applyQuaternion(m.quaternion);
   for (const ep of engines.slice(0, 10)) {
