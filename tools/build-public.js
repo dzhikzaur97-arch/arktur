@@ -51,7 +51,7 @@ if (/https?:\/\/(?!threejs\.org)/.test(PAGE.replace(/<!--[\s\S]*?-->/g, '').matc
 
 // иконки — один раз
 const ICONS = path.join(ROOT, 'dist/.icons');
-if (!fs.existsSync(path.join(ICONS, 'icon-512.png'))) { fs.mkdirSync(ICONS, { recursive: true }); execFileSync(PY, [path.join(__dirname, 'make-icons.py'), ICONS], { stdio: 'inherit' }); }
+if (!fs.existsSync(path.join(ICONS, 'icon-512.png'))) { fs.mkdirSync(ICONS, { recursive: true }); execFileSync(PY, [path.join(__dirname, 'make-icons.py'), ICONS], { stdio: 'inherit', env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } }); }
 
 const CSP_BASE = {
   'default-src': ["'self'"], 'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'blob:'], 'style-src': ["'self'", "'unsafe-inline'"],
