@@ -10,7 +10,17 @@ const isk = (n) => Math.round(n).toLocaleString('ru-RU') + ' CR';
 // авторы игры — показываются на экране входа и в окне «Помощь → Об игре»
 const AUTHORS = window.VF_AUTHOR || 'Salamov Rustam';
 const EDITION = window.VF_EDITION || 'claude'; // 'public' — устанавливаемая версия для всех, без функций claude.ai
-const CLAUDE_OK = EDITION !== 'public'; // живые NPC, помощник, особые задания, облако, друзья — только на claude.ai
+// платформа сборки (tools/build-public.js): web, itch, crazygames, yandex, poki, desktop; на claude.ai — пусто
+const PLATFORM = Object.freeze({ id: 'claude', ...(window.VF_PLATFORM || {}) });
+// живые NPC, помощник, особые задания, облако, друзья — только на claude.ai; в порталах и на ПК Claude не вызывается никогда
+const CLAUDE_OK = EDITION !== 'public' && !PLATFORM.noAI;
+// порталы: без свободного чата (только сообщения игры), без своих внешних ссылок
+if (PLATFORM.id !== 'claude') document.documentElement.dataset.platform = PLATFORM.id;
+if (PLATFORM.noChat) document.documentElement.classList.add('no-free-chat');
+if (PLATFORM.noExternal) document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[href]');
+  if (a && /^(https?:|mailto:|tel:|\/\/)/i.test(a.getAttribute('href') || '')) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 const num = (n) => Math.round(n).toLocaleString('ru-RU');
 const AU = 1.496e11;
 
@@ -161,7 +171,7 @@ function effectiveGfx() {
 const Sound = {
   ctx: null, master: null, muted: false, noiseBuf: null, ambient: null,
   init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state === 'suspended' && !(window.VF_PAUSE && window.VF_PAUSE.sources().some(x => x !== 'user'))) this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
@@ -395,7 +405,8 @@ function startReconnect() {
 }
 function stopReconnect() { RC.until = 0; clearTimeout(RC.timer); const el = $('#reconnect'); if (el) el.remove(); }
 addEventListener('beforeunload', () => { try { send({ t: 'bye' }); } catch {} });
-R.loadShipModels(); // модели кораблей из Blender расжимаются, пока игрок вводит имя
+// модели кораблей из Blender расжимаются, пока игрок вводит имя; когда готовы — игра готова к игре (сигнал платформе)
+R.loadShipModels().catch(() => {}).then(() => { window.VF_GAME_READY = true; try { dispatchEvent(new Event('vf-ready')); } catch {} });
 $('#lg-go').onclick = async () => {
   S.kicked = null; Sound.init(); try { localStorage.setItem('vf-name', $('#lg-name').value); } catch {}
   const b = $('#lg-go'), t = b.textContent; b.disabled = true; b.textContent = 'Загрузка кораблей…';
@@ -434,6 +445,7 @@ function onMsg(m) {
       // приветствие — только новичку (опытному пилоту просто отмечаем, что знакомство было)
       setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) { introOnce(welcomeOnce); try { localStorage.setItem('vf-news', NEWS_VER); } catch {} } else { try { localStorage.setItem('vf-welcome', '1'); } catch {} setTimeout(whatsNew, 1500); } }, 1800);
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
+      try { dispatchEvent(new CustomEvent('vf-session', { detail: { on: true } })); } catch {}
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
       R.prewarm(m.data.ships, m.data.drones, m.ship || (S.prof && S.prof.ship && S.prof.ship.type));
@@ -1028,7 +1040,7 @@ addEventListener('keydown', (e) => {
   }
   if (typing || S.paused) return;
   if (SF.active()) { // на поверхности: своё управление (Enter — чат, Esc — меню обрабатываются выше и ниже)
-    if (actionFor(e.code, 'global') === 'chat') { e.preventDefault(); $('#chat-in').focus(); return; }
+    if (actionFor(e.code, 'global') === 'chat') { e.preventDefault(); if (!PLATFORM.noChat) $('#chat-in').focus(); return; }
     if (['Tab', 'Space'].includes(e.code)) e.preventDefault();
     SF.onKey(e, true); return;
   }
@@ -1045,7 +1057,7 @@ addEventListener('keydown', (e) => {
   const g = actionFor(k, 'global');
   switch (g) {
     case 'manual': if (!S.docked) manualToggle(); return;
-    case 'chat': e.preventDefault(); $('#chat-in').focus(); return;
+    case 'chat': e.preventDefault(); if (!PLATFORM.noChat) $('#chat-in').focus(); return;
     case 'map': return toggleMap();
     case 'cargo': return openWin('cargo');
     case 'skills': return openWin('skills');
@@ -1849,6 +1861,7 @@ $('#chat-tabs').onclick = (e) => {
   if (ch === 'friends' && !S.chat.friends.length) addChat('friends', '*', ROOM.r ? 'Здесь — чат с друзьями, у которых сейчас открыта эта игра на claude.ai. Их корабли в вашей системе видны «призраками».' : 'Чат с друзьями работает, когда игра открыта на claude.ai и вы поделились ею (кнопка «Поделиться» у артефакта).');
 };
 $('#chat-in').onkeydown = (e) => {
+  if (e.key === 'Enter' && PLATFORM.noChat) { e.target.value = ''; return; }
   if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) { if (S.chatCh === 'friends') friendsSay(v); else send({ t: 'chat', ch: S.chatCh, text: v }); } e.target.value = ''; e.target.blur(); }
   e.stopPropagation();
 };
@@ -2683,7 +2696,7 @@ function yardHTML(h) {
 // ======================================================================
 const TALK = { sample: null };
 (async () => {
-  if (window.claude && window.claude.use) TALK.sample = await window.claude.use('sample').catch(() => null);
+  if (CLAUDE_OK && window.claude && window.claude.use) TALK.sample = await window.claude.use('sample').catch(() => null);
   // английская версия: персонажи и помощник отвечают по-английски
   if (TALK.sample && window.VF_LANG === 'en') {
     const s = TALK.sample, NOTE = '\n\nIMPORTANT: the player uses the English version of the game. Write every text for the player in English (keep JSON keys and IDs exactly as specified).';
@@ -2782,7 +2795,7 @@ $('#win-body').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.t
 // ======================================================================
 const ROOM = { r: null, peers: [], last: '' };
 (async () => {
-  if (!window.VF_SAVES || !window.claude || !window.claude.use) return; // только одиночная сборка на claude.ai
+  if (!CLAUDE_OK || !window.VF_SAVES || !window.claude || !window.claude.use) return; // только одиночная сборка на claude.ai
   const r = await window.claude.use('room').catch(() => null);
   if (!r) return;
   ROOM.r = r;
@@ -3441,7 +3454,7 @@ function settingsHTML() {
     ${'vibrate' in navigator ? chk('cfg-haptics', CFG.haptics !== false, 'Вибрация при попаданиях и взрывах') : ''}
     ${chk('cfg-awake', CFG.awake !== false, 'Не выключать экран, пока игра открыта')}
     ${chk('cfg-rings', CFG.rings !== false, 'Кольца дальности вокруг корабля: 5, 10, 15, 20, 50, 100 км')}
-    ${document.fullscreenEnabled ? '<p><button data-a="fullscreen">Во весь экран</button></p>' : ''}
+    ${document.fullscreenEnabled && !PLATFORM.noFullscreen ? '<p><button data-a="fullscreen">Во весь экран</button></p>' : ''}
     ${chk('cfg-voice', CFG.voice !== false, 'Озвучивать реплики персонажей встроенным голосом устройства (бесплатно, лимиты Claude не тратит)')}
     ${!CLAUDE_OK ? '' : chk('cfg-liveNpc', CFG.liveNpc, 'Claude в игре: живые разговоры (агенты, пираты, лидеры фракций), бортовой помощник и особые задания. Каждый ответ расходует лимиты вашего аккаунта Claude; работает, когда игра открыта на claude.ai')}
     </div>
@@ -3556,7 +3569,7 @@ const CLOUD_CHUNK = 80000;
 const cloudDoc = (name) => CLOUD.db.doc('data/users/' + CLOUD.uid + '/' + name);
 const stripWhen = (t) => t.replace(/,"savedAt":\d+\}$/, '}');
 async function cloudInit() {
-  if (!window.claude || !window.claude.use) return;
+  if (!CLAUDE_OK || !window.claude || !window.claude.use) return;
   const [db, user] = await Promise.all([window.claude.use('db').catch(() => null), window.claude.use('user').catch(() => null)]);
   if (!db || !user) return;
   const uid = await user.id().catch(() => null);
@@ -3695,12 +3708,40 @@ $('#win-body').addEventListener('change', (e) => {
 });
 
 // ======================================================================
+// Пауза из нескольких источников: «user» — меню Esc игрока, «platform» — платформа (Яндекс game_api_pause),
+// «blur» — вкладка/окно потеряли фокус. Игра стоит, пока есть хоть один источник; снятие внешней паузы не снимает паузу игрока.
+// Звук (Web Audio) приостанавливается только внешними источниками: в меню Esc фон продолжает звучать, как раньше.
+// ======================================================================
+const PAUSE = { src: new Set() };
+function pauseApply() {
+  const on = PAUSE.src.size > 0, ext = PAUSE.src.has('platform') || PAUSE.src.has('blur');
+  if (OFFLINE) { window.VF_PAUSED = on; S.paused = on; }
+  const c = Sound.ctx;
+  if (c) { if (ext && c.state === 'running') c.suspend().catch(() => {}); else if (!ext && c.state === 'suspended') c.resume().catch(() => {}); }
+  try { dispatchEvent(new CustomEvent('vf-pause', { detail: { paused: on, sources: [...PAUSE.src] } })); } catch {}
+}
+function pauseSet(src, on) { const had = PAUSE.src.has(src); if (on) PAUSE.src.add(src); else PAUSE.src.delete(src); if (had !== !!on) pauseApply(); }
+// явный мост для платформенных адаптеров (Яндекс SDK и т. п.) и тестов: только чтение и внешние источники
+window.VF_PAUSE = Object.freeze({
+  set: (src, on) => { if (src === 'platform' || src === 'blur') pauseSet(src, !!on); },
+  sources: () => [...PAUSE.src], paused: () => PAUSE.src.size > 0,
+  audio: () => Sound.ctx ? Sound.ctx.state : 'none'
+});
+// сигналы платформы, пришедшие раньше, чем загрузилась игра (Яндекс SDK запускается первым)
+if (window.__vfPausePending) for (const [k, v] of Object.entries(window.__vfPausePending)) if ((k === 'platform' || k === 'blur') && v) pauseSet(k, true);
+if (PLATFORM.pauseOnBlur) {
+  const vis = () => pauseSet('blur', document.hidden || !document.hasFocus());
+  addEventListener('blur', () => pauseSet('blur', true));
+  addEventListener('focus', () => pauseSet('blur', document.hidden));
+  document.addEventListener('visibilitychange', vis);
+}
+// ======================================================================
 // Меню по Esc. В одиночной игре — пауза: симуляция полностью останавливается.
 // ======================================================================
 function toggleEscMenu(force) {
   const open = force !== undefined ? force : $('#escmenu').classList.contains('hidden');
   $('#escmenu').classList.toggle('hidden', !open);
-  if (OFFLINE) { window.VF_PAUSED = open; S.paused = open; }
+  pauseSet('user', open);
   $('#esc-pause').textContent = OFFLINE ? (open ? 'ПАУЗА — время в игре остановлено' : '') : 'Сетевая игра: пауза недоступна, корабль остаётся в космосе';
   if (open && MAN.on && document.pointerLockElement) document.exitPointerLock();
 }
@@ -3712,7 +3753,7 @@ $('#escmenu').addEventListener('click', (e) => {
   if (a === 'saves') { toggleEscMenu(false); S.setTab = 4; openWin('settings'); }
   if (a === 'help') { toggleEscMenu(false); openWin('help'); }
   if (a === 'journal') { toggleEscMenu(false); openWin('missions'); }
-  if (a === 'quit') { toggleEscMenu(false); if (OFFLINE) window.VF_SAVES.flush(); send({ t: 'bye' }); if (S.ws) S.ws.close(); }
+  if (a === 'quit') { try { dispatchEvent(new CustomEvent('vf-session', { detail: { on: false } })); } catch {} toggleEscMenu(false); if (OFFLINE) window.VF_SAVES.flush(); send({ t: 'bye' }); if (S.ws) S.ws.close(); }
 });
 
 function droneDesc(d) {
@@ -4650,8 +4691,11 @@ document.addEventListener('click', (e) => { const b = e.target.closest && e.targ
 const AWAKE = { lock: null, video: null, want: false };
 const NOSLEEP_MP4 = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAYYbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAD6AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAml0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAD6AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAA+gAAAAAAABAAAAAAHhbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAABAABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABjG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAUxzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMACDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAAVGAAAFRgAAABhzdHRzAAAAAAAAAAEAAAAEAABAAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAACRzdHN6AAAAAAAAAAAAAAAEAAAChgAAAAoAAAAKAAAACQAAACBzdGNvAAAAAAAAAAQAAAZdAAAJAwAACS0AAAlXAAAC2XRyYWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAIAAAAAAAAPoAAAAAAAAAAAAAAAAQEAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAACRlZHRzAAAAHGVsc3QAAAAAAAAAAQAAD6AAAAQAAAEAAAAAAlFtZGlhAAAAIG1kaGQAAAAAAAAAAAAAAAAAAB9AAACBAFXEAAAAAAAtaGRscgAAAAAAAAAAc291bgAAAAAAAAAAAAAAAFNvdW5kSGFuZGxlcgAAAAH8bWluZgAAABBzbWhkAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAAHAc3RibAAAAH5zdHNkAAAAAAAAAAEAAABubXA0YQAAAAAAAAABAAAAAAAAAAAAAQAQAAAAAB9AAAAAAAA2ZXNkcwAAAAADgICAJQACAASAgIAXQBUAAAAAAB9AAAABIAWAgIAFFYhW5QAGgICAAQIAAAAUYnRydAAAAAAAAB9AAAABIAAAACBzdHRzAAAAAAAAAAIAAAAgAAAEAAAAAAEAAAEAAAAAKHN0c2MAAAAAAAAAAgAAAAEAAAABAAAAAQAAAAIAAAAIAAAAAQAAAJhzdHN6AAAAAAAAAAAAAAAhAAAAFQAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAAJHN0Y28AAAAAAAAABQAABkgAAAjjAAAJDQAACTcAAAlgAAAAGnNncGQBAAAAcm9sbAAAAAIAAAAB//8AAAAcc2JncAAAAAByb2xsAAAAAQAAACEAAAABAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2MC4xNi4xMDAAAAAIZnJlZQAAA0BtZGF03gIATGF2YzYwLjMxLjEwMgACMEAOAAACcAYF//9s3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MToweDExMSBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MCBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49MSBzY2VuZWN1dD00MCBpbnRyYV9yZWZyZXNoPTAgcmNfbG9va2FoZWFkPTQwIHJjPWNyZiBtYnRyZWU9MSBjcmY9MjMuMCBxY29tcD0wLjYwIHFwbWluPTAgcXBtYXg9NjkgcXBzdGVwPTQgaXBfcmF0aW89MS40MCBhcT0xOjEuMDAAgAAAAA5liIQF////D0UAAVefgAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABkGaOAv6gAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABkGaVALeoAEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAcBGCAHAAAABUGaYBX1ARggBwEYIAcBGCAHARggBwEYIAcBGCAHARggBwEYIAc=';
 const NOSLEEP_WEBM = 'data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIzEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggId7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECvQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYjGSgErWMWCQZyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBELqBEJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYjGSgErWMWCQWfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDQuMDAwMDAwMDAwAB9DtnX554EAo6OBAACAEAIAnQEqEAAQAABHCIWFiJmEiAICAAwNYAD+/6tQgKOZgQPoALEBAAEQEAAYADA/9AwAAAD+/6tQgKOZgQfQALEBAAEQEAAYADA/9AwAAAD+/6tQgKOZgQu4ALEBAAEQEAAYADA/9AwAAAD+/6tQgBxTu2uRu4+zgQC3iveBAfGCAZ/wgQM=';
+// внутри чужого iframe (порталы) «не гасить экран» обычно запрещено политикой страницы — тогда не просим, это забота портала
+const WAKE_ALLOWED = (() => { try { const pp = document.permissionsPolicy || document.featurePolicy; return !pp || !pp.allowsFeature || pp.allowsFeature('screen-wake-lock'); } catch { return true; } })();
 async function awakeOn() {
   if (!AWAKE.want || document.hidden) return;
+  if (!WAKE_ALLOWED) return;
   if ('wakeLock' in navigator) {
     try { if (!AWAKE.lock || AWAKE.lock.released) { AWAKE.lock = await navigator.wakeLock.request('screen'); AWAKE.lock.addEventListener('release', () => { AWAKE.lock = null; }); } return; } catch {}
   }

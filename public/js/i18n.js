@@ -8,6 +8,9 @@
   'use strict';
   const pick = () => {
     try { const s = localStorage.getItem('vf-lang'); if (s === 'ru' || s === 'en') return s; } catch {}
+    // язык платформы (Яндекс SDK, порталы): задаётся сборкой до запуска игры; выбор игрока в настройках важнее
+    const P = window.VF_PLATFORM || {};
+    if (P.lang === 'ru' || P.lang === 'en') return P.lang;
     if (window.VF_EDITION === 'public' && !/^(ru|uk|be|kk)/i.test(navigator.language || '')) return 'en';
     return 'ru';
   };

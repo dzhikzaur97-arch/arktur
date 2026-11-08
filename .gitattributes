@@ -1,0 +1,9 @@
+# Одинаковые файлы на Linux и Windows (CI windows-latest): текст — с LF, двоичные — без преобразований
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.glb binary
+*.ico binary
+*.zip binary

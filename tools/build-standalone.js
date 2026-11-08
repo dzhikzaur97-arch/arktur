@@ -206,7 +206,7 @@ const artDir = path.join(ROOT, 'public/img/ships');
 // картинки встраиваются в WebP (втрое легче, iOS 14+); без Python и Pillow — исходные JPEG
 const embed = (dir, w, q) => {
   if (!fs.existsSync(dir)) return {};
-  try { return JSON.parse(require('child_process').execFileSync('python3', [path.join(ROOT, 'tools/webp.py'), dir, String(w), String(q)], { maxBuffer: 64 << 20 }).toString()); }
+  try { return JSON.parse(require('child_process').execFileSync(process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), [path.join(ROOT, 'tools/webp.py'), dir, String(w), String(q)], { maxBuffer: 64 << 20 }).toString()); }
   catch (e) {
     console.warn('WebP недоступен, встраиваю JPEG:', e.message.split('\n')[0]);
     const out = {};

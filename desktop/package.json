@@ -1,0 +1,76 @@
+{
+  "name": "arktur-desktop",
+  "productName": "ARKTUR Space Frontier",
+  "version": "0.82.0",
+  "description": "ARKTUR: Space Frontier — single-player space sandbox (offline desktop build)",
+  "author": "Salamov Rustam",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis zip --x64 --publish never",
+    "dist:linux-dir": "electron-builder --linux dir --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.github.dzhikzaur97arch.arktur",
+    "productName": "ARKTUR Space Frontier",
+    "executableName": "ARKTUR",
+    "copyright": "© 2026 Salamov Rustam and Claude (Anthropic). MIT License.",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "app/**/*"
+    ],
+    "asar": true,
+    "artifactName": "ARKTUR-${version}-win-${arch}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ARKTUR Space Frontier",
+      "artifactName": "ARKTUR-Setup-${version}-x64.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game"
+    },
+    "compression": "maximum"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dzhikzaur97-arch/arktur.git"
+  }
+}

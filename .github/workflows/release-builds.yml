@@ -1,0 +1,97 @@
+# Релизные сборки ARKTUR: Windows-приложение (Electron: установщик NSIS + portable ZIP) и архивы для веб-площадок.
+# Запускается сам при push в ветку release/multiplatform-20261108 (и вручную — Actions → Run workflow).
+# Секреты не нужны: приложение не подписывается (Windows SmartScreen покажет «Неизвестный издатель» — это ожидаемо).
+# Результаты — в разделе Artifacts запуска: arktur-windows-desktop и arktur-web-portals.
+name: Release builds (Windows desktop + web portals)
+
+on:
+  push:
+    branches: ['release/multiplatform-20261108']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      PYTHON: python
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Python 3.12 + Pillow (иконки и WebP-текстуры)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Зависимости игры
+        run: npm ci
+
+      - name: Сборка игры для всех площадок и проверка их лимитов
+        run: node tools/build-release.js
+
+      - name: Зависимости приложения (Electron, electron-builder)
+        working-directory: desktop
+        run: npm ci
+
+      - name: Windows-приложение — установщик NSIS и portable ZIP (x64)
+        working-directory: desktop
+        run: npx electron-builder --win nsis zip --x64 --publish never
+
+      - name: Проверка содержимого и контрольные суммы
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem desktop/release -File | Where-Object { $_.Extension -in '.exe', '.zip' }
+          if ($files.Count -lt 2) { throw "Нет установщика или portable ZIP" }
+          if (-not (Test-Path desktop/release/win-unpacked/ARKTUR.exe)) { throw "Нет ARKTUR.exe" }
+          if (-not (Test-Path desktop/release/win-unpacked/resources/app.asar)) { throw "Нет app.asar" }
+          $files | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Out-File -Encoding utf8 desktop/release/SHA256SUMS-windows.txt
+          Get-Content desktop/release/SHA256SUMS-windows.txt
+
+      - name: Запуск ARKTUR.exe (окно открывается, процесс жив 20 с)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath desktop/release/win-unpacked/ARKTUR.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "ARKTUR.exe завершился сразу после запуска (код $($p.ExitCode))" }
+          Get-Process -Id $p.Id | Select-Object Id, ProcessName, MainWindowTitle | Format-List
+          Stop-Process -Id $p.Id -Force
+
+      - name: Артефакт — Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: arktur-windows-desktop
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/SHA256SUMS-windows.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Артефакт — веб-площадки (itch, CrazyGames, Poki, Яндекс, сайт)
+        uses: actions/upload-artifact@v4
+        with:
+          name: arktur-web-portals
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 30
