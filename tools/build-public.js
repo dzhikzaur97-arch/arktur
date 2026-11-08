@@ -73,40 +73,50 @@ function csp(t) {
 }
 
 // Политика конфиденциальности: общая часть + что делает площадка. Внутри игровых архивов — без гиперссылок (порталы их не любят).
+// Политика конфиденциальности по площадкам. Один источник текста: отдельная страница privacy.html и окно внутри игры
+// (window.VF_PRIVACY — ссылка на экране входа и кнопка в «Помощь → Об игре»). Без гиперссылок: порталы их не любят.
+const AI_RU = `Игру создали ${CFG.author} и Claude — ИИ-ассистент компании Anthropic, с помощью которого написан код игры. Эта версия игры к Claude и другим ИИ-сервисам не подключается.`;
+const AI_EN = `The game was made by ${CFG.author} together with Claude, Anthropic's AI assistant, which helped write the game's code. This version of the game does not connect to Claude or any other AI service.`;
+const LOCAL_RU = ['Прогресс, настройки и сохранения хранятся <b>в хранилище браузера на вашем устройстве</b>. Их можно выгрузить в файл и загрузить обратно в меню «Сохранения».',
+  'Имя пилота и пароль, которые вы вводите в игре, нужны только чтобы разделять пилотов на этом устройстве, и игрой никуда не передаются.'];
+const LOCAL_EN = ['Progress, settings and saves are stored <b>in your browser storage on your device</b>. You can export them to a file and import them back in the Saves menu.',
+  'The pilot name and password you enter in the game only separate pilots on this device and are not sent anywhere by the game.'];
+const NODATA_RU = 'Игра бесплатная. В ней <b>нет рекламы, покупок, аналитики и сторонних трекеров</b>, и сама игра <b>не собирает и не отправляет</b> данные.';
+const NODATA_EN = 'The game is free. It has <b>no ads, purchases, analytics or third-party trackers</b>, and the game itself <b>collects and sends no data</b>.';
 const PRIV = {
-  web: { ru: 'Сайт игры размещён на GitHub Pages. GitHub, как любой хостинг, может записывать технические данные запросов (например, IP-адрес) по своей политике конфиденциальности.',
-         en: 'The game website is hosted on GitHub Pages. Like any host, GitHub may log technical request data (such as IP addresses) under its own privacy policy.' },
-  itch: { ru: 'Игра размещена на itch.io. Сайт itch.io обрабатывает данные посетителей по своей политике конфиденциальности; сама игра ничего ему не передаёт.',
-          en: 'The game is hosted on itch.io. itch.io processes visitor data under its own privacy policy; the game itself sends it nothing.' },
-  crazygames: { ru: 'Игра размещена на CrazyGames. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Игра не подключает SDK портала, не показывает рекламу и ничего порталу не передаёт.',
-                en: 'The game is hosted on CrazyGames. The portal processes visitor data under its own privacy policy. The game does not include the portal SDK, shows no ads and sends the portal nothing.' },
-  poki: { ru: 'Игра размещается на Poki. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Эта сборка не подключает SDK портала и ничего ему не передаёт.',
-          en: 'The game is hosted on Poki. The portal processes visitor data under its own privacy policy. This build does not include the portal SDK and sends the portal nothing.' },
-  yandex: { ru: 'Игра работает на платформе Яндекс Игры и подключает Yandex Games SDK, как требует платформа. Яндекс обрабатывает данные по своей политике конфиденциальности. Игра использует SDK только чтобы узнать язык интерфейса, сообщить о готовности к игре и ставить игру на паузу по сигналу платформы. Игра не показывает рекламу, не продаёт покупки, не запрашивает вход в аккаунт Яндекса и не передаёт Яндексу сохранения.',
-            en: 'The game runs on Yandex Games and includes the Yandex Games SDK as the platform requires. Yandex processes data under its own privacy policy. The game uses the SDK only to read the interface language, report that it is ready to play and pause when the platform asks. The game shows no ads, sells nothing, does not ask for a Yandex login and does not send saves to Yandex.' },
-  desktop: { ru: 'Приложение для Windows работает без интернета: оно не устанавливает сетевых соединений, а сохранения хранятся в папке данных приложения на вашем компьютере. Удалить их можно, удалив приложение и папку ARKTUR в %APPDATA%.',
-             en: 'The Windows app works offline: it makes no network connections, and saves are kept in the app data folder on your computer. Remove them by uninstalling the app and deleting the ARKTUR folder in %APPDATA%.' }
+  web: { ru: [NODATA_RU, ...LOCAL_RU, 'Сайт игры размещён на GitHub Pages. GitHub, как любой хостинг, может записывать технические данные запросов (например, IP-адрес) по своей политике конфиденциальности.'],
+         en: [NODATA_EN, ...LOCAL_EN, 'The game website is hosted on GitHub Pages. Like any host, GitHub may log technical request data (such as IP addresses) under its own privacy policy.'] },
+  itch: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещена на itch.io. Сайт itch.io обрабатывает данные посетителей по своей политике конфиденциальности; сама игра ему ничего не передаёт.'],
+          en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on itch.io. itch.io processes visitor data under its own privacy policy; the game itself sends it nothing.'] },
+  crazygames: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещена на CrazyGames. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Игра не подключает SDK портала, не показывает рекламу и ничего порталу не передаёт.'],
+                en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on CrazyGames. The portal processes visitor data under its own privacy policy. The game does not include the portal SDK, shows no ads and sends the portal nothing.'] },
+  poki: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещается на Poki. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Эта сборка не подключает SDK портала и ничего ему не передаёт.'],
+          en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on Poki. The portal processes visitor data under its own privacy policy. This build does not include the portal SDK and sends the portal nothing.'] },
+  // Яндекс: игра подключает SDK платформы — честно перечисляем, что уходит платформе; не обещаем «никаких данных и аналитики»
+  yandex: {
+    ru: ['Игра бесплатная. <b>Сама игра не показывает рекламу и не продаёт покупки.</b> Платформа Яндекс Игры может показывать собственный контент, в том числе рекламу при запуске, по своим правилам.',
+      'Игра работает на платформе Яндекс Игры и подключает <b>Yandex Games SDK</b>. Через SDK игра сообщает платформе: что игра загрузилась и готова (LoadingAPI.ready); когда игровой процесс идёт и когда остановлен — пауза, меню, сворачивание вкладки (GameplayAPI start/stop). Из SDK игра получает язык интерфейса и сигналы паузы платформы.',
+      'Яндекс как платформа собирает и обрабатывает данные — например, технические данные устройства и браузера, IP-адрес, статистику запусков и времени в игре — по <b>своим правилам и политике конфиденциальности</b>. Разработчик игры может видеть в консоли Яндекс Игр обобщённую статистику игры, которую формирует платформа.',
+      'Игра не запрашивает вход в аккаунт Яндекса, не использует облачные сохранения Яндекса и не передаёт свои сохранения ни Яндексу, ни разработчику.',
+      ...LOCAL_RU,
+      'Вопросы о данных платформы — к Яндексу; вопросы об игре — через страницу игры на Яндекс Играх.'],
+    en: ['The game is free. <b>The game itself shows no ads and sells nothing.</b> The Yandex Games platform may show its own content, including an ad at launch, under its own rules.',
+      'The game runs on Yandex Games and includes the <b>Yandex Games SDK</b>. Through the SDK the game tells the platform: that it has loaded and is ready (LoadingAPI.ready); when gameplay is running and when it is stopped — pause, menu, tab hidden (GameplayAPI start/stop). From the SDK the game receives the interface language and the platform pause signals.',
+      'As a platform, Yandex collects and processes data — such as technical device and browser data, IP address, launch and play-time statistics — under <b>its own rules and privacy policy</b>. The game developer may see aggregated game statistics produced by the platform in the Yandex Games console.',
+      'The game does not ask for a Yandex login, does not use Yandex cloud saves and does not send its saves to Yandex or to the developer.',
+      ...LOCAL_EN,
+      'Questions about platform data — to Yandex; questions about the game — via the game page on Yandex Games.'] },
+  desktop: { ru: [NODATA_RU, 'Приложение для Windows работает без интернета: оно не устанавливает сетевых соединений. Сохранения хранятся в папке данных приложения на вашем компьютере (%APPDATA%\\ARKTUR); удалить их можно, удалив приложение и эту папку.', 'Имя пилота и пароль, которые вы вводите в игре, нужны только чтобы разделять пилотов на этом компьютере, и никуда не передаются.'],
+             en: [NODATA_EN, 'The Windows app works offline: it makes no network connections. Saves are kept in the app data folder on your computer (%APPDATA%\\ARKTUR); remove them by uninstalling the app and deleting that folder.', 'The pilot name and password you enter in the game only separate pilots on this computer and are never sent anywhere.'] }
 };
+const privFragment = (kind, lang) => '<ul>' + [...PRIV[kind][lang], lang === 'ru' ? AI_RU : AI_EN].map(x => `<li>${x}</li>`).join('\n') + '</ul>';
 function privacyHtml(kind, back) {
-  const p = PRIV[kind];
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${CFG.title} — конфиденциальность / privacy</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;background:#06101e;color:#d8e4f0}a{color:#7fd0ff}h1{font-size:24px}h2{font-size:19px;margin-top:28px}</style></head><body>
 <h1>Политика конфиденциальности ${CFG.title}</h1>
-<ul>
-<li>Игра бесплатная. В ней <b>нет рекламы, покупок, аналитики и сторонних трекеров</b>, и сама игра <b>не собирает и не отправляет</b> никаких данных.</li>
-<li>Прогресс, настройки и сохранения хранятся <b>только на вашем устройстве</b>. Их можно выгрузить в файл и загрузить обратно в меню «Сохранения».</li>
-<li>Имя пилота и пароль, которые вы вводите, нужны только чтобы разделять пилотов на этом устройстве, и никуда не передаются.</li>
-<li>${p.ru}</li>
-<li>Игру создали ${CFG.author} и Claude — ИИ-ассистент компании Anthropic, с помощью которого написан код игры. Эта версия игры к Claude и другим ИИ-сервисам не подключается.</li>
-</ul>
-<h2>Privacy policy (English)</h2>
-<ul>
-<li>The game is free. It has <b>no ads, purchases, analytics or third-party trackers</b>, and the game itself <b>collects and sends no data</b>.</li>
-<li>Progress, settings and saves are stored <b>only on your device</b>. You can export them to a file and import them back in the Saves menu.</li>
-<li>The pilot name and password you enter only separate pilots on this device and are never sent anywhere.</li>
-<li>${p.en}</li>
-<li>The game was made by ${CFG.author} together with Claude, Anthropic's AI assistant, which helped write the game's code. This version of the game does not connect to Claude or any other AI service.</li>
-</ul>
+${privFragment(kind, 'ru')}
+<h2>Privacy policy — ${CFG.titleEn}</h2>
+${privFragment(kind, 'en')}
 ${back ? '<p><a href="./">← Вернуться в игру / Back to the game</a></p>' : ''}
 </body></html>
 `;
@@ -143,12 +153,33 @@ function deferScripts(page) {
     .replace(/<script>/g, '<script type="text/vf-defer">');
 }
 const YANDEX_BOOT = `<script>
-// Яндекс Игры: SDK → язык → запуск игры → LoadingAPI.ready, когда игра готова; пауза и GameplayAPI — по сигналам платформы и игры
+// Яндекс Игры: SDK → язык → запуск игры → LoadingAPI.ready, когда игра готова; пауза и GameplayAPI — по сигналам платформы и игры.
+// Игра НЕ запускается без SDK: если инициализация затянулась (>10 с), показываем «Подключаемся…» с кнопкой «Повторить»,
+// но продолжаем ждать — поздний успешный YaGames.init() запускает игру. Без SDK — только по явному тестовому флагу ?vfLocalTest=1.
 (function () {
   'use strict';
   var RU = { ru: 1, be: 1, uk: 1, kk: 1, uz: 1 };
+  var TEST = /[?&]vfLocalTest=1(&|$)/.test(location.search);
+  var ru = /^(ru|be|uk|kk|uz)/i.test(navigator.language || '');
   var pend = window.__vfPausePending = window.__vfPausePending || {};
+  var started = false;
   function setPause(on) { pend.platform = on; if (window.VF_PAUSE) window.VF_PAUSE.set('platform', on); }
+  function overlay(kind) {
+    var el = document.getElementById('ya-wait');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'ya-wait';
+      el.setAttribute('style', 'position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:rgba(2,4,10,.92);color:#d8e4f0;font:16px/1.5 system-ui,sans-serif;text-align:center;padding:24px');
+      document.body.appendChild(el);
+    }
+    var msg = kind === 'slow' ? (ru ? 'Подключаемся к Яндекс Играм… Это занимает больше обычного.' : 'Connecting to Yandex Games… This is taking longer than usual.')
+      : kind === 'error' ? (ru ? 'Не удалось подключиться к Яндекс Играм.' : 'Could not connect to Yandex Games.')
+      : (ru ? 'Не загрузился Yandex Games SDK.' : 'Yandex Games SDK did not load.');
+    el.innerHTML = '<div><p id="ya-wait-msg"></p><button id="ya-retry" style="font:inherit;padding:8px 20px;margin-top:8px;background:#0b2233;color:#bfe9ff;border:1px solid #5fc8e8;border-radius:3px;cursor:pointer"></button></div>';
+    el.querySelector('#ya-wait-msg').textContent = msg;
+    var b = el.querySelector('#ya-retry'); b.textContent = ru ? 'Повторить' : 'Retry'; b.onclick = function () { location.reload(); };
+    el.setAttribute('data-kind', kind);
+  }
+  function hideOverlay() { var el = document.getElementById('ya-wait'); if (el) el.parentNode.removeChild(el); }
   function start() {
     var sl = document.querySelectorAll('script[type="text/vf-defer"]');
     for (var i = 0; i < sl.length; i++) {
@@ -173,9 +204,9 @@ const YANDEX_BOOT = `<script>
     addEventListener('vf-pause', sync);
     try { ysdk.on('game_api_pause', function () { setPause(true); }); ysdk.on('game_api_resume', function () { setPause(false); }); } catch (e) {}
   }
-  var done = false;
   function go(ysdk) {
-    if (done) return; done = true;
+    if (started) return; started = true;
+    hideOverlay();
     var lang = null;
     try { lang = ysdk && ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; } catch (e) {}
     window.VF_PLATFORM.lang = lang ? (RU[String(lang).toLowerCase()] ? 'ru' : 'en') : null;
@@ -184,9 +215,10 @@ const YANDEX_BOOT = `<script>
     start();
   }
   if (window.YaGames && YaGames.init) {
-    YaGames.init().then(go, function () { go(null); });
-    setTimeout(function () { if (!done) { console.warn('Yandex SDK: init не ответил за 10 с — игра запускается без него'); go(null); } }, 10000);
-  } else { console.warn('Yandex SDK (/sdk.js) не найден — запуск без него (локальная проверка)'); go(null); }
+    YaGames.init().then(go, function (e) { console.warn('Yandex SDK: init отклонён', e); if (!started) overlay('error'); });
+    setTimeout(function () { if (!started) overlay('slow'); }, 10000); // не запускаем без SDK — ждём дальше, но даём «Повторить»
+  } else if (TEST) { console.warn('Yandex SDK не найден: локальная проверка (?vfLocalTest=1) — запуск без SDK'); go(null); }
+  else overlay('missing');
 })();
 </script>`;
 
@@ -212,7 +244,7 @@ ${t.pwa ? `<meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 ` : ''}${t.icons ? '<link rel="icon" href="icons/icon-192.png">\n' : ''}<meta name="author" content="${CFG.author} и Claude">
 <style>html,body{margin:0;padding:0;background:#02040a;height:100%;overflow:hidden}</style>
-<script>window.VF_EDITION = 'public'; window.VF_AUTHOR = ${JSON.stringify(CFG.author)}; window.VF_PLATFORM = ${JSON.stringify(plat)};</script>
+<script>window.VF_EDITION = 'public'; window.VF_AUTHOR = ${JSON.stringify(CFG.author)}; window.VF_PLATFORM = ${JSON.stringify(plat)}; window.VF_PRIVACY = ${JSON.stringify({ ru: privFragment(t.privacy, 'ru'), en: privFragment(t.privacy, 'en') }).replace(/</g, '\\u003c')};</script>
 ${t.yandex ? '<script src="/sdk.js"></script>\n' : ''}</head>
 <body>
 `;

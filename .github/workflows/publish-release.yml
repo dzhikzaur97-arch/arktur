@@ -1,0 +1,106 @@
+# Публикация релиза ARKTUR с постоянными ссылками для скачивания (GitHub Release, файлы не исчезают через 30 дней,
+# в отличие от artifacts обычной сборки). Секреты не нужны: релиз создаётся встроенным GITHUB_TOKEN.
+#
+# Запуск:
+#   • тегом:   git tag v0.82.1-alpha.1 <коммит> && git push origin v0.82.1-alpha.1     (работает с любой ветки)
+#   • вручную: Actions → «Publish release» → Run workflow (кнопка появляется, когда этот файл есть в основной ветке master)
+#
+# Веб-пакет (itch, CrazyGames, Poki, Яндекс, сайт) и Windows-приложение публикуются РАЗНЫМИ заданиями: если Windows-сборка
+# упадёт, архивы для веб-площадок всё равно окажутся в релизе.
+name: Publish release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релиза (например v0.82.1-alpha.1)'
+        required: true
+        default: 'v0.82.1-alpha.1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Создать черновик-предрелиз (если ещё нет)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "Релиз $TAG уже есть"; exit 0; fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "ARKTUR: Space Frontier $TAG (alpha)" \
+            --notes "Альфа-версия ARKTUR: Космический рубеж — одиночная космическая песочница (не MMO, без мультиплеера). Сборки: Windows (установщик и portable ZIP, без цифровой подписи — Windows SmartScreen предупредит о неизвестном издателе), архивы для itch.io, CrazyGames, Poki, Яндекс Игр и сайта. Контрольные суммы — в SHA256SUMS-*.txt."
+
+  web:
+    needs: create
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --disable-pip-version-check pillow
+      - run: npm ci --no-audit --no-fund
+      - name: Сборка и проверка лимитов площадок
+        run: node tools/build-release.js
+      - name: Прикрепить веб-архивы к релизу
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist/release && cp SHA256SUMS.txt SHA256SUMS-web.txt
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber arktur-*.zip SHA256SUMS-web.txt MANIFEST.json
+
+  windows:
+    needs: create
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      PYTHON: python
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --disable-pip-version-check pillow
+      - run: npm ci --no-audit --no-fund
+      - run: node tools/build-release.js
+      - run: npm ci --no-audit --no-fund
+        working-directory: desktop
+      - run: npx electron-builder --win nsis zip --x64 --publish never
+        working-directory: desktop
+      - name: Запуск ARKTUR.exe (процесс жив 20 с)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath desktop/release/win-unpacked/ARKTUR.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "ARKTUR.exe завершился сразу (код $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+      - name: Прикрепить Windows-сборки к релизу
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem desktop/release -File | Where-Object { $_.Extension -in '.exe', '.zip' }
+          $files | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Out-File -Encoding utf8 desktop/release/SHA256SUMS-windows.txt
+          gh release upload "$env:TAG" --repo "$env:GITHUB_REPOSITORY" --clobber @($files.FullName) desktop/release/SHA256SUMS-windows.txt

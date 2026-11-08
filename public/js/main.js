@@ -165,13 +165,15 @@ function effectiveGfx() {
   return { ...base, fov: CFG.fov, shake: CFG.shake };
 }
 
+// внешняя пауза (платформа или потеря фокуса) — звук и речь молчат; пауза игрока (меню Esc) звук не трогает
+const extPaused = () => !!(window.VF_PAUSE && window.VF_PAUSE.sources().some(x => x !== 'user'));
 // ======================================================================
 // Звук: всё синтезируется на лету через Web Audio, без файлов
 // ======================================================================
 const Sound = {
   ctx: null, master: null, muted: false, noiseBuf: null, ambient: null,
   init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended' && !(window.VF_PAUSE && window.VF_PAUSE.sources().some(x => x !== 'user'))) this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state === 'suspended' && !extPaused()) this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
@@ -188,6 +190,8 @@ const Sound = {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     // фон и музыка — после первых кадров: синтез звука не должен задерживать вход в игру
     setTimeout(() => { this.startAmbient(); Music.start(); }, 700);
+    // звук включили, когда игра уже стоит на паузе платформы или без фокуса: контекст сразу молчит до снятия паузы
+    if (extPaused()) this.ctx.suspend().catch(() => {});
   },
   setVolume(v) { if (this.master && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
   setBus(k, v) { if (this[k] && this.ctx) this[k].gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
@@ -851,7 +855,7 @@ setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейд
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 // отладочный доступ — только в автотестах (браузер под управлением Playwright) или с явным флагом разработчика vf-dev
 const VF_DEV = (() => { try { return navigator.webdriver === true || localStorage.getItem('vf-dev') === '1'; } catch { return false; } })();
-if (VF_DEV) window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id) }; // для автотестов
+if (VF_DEV) window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id), speak: (t, k) => speak(t, k) }; // для автотестов
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_WSHEET = () => R.weaponSheet(); // инструмент проверки: витрина всех орудий
 window.__VF_TURN = (type, weapons, tw, th) => R.shipTurntable(type, S.data.ships[type], tw || 320, th || 200, weapons || null); // инструмент проверки: модель со всех сторон
@@ -2887,6 +2891,7 @@ if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pic
 function speakUnlock() { if (VOICE.unlocked || !window.speechSynthesis) return; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); VOICE.unlocked = true; } catch {} }
 function speak(text, kind) {
   if (CFG.voice === false || Sound.muted || !window.speechSynthesis || !text) return;
+  if (extPaused()) return; // платформа поставила паузу или вкладка без фокуса: новую реплику не начинаем (настройка «Озвучка» не меняется)
   try {
     speechSynthesis.cancel();
     const en = window.VF_LANG === 'en';
@@ -3064,11 +3069,31 @@ ${sys}
   finally { S.cmBusy = false; renderStation(); }
 }
 // «Об игре»: авторы, издание, лицензии
+// Политика конфиденциальности внутри игры (текст площадки кладёт сборка в window.VF_PRIVACY): отдельный слой поверх всего,
+// работает и на экране входа (окна игры там ещё скрыты), и в игре
+function showPrivacy() {
+  const P = window.VF_PRIVACY; if (!P) return;
+  let ov = document.getElementById('privacy-ov');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'privacy-ov'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    ov.addEventListener('click', (e) => { if (e.target === ov || e.target.closest('[data-pv-close]')) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+  const en = window.VF_LANG === 'en';
+  ov.innerHTML = `<div class="pv-box panel" data-notr><div class="pv-head"><b>${en ? 'Privacy policy' : 'Политика конфиденциальности'}</b><button class="x" data-pv-close title="${en ? 'Close' : 'Закрыть'}">×</button></div>
+    <div class="pv-body">${en ? P.en : P.ru}</div><div class="pv-foot"><button class="primary" data-pv-close>${en ? 'Close' : 'Закрыть'}</button></div></div>`;
+}
+window.VF_SHOW_PRIVACY = showPrivacy;
+if (window.VF_PRIVACY) { // ссылка на экране входа
+  const box = document.querySelector('#login .login-box');
+  if (box) { const b = document.createElement('button'); b.type = 'button'; b.id = 'lg-privacy'; b.className = 'lg-link'; b.textContent = 'Политика конфиденциальности'; b.onclick = showPrivacy; box.appendChild(b); }
+}
 function aboutHTML() {
   return `<h3>Об игре</h3><div class="about"><b>ARKTUR: Космический рубеж</b> — космическая песочница.<br>
     Создатели игры: <b>${esc(AUTHORS)}</b> и <b>Claude</b> (ИИ-ассистент Anthropic) — вместе, от первой строчки до последней.<br>
     <span class="muted small">${EDITION === 'public' ? 'Бесплатная версия для всех: работает без интернета, сохранения — на вашем устройстве (экспорт в файл — в «Сохранениях»).' : 'Версия на claude.ai: с живыми персонажами, помощником, облачной копией и игрой с друзьями.'}
-    3D-графика — three.js (лицензия MIT). Игра бесплатна и не собирает никаких данных.</span></div>`;
+    3D-графика — three.js (лицензия MIT). ${PLATFORM.id === 'yandex' ? 'Игра бесплатна и без своей рекламы; какие данные получает платформа — в политике конфиденциальности.' : 'Игра бесплатна и не собирает никаких данных.'}</span>
+    ${window.VF_PRIVACY ? '<p><button data-a="privacy">Политика конфиденциальности</button></p>' : ''}</div>`;
 }
 // вступление для нового пилота: несколько кадров истории поверх живого космоса, можно пропустить
 const INTRO = [
@@ -3718,6 +3743,12 @@ function pauseApply() {
   if (OFFLINE) { window.VF_PAUSED = on; S.paused = on; }
   const c = Sound.ctx;
   if (c) { if (ext && c.state === 'running') c.suspend().catch(() => {}); else if (!ext && c.state === 'suspended') c.resume().catch(() => {}); }
+  // озвучка реплик (speechSynthesis) идёт мимо Web Audio — её ставим на паузу и продолжаем отдельно
+  const sy = window.speechSynthesis;
+  if (sy) try {
+    if (ext && (sy.speaking || sy.pending) && !PAUSE.speechHeld) { sy.pause(); PAUSE.speechHeld = true; }
+    else if (!ext && PAUSE.speechHeld) { PAUSE.speechHeld = false; sy.resume(); }
+  } catch {}
   try { dispatchEvent(new CustomEvent('vf-pause', { detail: { paused: on, sources: [...PAUSE.src] } })); } catch {}
 }
 function pauseSet(src, on) { const had = PAUSE.src.has(src); if (on) PAUSE.src.add(src); else PAUSE.src.delete(src); if (had !== !!on) pauseApply(); }
@@ -4106,6 +4137,7 @@ function onActionClick(e) {
     case 'cloudLoad': modal('<p>Загрузить игру из облачной копии? Текущий прогресс на этом устройстве будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => cloudLoad(), 'primary']]); break;
     case 'storyBrief2': S.wantBrief = true; send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
+    case 'privacy': showPrivacy(); break;
     case 'wmReset': wmReset(); if (WM.sync) WM.sync(); note('Окна возвращены на свои места.'); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
     case 'pilotsRefresh': send({ t: 'aiList' }); break;
