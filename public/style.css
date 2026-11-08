@@ -960,3 +960,6 @@ body.mobile #win.floated { z-index: 35; border: 1px solid var(--accent); }
 body.mobile #win .ph #win-float { font-size: 20px; }
 #win .ph { gap: 4px; }
 #win .ph > span#win-title { flex: 1; }
+/* полное название: ARKTUR — Космический рубеж */
+.login-box .subtitle { margin: -6px 0 6px; font-size: 13px; letter-spacing: .42em; text-transform: uppercase; color: var(--accent); opacity: .85; text-align: center; }
+.esc-title small { display: block; font-size: 10px; letter-spacing: .38em; text-transform: uppercase; opacity: .75; margin-top: 2px; }

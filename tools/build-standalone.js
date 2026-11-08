@@ -116,7 +116,7 @@ window.VF_SAVES = {
   exportText() { return JSON.stringify({ ...__db, savedAt: Date.now() }); },
   importText(text) {
     const m = __meta(text);
-    if (!m || !m.pilots.length || m.pilots.some(n => typeof n !== 'string')) return { ok: false, msg: 'Файл не похож на сохранение Arktur' };
+    if (!m || !m.pilots.length || m.pilots.some(n => typeof n !== 'string')) return { ok: false, msg: 'Файл не похож на сохранение ARKTUR' };
     try { text = JSON.stringify(__safeParse(text)); } catch (e) { return { ok: false, msg: 'Файл повреждён' }; } // записываем уже очищенную копию
     __noSave = true;
     try { const prev = __ls.get(DB_KEY); if (prev) __ls.set(BAK_KEY, prev); __write(DB_KEY, text); } catch (err) { __noSave = false; return { ok: false, msg: err.message }; }
@@ -225,7 +225,7 @@ const shipDir = path.join(ROOT, 'public/models/ships');
 const shipGlb = fs.existsSync(shipDir) ? Object.fromEntries(fs.readdirSync(shipDir).filter(f => f.endsWith('.glb')).sort().map(f => [f.slice(0, -4), require('zlib').gzipSync(fs.readFileSync(path.join(shipDir, f)), { level: 9 }).toString('base64')])) : {};
 const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
 if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
-const page = `<title>Arktur</title>
+const page = `<title>ARKTUR: Космический рубеж</title>
 <script>${i18n}</script>
 <script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_TEX = ${JSON.stringify(photoTex)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
 <style>

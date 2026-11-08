@@ -1,14 +1,14 @@
 # Google Play listing — English
 
 **Title (up to 30 characters):**
-Arktur: Space Sandbox
+ARKTUR: Space Frontier
 
 **Short description (up to 80 characters):**
 Mine, trade and fight in a living galaxy. Free, no ads, works offline.
 
 **Full description (up to 4000 characters):**
 
-Arktur is a big EVE-style space sandbox that fits in your phone and works offline.
+ARKTUR is a big EVE-style space sandbox that fits in your phone and works offline.
 
 You start as the pilot of a small frigate, the «Iskra», at Arktur Prime station. Where you go next is up to you.
 
