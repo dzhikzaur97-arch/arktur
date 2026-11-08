@@ -1,0 +1,249 @@
+{
+  "files": {
+    "screenshots/en/arktur-en-01-flight.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 324188
+    },
+    "screenshots/en/arktur-en-02-combat.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 318373
+    },
+    "screenshots/en/arktur-en-03-mining.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 410612
+    },
+    "screenshots/en/arktur-en-04-map.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 176940
+    },
+    "screenshots/en/arktur-en-05-board.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 434398
+    },
+    "screenshots/en/arktur-en-06-hangar.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 289335
+    },
+    "screenshots/ru/arktur-ru-01-flight.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 318492
+    },
+    "screenshots/ru/arktur-ru-02-combat.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 313884
+    },
+    "screenshots/ru/arktur-ru-03-mining.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 418775
+    },
+    "screenshots/ru/arktur-ru-04-map.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 184710
+    },
+    "screenshots/ru/arktur-ru-05-board.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 435396
+    },
+    "screenshots/ru/arktur-ru-06-hangar.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 394199
+    },
+    "poki/poki-1-flight.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 296107
+    },
+    "poki/poki-2-combat.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 290977
+    },
+    "poki/poki-3-mining.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 374456
+    },
+    "crazygames/cover-1920x1080.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 263014
+    },
+    "crazygames/cover-800x800.jpg": {
+      "w": 800,
+      "h": 800,
+      "bytes": 98198
+    },
+    "yandex/cover-ru-1920x1080.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 268250
+    },
+    "steam/capsule-1232x706.jpg": {
+      "w": 1232,
+      "h": 706,
+      "bytes": 140246
+    },
+    "steam/capsule-460x215.jpg": {
+      "w": 460,
+      "h": 215,
+      "bytes": 24307
+    },
+    "itch/cover-630x500.jpg": {
+      "w": 630,
+      "h": 500,
+      "bytes": 61536
+    },
+    "crazygames/cover-800x1200.jpg": {
+      "w": 800,
+      "h": 1200,
+      "bytes": 134653
+    },
+    "clean-frames/clean-en-cover-combat.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 281986
+    },
+    "clean-frames/clean-en-cover-flight.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 258015
+    },
+    "clean-frames/clean-en-cover-mining.jpg": {
+      "w": 1920,
+      "h": 1080,
+      "bytes": 239844
+    },
+    "clean-frames/clean_port-en-cover-mining.jpg": {
+      "w": 1080,
+      "h": 1620,
+      "bytes": 195908
+    },
+    "crazygames/video-landscape-1920x1080.mp4": {
+      "w": 1920,
+      "h": 1080,
+      "seconds": 19.9,
+      "bytes": 16729811,
+      "audio": false
+    },
+    "crazygames/video-portrait-1080x1620.mp4": {
+      "w": 1080,
+      "h": 1620,
+      "seconds": 17.9,
+      "bytes": 10040253,
+      "audio": false
+    },
+    "yandex/video-ru-1920x1080.mp4": {
+      "w": 1920,
+      "h": 1080,
+      "seconds": 19.9,
+      "bytes": 16777808,
+      "audio": false
+    }
+  },
+  "checks": [
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-01-flight.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-02-combat.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-03-mining.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-04-map.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-05-board.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/en/arktur-en-06-hangar.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-01-flight.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-02-combat.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-03-mining.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-04-map.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-05-board.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "screenshots/ru/arktur-ru-06-hangar.jpg: 1920×1080"
+    },
+    {
+      "ok": true,
+      "what": "не меньше 5 скриншотов 1920×1080 на язык (en 6, ru 6)"
+    },
+    {
+      "ok": true,
+      "what": "Яндекс: ≥ 2 скриншота 16:9, длинная сторона 1280–2560 (1920)"
+    },
+    {
+      "ok": true,
+      "what": "poki/poki-1-flight.jpg ≤ 5 МиБ (0.28 МиБ)"
+    },
+    {
+      "ok": true,
+      "what": "poki/poki-2-combat.jpg ≤ 5 МиБ (0.28 МиБ)"
+    },
+    {
+      "ok": true,
+      "what": "poki/poki-3-mining.jpg ≤ 5 МиБ (0.36 МиБ)"
+    },
+    {
+      "ok": true,
+      "what": "CrazyGames: обложка 1920x1080"
+    },
+    {
+      "ok": true,
+      "what": "CrazyGames: обложка 800x1200"
+    },
+    {
+      "ok": true,
+      "what": "CrazyGames: обложка 800x800"
+    },
+    {
+      "ok": true,
+      "what": "CrazyGames landscape: 1920×1080, 19.9 с (15–20), без звука, ≤ 50 МБ, первый кадр — обложка"
+    },
+    {
+      "ok": true,
+      "what": "CrazyGames portrait: 1080×1620, 17.9 с (15–20), без звука, ≤ 50 МБ, первый кадр — обложка 800×1200"
+    },
+    {
+      "ok": true,
+      "what": "Яндекс: видео 16:9, 19.9 с (≤ 28), ≤ 100 МБ"
+    }
+  ]
+}
