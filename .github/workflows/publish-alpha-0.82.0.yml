@@ -1,0 +1,135 @@
+# Публикация уже проверенной Windows-альфы ARKTUR 0.82.0 как GitHub Release (постоянные публичные ссылки).
+# Ничего не собирает заново: берёт ровно два artifacts из зелёного запуска 42493948273 (коммит 1038b72),
+# сверяет SHA256 с зафиксированными значениями и создаёт предрелиз v0.82.0-alpha на этом коммите.
+# Запускается только при push в ветку release/publish-alpha-0.82.0 и только при изменении этого файла.
+# Секреты не нужны: встроенный github.token с правами contents:write (релиз) и actions:read (artifacts чужого запуска этого repo).
+# Если тег или релиз уже существует — ничего не перезаписывает: проверяет содержимое и завершается.
+name: Publish ARKTUR 0.82.0 alpha (Windows)
+
+on:
+  push:
+    branches: ['release/publish-alpha-0.82.0']
+    paths: ['.github/workflows/publish-alpha-0.82.0.yml']
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-alpha-0.82.0
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  REPO: ${{ github.repository }}
+  TAG: v0.82.0-alpha
+  TITLE: ARKTUR 0.82.0 Alpha
+  SRC_RUN: '42493948273'
+  SRC_SHA: 1038b72f0363ced6bb35dcbfc5b35e2cb0e395e4
+  EXE: ARKTUR-Setup-0.82.0-x64.exe
+  EXE_SHA: b22a3c0886a19dcca044b2dcaa95b743c3bdd31c212d6d3365392124e59e30f3
+  WINZIP: ARKTUR-0.82.0-win-x64.zip
+  WINZIP_SHA: 2530dca916b9ff2fd5fe2f3b3abc50a68c19d06aba0ce053c01cc1fc7ebad442
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Исходный запуск — success и тот же коммит
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/actions/runs/$SRC_RUN" --jq '{status, conclusion, head_sha, head_branch, name, html_url}' | tee run.json
+          [ "$(jq -r .status run.json)" = completed ] || { echo "::error::запуск $SRC_RUN не завершён"; exit 1; }
+          [ "$(jq -r .conclusion run.json)" = success ] || { echo "::error::запуск $SRC_RUN не success"; exit 1; }
+          [ "$(jq -r .head_sha run.json)" = "$SRC_SHA" ] || { echo "::error::head_sha запуска не $SRC_SHA"; exit 1; }
+          echo "RUN_URL=$(jq -r .html_url run.json)" >> "$GITHUB_ENV"
+
+      - name: Тег и релиз уже есть? Тогда не перезаписываем — только проверяем
+        id: exists
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" --json tagName,name,isPrerelease,targetCommitish,url,assets > existing.json 2>/dev/null; then
+            echo "Релиз $TAG уже существует — ничего не меняю. Содержимое:"; jq . existing.json
+            jq -r '.assets[] | "\(.name)  \(.size)  \(.digest // "-")  \(.url)"' existing.json
+            echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if gh api "repos/$REPO/git/ref/tags/$TAG" > tagref.json 2>/dev/null; then
+            echo "::error::тег $TAG уже существует без релиза ($(jq -r .object.sha tagref.json)) — не перезаписываю, нужен разбор вручную"; exit 1
+          fi
+          echo "skip=0" >> "$GITHUB_OUTPUT"
+
+      - name: Скачать ровно два artifacts исходного запуска
+        if: steps.exists.outputs.skip == '0'
+        run: |
+          set -euo pipefail
+          gh run download "$SRC_RUN" --repo "$REPO" -n arktur-windows-desktop -D win
+          gh run download "$SRC_RUN" --repo "$REPO" -n arktur-web-portals -D web
+          echo "--- windows"; ls -la win; echo "--- web"; ls -la web
+
+      - name: Сверка SHA256
+        if: steps.exists.outputs.skip == '0'
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          chk() { local got; got=$(sha256sum "$1" | cut -d' ' -f1); echo "$got  $1"; [ "$got" = "$2" ] || { echo "::error::SHA256 $1: $got, ожидалось $2"; exit 1; }; }
+          chk "win/$EXE" "$EXE_SHA"
+          chk "win/$WINZIP" "$WINZIP_SHA"
+          # SHA256SUMS-windows.txt из той же сборки (PowerShell: возможны BOM и CRLF) должен содержать те же суммы
+          tr -d '\r' < win/SHA256SUMS-windows.txt | sed '1s/^\xEF\xBB\xBF//' > sums-win.txt; cat sums-win.txt
+          grep -qx "$EXE_SHA  $EXE" sums-win.txt && grep -qx "$WINZIP_SHA  $WINZIP" sums-win.txt || { echo "::error::SHA256SUMS-windows.txt не совпадает"; exit 1; }
+          cp "win/$EXE" "win/$WINZIP" out/ && cp sums-win.txt out/SHA256SUMS-windows.txt
+          # веб: только сайт и однофайловая версия для скачивания (Яндекс и порталы в этот релиз не входят)
+          for f in arktur-0.82.0-web.zip arktur-0.82.0-itch-download.zip; do
+            exp=$(grep "  $f\$" web/SHA256SUMS.txt | cut -d' ' -f1); [ -n "$exp" ] || { echo "::error::нет $f в SHA256SUMS.txt"; exit 1; }
+            chk "web/$f" "$exp"; cp "web/$f" out/; echo "$exp  $f" >> out/SHA256SUMS-web.txt
+          done
+          ls -la out; cat out/SHA256SUMS-web.txt
+
+      - name: Создать предрелиз v0.82.0-alpha на коммите 1038b72
+        if: steps.exists.outputs.skip == '0'
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          **ARKTUR: Космический рубеж — 0.82.0 Alpha (Windows x64)**
+
+          - Автономная **одиночная** версия: вся вселенная работает на вашем компьютере, интернет не нужен. Не MMO, без мультиплеера.
+          - Сохранения — **локальные**, в папке \`%APPDATA%\\ARKTUR\`.
+          - **Бесплатная альфа**: без рекламы и покупок; возможны ошибки, баланс меняется.
+          - \`$EXE\` — установщик (Windows 10/11 x64); \`$WINZIP\` — портативная версия (распаковать и запустить ARKTUR.exe).
+          - Сборка **без цифровой подписи**: Windows SmartScreen покажет «Неизвестный издатель» → «Подробнее» → «Выполнить в любом случае».
+          - Также: \`arktur-0.82.0-web.zip\` (сайт игры для браузера) и \`arktur-0.82.0-itch-download.zip\` (один файл ARKTUR.html, открывается с диска).
+          - Контрольные суммы: \`SHA256SUMS-windows.txt\`, \`SHA256SUMS-web.txt\`.
+
+          **ARKTUR: Space Frontier — 0.82.0 Alpha (Windows x64)**
+
+          - A standalone **single-player** build: the whole universe runs on your computer, no internet needed. Not an MMO, no multiplayer.
+          - Saves are **local**, in \`%APPDATA%\\ARKTUR\`.
+          - **Free alpha**: no ads, no purchases; bugs are possible and balance is still changing.
+          - \`$EXE\` — installer (Windows 10/11 x64); \`$WINZIP\` — portable build (unzip and run ARKTUR.exe).
+          - **Not code-signed**: Windows SmartScreen will show "Unknown publisher" → "More info" → "Run anyway".
+          - Also: \`arktur-0.82.0-web.zip\` (browser version of the site) and \`arktur-0.82.0-itch-download.zip\` (single ARKTUR.html file that runs from disk).
+          - Checksums: \`SHA256SUMS-windows.txt\`, \`SHA256SUMS-web.txt\`.
+
+          Исходный коммит / Source commit: \`$SRC_SHA\` · Сборка и проверка (упаковка, суммы, запуск ARKTUR.exe 20 с) / Build and checks: $RUN_URL
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$TAG" --repo "$REPO" --target "$SRC_SHA" --prerelease --title "$TITLE" --notes-file notes.md \
+            "out/$EXE" "out/$WINZIP" out/SHA256SUMS-windows.txt out/arktur-0.82.0-web.zip out/arktur-0.82.0-itch-download.zip out/SHA256SUMS-web.txt
+
+      - name: Проверка опубликованного релиза и публичных ссылок
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$REPO" --json tagName,name,isPrerelease,isDraft,url,assets > rel.json
+          jq '{tagName, name, isPrerelease, isDraft, url}' rel.json
+          [ "$(jq -r .isDraft rel.json)" = false ] && [ "$(jq -r .isPrerelease rel.json)" = true ] || { echo "::error::релиз не опубликован как предрелиз"; exit 1; }
+          sha=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq .object.sha); echo "тег $TAG → $sha"
+          [ "$sha" = "$SRC_SHA" ] || { echo "::error::тег указывает не на $SRC_SHA"; exit 1; }
+          echo "Публичные ссылки:"
+          for n in $(jq -r '.assets[].name' rel.json); do
+            url="https://github.com/$REPO/releases/download/$TAG/$n"
+            code=$(curl -sSL -r 0-0 -o /dev/null -w '%{http_code}' "$url"); echo "$code  $url"; case "$code" in 200|206) ;; *) echo "::error::$url → $code"; exit 1;; esac
+          done
+          # контроль целостности по публичной ссылке установщика
+          curl -sSL -o pub.exe "https://github.com/$REPO/releases/download/$TAG/$EXE"
+          [ "$(sha256sum pub.exe | cut -d' ' -f1)" = "$EXE_SHA" ] && echo "SHA256 установщика по публичной ссылке совпал"
