@@ -53,14 +53,17 @@ window.PlanetGen = __require('./planetgen'); // тот же генератор �
 const DB_KEY = 'void-frontier-db', BAK_KEY = DB_KEY + '.bak', SLOT = (i) => 'vf-slot-' + i, AUTO = (i) => 'vf-auto-' + i;
 const __ls = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { localStorage.setItem(k, v); }, del(k) { try { localStorage.removeItem(k); } catch {} } };
 let __db = { players: {}, orders: [] }, __noSave = false;
+// чтение сохранения без опасных ключей (__proto__, constructor, prototype): чужой или подправленный файл не испортит объекты игры
+const __BADK = new Set(['__proto__', 'constructor', 'prototype']);
+const __safeParse = (raw) => { const d = JSON.parse(raw, (k, v) => __BADK.has(k) ? undefined : v); if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('не сохранение'); if (d.players && (typeof d.players !== 'object' || Array.isArray(d.players))) throw new Error('не сохранение'); return d; };
 window.VF_SAVE_STATUS = { ok: true, msg: '' };
 (function load() {
   const raw = __ls.get(DB_KEY);
   if (!raw) return;
-  try { __db = Object.assign(__db, JSON.parse(raw)); }
+  try { __db = Object.assign(__db, __safeParse(raw)); }
   catch {
     try { __ls.set(DB_KEY + '.corrupt', raw); } catch {}
-    try { __db = Object.assign(__db, JSON.parse(__ls.get(BAK_KEY))); window.VF_SAVE_STATUS = { ok: true, msg: 'Основное сохранение было повреждено — загружена резервная копия.' }; }
+    try { __db = Object.assign(__db, __safeParse(__ls.get(BAK_KEY))); window.VF_SAVE_STATUS = { ok: true, msg: 'Основное сохранение было повреждено — загружена резервная копия.' }; }
     catch { window.VF_SAVE_STATUS = { ok: false, msg: 'Сохранение повреждено, резервной копии нет. Повреждённые данные отложены, начата новая игра.' }; }
   }
 })();
@@ -87,7 +90,7 @@ function __save(force) {
     return false;
   }
 }
-function __meta(raw) { try { const d = JSON.parse(raw); const ps = Object.values(d.players || {}); return { when: d.savedAt || 0, pilots: ps.map(p => p.name), credits: ps.reduce((a, p) => a + (p.credits || 0), 0) }; } catch { return null; } }
+function __meta(raw) { try { const d = __safeParse(raw); const ps = Object.values(d.players || {}); return { when: d.savedAt || 0, pilots: ps.map(p => p.name), credits: ps.reduce((a, p) => a + (p.credits || 0), 0) }; } catch { return null; } }
 window.VF_SAVES = {
   list() {
     const out = [];
@@ -113,7 +116,8 @@ window.VF_SAVES = {
   exportText() { return JSON.stringify({ ...__db, savedAt: Date.now() }); },
   importText(text) {
     const m = __meta(text);
-    if (!m || !m.pilots.length) return { ok: false, msg: 'Файл не похож на сохранение Arktur' };
+    if (!m || !m.pilots.length || m.pilots.some(n => typeof n !== 'string')) return { ok: false, msg: 'Файл не похож на сохранение Arktur' };
+    try { text = JSON.stringify(__safeParse(text)); } catch (e) { return { ok: false, msg: 'Файл повреждён' }; } // записываем уже очищенную копию
     __noSave = true;
     try { const prev = __ls.get(DB_KEY); if (prev) __ls.set(BAK_KEY, prev); __write(DB_KEY, text); } catch (err) { __noSave = false; return { ok: false, msg: err.message }; }
     location.reload();
@@ -142,7 +146,9 @@ const GAME = new __Game(__db, __save);
 setInterval(() => { if (!__noSave) { __snapshotLive(); __save(true); } }, 20000);
 document.addEventListener('visibilitychange', () => { if (document.hidden && !__noSave) { __snapshotLive(); __save(true); } });
 addEventListener('pagehide', () => { if (!__noSave) { __snapshotLive(); __save(true); } });
-window.__VF_GAME = GAME; // для отладки из консоли браузера
+// отладочный доступ к симуляции — только в автотестах или с флагом разработчика; встроенному тесту производительности — скрытая ссылка
+try { if (navigator.webdriver === true || localStorage.getItem('vf-dev') === '1') window.__VF_GAME = GAME; } catch (e) {}
+Object.defineProperty(window, '__vfLocal', { value: () => GAME, enumerable: false });
 // симуляция — фиксированный шаг 0,1 с с накопителем: таймеры браузера «плавают», а физика не должна
 let __last = Date.now(), __acc = 0;
 setInterval(() => {

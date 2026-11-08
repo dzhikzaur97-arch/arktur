@@ -50,6 +50,7 @@ function flush() {
 setInterval(() => { dirty = true; flush(); }, 20000);
 
 const game = new Game(db, save);
+game.online = true; // сетевой сервер: строже правила для новых пилотов (пароль от 6 символов)
 
 // ---------- Статика ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -58,37 +59,77 @@ const STATIC = [
   ['/vendor/three/', path.join(ROOT, 'node_modules', 'three', 'build')],
   ['/', path.join(ROOT, 'public')]
 ];
+// Заголовки безопасности: запрет встраивания чужими сайтами, запрет «угадывания» типов, строгая политика скриптов
+const CSP = ["default-src 'self'", "script-src 'self' 'unsafe-inline' 'unsafe-eval'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:", "img-src 'self' data: blob:", "media-src 'self' data: blob:", "connect-src 'self' ws: wss:",
+  "worker-src 'self' blob:", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'self'"].join('; ');
+const SEC_HEADERS = {
+  'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'no-referrer', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()'
+};
+if (process.env.HTTPS === '1') SEC_HEADERS['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
 const server = http.createServer((req, res) => {
-  let url = decodeURIComponent(req.url.split('?')[0]);
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD', ...SEC_HEADERS }); return res.end(); }
+  let url;
+  try { url = decodeURIComponent(String(req.url || '/').split('?')[0]); } catch { res.writeHead(400, SEC_HEADERS); return res.end('Bad request'); }
+  if (url.includes('\0') || url.length > 512) { res.writeHead(400, SEC_HEADERS); return res.end('Bad request'); }
   if (url === '/') url = '/index.html';
   for (const [prefix, dir] of STATIC) {
     if (!url.startsWith(prefix)) continue;
     const file = path.normalize(path.join(dir, url.slice(prefix.length)));
-    if (!file.startsWith(dir)) break;
+    // файл строго внутри папки (а не «public-secret» рядом с «public»), без скрытых файлов
+    if (!file.startsWith(dir + path.sep) || /[\\/]\./.test(file.slice(dir.length))) break;
     return fs.readFile(file, (err, data) => {
-      if (err) { res.writeHead(404); return res.end('Not found'); }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-      res.end(data);
+      if (err) { res.writeHead(404, SEC_HEADERS); return res.end('Not found'); }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...SEC_HEADERS });
+      res.end(req.method === 'HEAD' ? undefined : data);
     });
   }
-  res.writeHead(404); res.end('Not found');
+  res.writeHead(404, SEC_HEADERS); res.end('Not found');
 });
+server.headersTimeout = 15000; server.requestTimeout = 30000;
 
 // ---------- WebSocket ----------
-const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
-wss.on('connection', (ws) => {
+// Источник подключения: только своя страница (или адреса из ALLOWED_ORIGINS через запятую) — чужой сайт не подключится от имени игрока
+const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
+function originOk(req) {
+  const o = req.headers.origin;
+  if (!o) return true; // нативные клиенты (Android-обёртка, боты) без Origin
+  if (ALLOWED.includes(o)) return true;
+  try { return new URL(o).host === req.headers.host; } catch { return false; }
+}
+const ipOf = (req) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
+const PER_IP = +process.env.MAX_CONN_PER_IP || 8, conns = new Map();
+const wss = new WebSocketServer({ server, maxPayload: 64 * 1024, perMessageDeflate: false,
+  verifyClient: (info, done) => {
+    if (!originOk(info.req)) return done(false, 403, 'Forbidden origin');
+    if ((conns.get(ipOf(info.req)) || 0) >= PER_IP) return done(false, 429, 'Too many connections');
+    done(true);
+  } });
+wss.on('connection', (ws, req) => {
+  const ip = ipOf(req);
+  conns.set(ip, (conns.get(ip) || 0) + 1);
   const sess = {
-    ws, player: null, ent: null, docked: null,
-    send(msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+    ws, ip, player: null, ent: null, docked: null,
+    send(msg) { if (ws.readyState === 1 && ws.bufferedAmount < 4e6) ws.send(JSON.stringify(msg)); } // медленный клиент не съедает память сервера
   };
-  ws.on('message', (raw) => {
+  ws.alive = true; ws.on('pong', () => { ws.alive = true; });
+  let bad = 0;
+  ws.on('message', (raw, isBinary) => {
+    if (isBinary) { if (++bad > 20) ws.terminate(); return; }
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-    if (msg && typeof msg.t === 'string') game.handle(sess, msg);
+    try { msg = JSON.parse(raw); } catch { if (++bad > 20) ws.terminate(); return; }
+    try { if (msg && typeof msg.t === 'string') game.handle(sess, msg); } catch (err) { console.error('ошибка команды', err); }
   });
-  ws.on('close', () => game.logout(sess));
+  ws.on('close', () => { const n = (conns.get(ip) || 1) - 1; if (n > 0) conns.set(ip, n); else conns.delete(ip); try { game.logout(sess); } catch (err) { console.error('ошибка выхода', err); } });
   ws.on('error', () => {});
 });
+// мёртвые соединения (телефон ушёл из сети) закрываются, а не висят
+setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) { ws.terminate(); continue; } ws.alive = false; try { ws.ping(); } catch {} } }, 30000);
+// непредвиденная ошибка не роняет сервер для всех игроков: пишем в журнал и сохраняемся
+process.on('uncaughtException', (err) => { console.error('НЕПРЕДВИДЕННАЯ ОШИБКА:', err); try { dirty = true; flush(); } catch {} });
+process.on('unhandledRejection', (err) => { console.error('НЕОБРАБОТАННЫЙ ОТКАЗ:', err); });
 
 // фиксированный шаг симуляции с накопителем (догоняем не больше 5 шагов)
 let last = Date.now(), acc = 0;
@@ -96,7 +137,7 @@ const STEP = TICK / 1000;
 setInterval(() => {
   const now = Date.now();
   acc = Math.min(acc + (now - last) / 1000, 0.5); last = now;
-  for (let i = 0; i < 5 && acc >= STEP - 0.0005; i++) { game.tick(STEP); acc -= STEP; }
+  for (let i = 0; i < 5 && acc >= STEP - 0.0005; i++) { try { game.tick(STEP); } catch (err) { console.error('ошибка тика', err); } acc -= STEP; }
   if (acc < 0) acc = 0;
 }, TICK / 2);
 

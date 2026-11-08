@@ -96,7 +96,7 @@ function initFold() {
   for (const id of FOLD_IDS.filter(x => x !== 'sysinfo')) {
     const ph = document.querySelector(`#${id} > .ph`); if (!ph) continue;
     ph.classList.add('foldable');
-    onTap(ph, (e) => { if (e.target.closest('.tabs, button, input, a')) return; setFold(id, !FOLD[id]); });
+    ph.addEventListener('click', (e) => { if (WM.justMoved || e.target.closest('.tabs, button, input, a')) return; setFold(id, !FOLD[id]); });
   }
   const sf = document.getElementById('si-fold');
   if (sf) onTap(sf, (e) => { e.stopPropagation(); setFold('sysinfo', !FOLD.sysinfo); });
@@ -837,7 +837,9 @@ R.init(canvas);
 if (!CLAUDE_OK) for (const sel of ['[data-win=assist]', '#chat-tabs [data-ch=friends]']) { const el = document.querySelector(sel); if (el) el.remove(); }
 setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейдеров, пока открыт экран входа
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
-window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id) }; // для автотестов
+// отладочный доступ — только в автотестах (браузер под управлением Playwright) или с явным флагом разработчика vf-dev
+const VF_DEV = (() => { try { return navigator.webdriver === true || localStorage.getItem('vf-dev') === '1'; } catch { return false; } })();
+if (VF_DEV) window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id) }; // для автотестов
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_WSHEET = () => R.weaponSheet(); // инструмент проверки: витрина всех орудий
 window.__VF_TURN = (type, weapons, tw, th) => R.shipTurntable(type, S.data.ships[type], tw || 320, th || 200, weapons || null); // инструмент проверки: модель со всех сторон
@@ -1414,8 +1416,93 @@ function renderOverview() {
   for (const [id, r] of ovRows) if (!keep.has(id)) { r.remove(); ovRows.delete(id); }
 }
 
+
+// ---------- Окна: перетаскивание за шапку, размер — за уголок; расположение помнится в этом браузере ----------
+// id: [подвижно, меняет размер, мин. ширина, мин. высота, работает на телефоне]
+var WM_READY = false; // var: applyCfg() вызывается раньше, чем объявлен менеджер окон
+const WM_CFG = { win: [1, 1, 260, 160, 1], chat: [1, 1, 260, 120, 0], overview: [1, 1, 260, 140, 0], selected: [1, 0, 220, 0, 0],
+  drones: [1, 0, 220, 0, 0], wingp: [1, 0, 220, 0, 0], autoplay: [1, 0, 220, 0, 0], sysinfo: [1, 0, 200, 0, 0] };
+const WM = { L: {}, z: 16, justMoved: false };
+try { WM.L = JSON.parse(localStorage.getItem('vf-wins') || '{}') || {}; } catch {}
+function wmSave() { try { localStorage.setItem('vf-wins', JSON.stringify(WM.L)); } catch {} }
+const wmZoom = () => CFG.ui || 1;
+function wmActive(id) { const g = WM.L[id], c = WM_CFG[id]; return !!g && !!c && (!MOBILE || (c[4] && g.float)); }
+function wmApply(id) {
+  const el = document.getElementById(id), c = WM_CFG[id]; if (!el || !c) return;
+  const on = wmActive(id), g = WM.L[id];
+  el.classList.toggle('floated', on);
+  if (!on) { for (const k of ['left', 'top', 'width', 'height', 'zIndex']) el.style[k] = ''; return; }
+  const z = wmZoom(), vw = innerWidth / z, vh = innerHeight / z;
+  if (c[1] && g.w) el.style.width = Math.round(Math.max(c[2], Math.min(g.w, vw - 4))) + 'px';
+  if (c[1] && g.h) el.style.height = Math.round(Math.max(c[3], Math.min(g.h, vh - 4))) + 'px';
+  const w = el.offsetWidth || g.w || 300, h = el.offsetHeight || g.h || 200, top0 = MOBILE ? 20 : 0;
+  // окно целиком остаётся на экране (если не помещается — прижато к левому/верхнему краю)
+  el.style.left = Math.round(Math.max(0, Math.min(g.x, vw - w))) + 'px';
+  el.style.top = Math.round(Math.max(top0, Math.min(g.y, vh - Math.min(h, vh - top0)))) + 'px';
+}
+function wmApplyAll() { for (const id of Object.keys(WM_CFG)) wmApply(id); }
+function wmFront(el) { if (MOBILE) return; if (WM.z > 24) { WM.z = 16; document.querySelectorAll('.floated').forEach(x => x.style.zIndex = 16); } el.style.zIndex = ++WM.z; }
+// стартовое положение — там, где окно сейчас на экране
+function wmGrab(id, el) {
+  if (wmActive(id)) return WM.L[id];
+  const z = wmZoom(), r = el.getBoundingClientRect();
+  const g = { x: r.left / z, y: r.top / z, w: WM_CFG[id][1] ? r.width / z : 0, h: WM_CFG[id][1] ? r.height / z : 0, float: 1 };
+  WM.L[id] = g; wmApply(id); return g;
+}
+function wmDrag(e, id, el, mode) {
+  if (e.button > 0) return;
+  const z = wmZoom(), x0 = e.clientX, y0 = e.clientY, src = e.currentTarget;
+  let g = null, moved = false, gx, gy, gw, gh;
+  const mv = (ev) => {
+    const dx = (ev.clientX - x0) / z, dy = (ev.clientY - y0) / z;
+    if (!moved) { if (Math.hypot(dx, dy) < 5) return; moved = true; g = wmGrab(id, el); gx = g.x; gy = g.y; gw = g.w || el.offsetWidth; gh = g.h || el.offsetHeight; document.body.classList.add('wm-dragging'); }
+    if (mode === 'move') { g.x = gx + dx; g.y = gy + dy; }
+    else { const c = WM_CFG[id]; g.w = Math.max(c[2], gw + dx); g.h = Math.max(c[3], gh + dy); }
+    wmApply(id); ev.preventDefault();
+  };
+  const up = () => {
+    src.removeEventListener('pointermove', mv); src.removeEventListener('pointerup', up); src.removeEventListener('pointercancel', up);
+    document.body.classList.remove('wm-dragging');
+    if (moved) { wmSave(); WM.justMoved = true; setTimeout(() => WM.justMoved = false, 60); }
+  };
+  try { src.setPointerCapture(e.pointerId); } catch {}
+  src.addEventListener('pointermove', mv); src.addEventListener('pointerup', up); src.addEventListener('pointercancel', up);
+}
+function wmReset(id) { if (id) delete WM.L[id]; else WM.L = {}; wmSave(); wmApplyAll(); }
+function initWM() {
+  for (const [id, c] of Object.entries(WM_CFG)) {
+    const el = document.getElementById(id); if (!el) continue;
+    const h = id === 'sysinfo' ? el.querySelector('.sys-row') : el.querySelector(':scope > .ph'); if (!h) continue;
+    h.classList.add('wm-handle');
+    el.addEventListener('pointerdown', () => { if (el.classList.contains('floated')) wmFront(el); }, true);
+    h.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button, input, select, a, .tabs span, textarea')) return;
+      if (MOBILE && !wmActive(id)) return; // на телефоне окно двигается только в режиме «окно»
+      wmDrag(e, id, el, 'move');
+    });
+    h.addEventListener('dblclick', (e) => { if (e.target.closest('button, input, .tabs span')) return; wmReset(id); });
+    if (c[1]) {
+      const gr = document.createElement('div'); gr.className = 'wm-grip'; gr.title = 'Потяните, чтобы изменить размер';
+      gr.addEventListener('pointerdown', (e) => { e.stopPropagation(); wmDrag(e, id, el, 'size'); }); el.appendChild(gr);
+    }
+  }
+  // главное окно на телефоне: «во весь экран» ↔ «окно», которое можно двигать и растягивать
+  const fb = document.createElement('button'); fb.className = 'x'; fb.id = 'win-float'; fb.title = 'Окно / во весь экран';
+  $('#win-close').before(fb);
+  const fbSync = () => { fb.textContent = wmActive('win') ? '⛶' : '⧉'; fb.classList.toggle('hidden', !MOBILE && !wmActive('win')); };
+  onTap(fb, (e) => {
+    e.stopPropagation();
+    if (wmActive('win')) { if (MOBILE) WM.L.win.float = 0; else delete WM.L.win; }
+    else { const z = wmZoom(); WM.L.win = { x: 8, y: 70, w: innerWidth / z - 16, h: innerHeight / z * 0.62, float: 1 }; }
+    wmSave(); wmApply('win'); fbSync();
+  });
+  WM.sync = fbSync; fbSync();
+  addEventListener('resize', () => wmApplyAll());
+  WM_READY = true; wmApplyAll();
+}
 $('#sel-body').innerHTML = '<div id="sel-info"></div><div class="sel-actions" id="sel-acts"></div>';
 initFold();
+initWM();
 onTap($('#notes-log'), (e) => { e.stopPropagation(); showNoteLog(); });
 onTap($('#sel-acts'), (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
 onTap($('#mact-btns'), (e) => { const b = e.target.closest('[data-act]'); if (b) { act(b.dataset.act); Sound.click(); } });
@@ -2699,14 +2786,25 @@ const ROOM = { r: null, peers: [], last: '' };
   const r = await window.claude.use('room').catch(() => null);
   if (!r) return;
   ROOM.r = r;
-  r.on('chat', (m) => { if (m.sameTab || m.kind !== 'viewer') return; const d = m.data || {}; addChat('friends', String(d.from || 'Друг').slice(0, 24) + (m.guest ? ' (гость)' : ''), String(d.text || '').slice(0, 300)); if (S.chatCh !== 'friends') note('💬 Друзья: ' + String(d.from || '').slice(0, 24) + ': ' + String(d.text || '').slice(0, 60)); });
+  r.on('chat', (m) => { if (m.sameTab || m.kind !== 'viewer') return; const d = m.data && typeof m.data === 'object' ? m.data : {}; if (typeof d.text !== 'string' || !d.text.trim()) return; addChat('friends', String(d.from || 'Друг').slice(0, 24) + (m.guest ? ' (гость)' : ''), String(d.text || '').slice(0, 300)); if (S.chatCh !== 'friends') note('💬 Друзья: ' + String(d.from || '').slice(0, 24) + ': ' + String(d.text || '').slice(0, 60)); });
   r.onPeers((ch) => {
-    ROOM.peers = ch.peers.filter(p => !p.isMe && p.kind === 'viewer' && p.presence && p.presence.n);
+    ROOM.peers = ch.peers.filter(p => !p.isMe && p.kind === 'viewer' && presenceOk(p.presence));
     for (const p of (ch.joined || [])) if (!p.isMe && p.kind === 'viewer') setTimeout(() => { const q = ROOM.peers.find(x => x.peer === p.peer); if (q) note(`👋 В игре друг: ${String(q.presence.n).slice(0, 24)}`, 'good'); }, 3000);
     ghostsFromPeers(); if (S.chatCh === 'friends') renderMembers();
   });
   setInterval(roomPresence, 1000);
 })();
+// присутствие друга — недоверенные данные (их может прислать любой, кто открыл страницу): только ожидаемые типы и диапазоны
+const vec3 = (v, lim) => Array.isArray(v) && v.length === 3 && v.every(x => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < lim);
+function presenceOk(pr) {
+  if (!pr || typeof pr !== 'object' || typeof pr.n !== 'string' || !pr.n.trim()) return false;
+  if (pr.sys != null && (typeof pr.sys !== 'string' || pr.sys.length > 40)) return false;
+  if (pr.st != null && (typeof pr.st !== 'string' || !Object.prototype.hasOwnProperty.call(S.data && S.data.ships || {}, pr.st))) return false;
+  if (pr.p != null && !vec3(pr.p, 1e14)) return false;
+  if (pr.h != null && !vec3(pr.h, 2)) return false;
+  if (pr.v != null && !vec3(pr.v, 1e6)) return false;
+  return true;
+}
 function roomPresence() {
   if (!ROOM.r || !S.name || !S.prof) return;
   ghostsFromPeers();
@@ -2721,10 +2819,10 @@ function ghostsFromPeers() {
   const mySys = S.sys && S.sys.id, keep = new Set();
   for (const f of ROOM.peers) {
     const pr = f.presence;
-    if (!pr.p || pr.dk || pr.sys !== mySys || !S.data.ships[pr.st]) continue;
+    if (!pr.p || pr.dk || pr.sys !== mySys || !Object.prototype.hasOwnProperty.call(S.data.ships, pr.st)) continue;
     const id = 'gh_' + f.peer; keep.add(id);
-    const g = S.ghosts.get(id) || { id, k: 's', gh: 1, sh: 1, ar: 1, hu: 1, dp: pr.p.slice(), dh: pr.h || [0, 0, 1] };
-    Object.assign(g, { pc: Number.isFinite(pr.c) ? pr.c : null, n: String(pr.n).slice(0, 24) + ' · друг', st: pr.st, r: S.data.ships[pr.st].radius, tp: pr.p, th: pr.h || g.dh, v: pr.v || [0, 0, 0], p: pr.p });
+    const g = S.ghosts.get(id) || { id, k: 's', gh: 1, sh: 1, ar: 1, hu: 1, dp: pr.p.slice(), dh: (pr.h || [0, 0, 1]).slice() };
+    Object.assign(g, { pc: Number.isFinite(pr.c) ? pr.c : null, n: String(pr.n).slice(0, 24) + ' · друг', st: pr.st, r: S.data.ships[pr.st].radius, tp: pr.p.slice(), th: (pr.h || g.dh).slice(), v: (pr.v || [0, 0, 0]).slice(), p: pr.p.slice() });
     S.ghosts.set(id, g);
   }
   for (const id of [...S.ghosts.keys()]) if (!keep.has(id)) S.ghosts.delete(id);
@@ -2742,13 +2840,19 @@ function friendsSay(text) {
   addChat('friends', S.name, text);
   ROOM.r.emit('chat', { from: S.name, text: text.slice(0, 300) }).catch((e) => note(e && e.code === 'not_permitted' ? 'Писать в чат друзей могут участники с правом «Редактор» или «Участник» — попросите владельца игры дать доступ' : 'Сообщение не отправлено', 'warn'));
 }
+// строки таблицы пишут сами игроки — отбрасываем неправдоподобные (подправленное сохранение, ручная запись)
+const LEADER_MAX = 2e7; // ≈ 20 млрд CR состояния — больше честно не набрать
+function leaderOk(r) {
+  return r && typeof r.name === 'string' && r.name.length <= 40 && typeof r.score === 'number' && Number.isFinite(r.score) && r.score >= 0 && r.score <= LEADER_MAX
+    && (r.ach == null || (Number.isInteger(r.ach) && r.ach >= 0 && r.ach <= 1000)) && (r.title == null || typeof r.title === 'string');
+}
 // общая таблица лидеров: своя строка — leaders/<id>, читают все, кому открыта игра
 const BOARD = { list: [], sub: false, lastPut: '' };
 function boardSync() {
   if (!CLOUD.db || !CLOUD.uid) return;
   if (!BOARD.sub) {
     BOARD.sub = true;
-    try { CLOUD.db.collection('leaders').orderBy('score', 'desc').limit(50).onSnapshot((q) => { BOARD.list = q.docs.map(d => ({ id: d.id, ...d.data() })); if (S.win === 'career') renderWin(); }, () => {}); } catch {}
+    try { CLOUD.db.collection('leaders').orderBy('score', 'desc').limit(50).onSnapshot((q) => { BOARD.list = q.docs.map(d => ({ id: d.id, ...d.data() })).filter(leaderOk); if (S.win === 'career') renderWin(); }, () => {}); } catch {}
   }
   const me = S.leaders && (S.leaders.top.find(r => r.me) || S.leaders.me);
   if (!me || !S.career) return;
@@ -3351,6 +3455,7 @@ function settingsHTML() {
     <div class="set-p ${(S.setTab || 0) === 2 ? '' : 'hidden'}">
       <label class="set-row" data-notr>Язык / Language <select id="cfg-lang"><option value="ru" ${window.VF_LANG !== 'en' ? 'selected' : ''}>Русский</option><option value="en" ${window.VF_LANG === 'en' ? 'selected' : ''}>English</option></select></label>
       ${rng('cfg-ui', 'Масштаб интерфейса', CFG.ui, 0.8, 1.5, 0.05, pct)}
+      <div class="set-row"><span>Окна двигаются за шапку и растягиваются за уголок ◢. Двойной щелчок по шапке — вернуть окно на место.</span> <button data-a="wmReset">Вернуть окна на места</button></div>
       ${chk('cfg-threats', CFG.threats, 'Стрелки направления угрозы у краёв экрана')}
       ${chk('cfg-cb', CFG.cb, 'Режим для дальтоников: враги — оранжевые с обводкой, свои — синие')}
       ${MOBILE ? chk('cfg-onehand', CFG.onehand, 'Режим одной руки: кнопки ☰ ◫ » ◎ 💬 и меню — внизу справа под большим пальцем, уведомления — внизу слева') : ''}
@@ -3542,7 +3647,7 @@ function applyCfg() {
   document.body.classList.toggle('onehand', !!CFG.onehand);
   R.setGraphics(effectiveGfx());
   perfShow(CFG.perf);
-  $('#ui').style.zoom = CFG.ui;
+  $('#ui').style.zoom = CFG.ui; if (WM_READY) wmApplyAll();
   Sound.setVolume(CFG.volume);
   Sound.setBus('sfx', CFG.vSfx); Sound.setBus('ui', CFG.vUi); Sound.setBus('music', CFG.vMusic);
   R.setFlash && R.setFlash(CFG.flash);
@@ -3960,6 +4065,7 @@ function onActionClick(e) {
     case 'cloudLoad': modal('<p>Загрузить игру из облачной копии? Текущий прогресс на этом устройстве будет заменён (он останется в резервной копии).</p>', [['Отмена', null], ['Загрузить', () => cloudLoad(), 'primary']]); break;
     case 'storyBrief2': S.wantBrief = true; send({ t: 'storyBrief' }); break;
     case 'abandon': send({ t: 'abandonMission', id: d.id }); break;
+    case 'wmReset': wmReset(); if (WM.sync) WM.sync(); note('Окна возвращены на свои места.'); break;
     case 'tutorial': tut.hidden = false; tut.done = {}; saveTut(); renderTutorial(); break;
     case 'pilotsRefresh': send({ t: 'aiList' }); break;
     case 'route': send({ t: 'autopilot', dest: d.sys }); note('Маршрут проложен. Откройте карту (M), чтобы включить автопилот.'); break;
@@ -4363,7 +4469,7 @@ let benchRuns = 0; // первый прогон за сеанс заполняе
 function benchHistory() { try { return JSON.parse(localStorage.getItem('vf-bench') || '[]'); } catch { return []; } }
 function memSnap() { const g = R.gpuInfo(); return { geo: g.geometries, tex: g.textures, heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null }; }
 function runBench() {
-  const G = window.__VF_GAME;
+  const G = window.__vfLocal ? window.__vfLocal() : null;
   if (!G) return note('Встроенный тест работает в одиночной игре. В сетевой включите показатели производительности и полетайте сами.', 'warn');
   if (!S.me || S.docked || SF.active()) return note('Отстыкуйтесь от станции: тест запускается из полёта в космосе', 'warn');
   const s = [...G.sessions].find(x => !x.isBot && x.ent), e = s && s.ent;

@@ -28,6 +28,42 @@ const CRIME_TIME = 15 * 60 * 1000;
 const RECONNECT_GRACE = 120 * 1000; // корабль ждёт пилота после обрыва связи
 const BASE_TAX = 0.06;
 
+// ---------- Проверка входящих команд (безопасность) ----------
+const PROTO_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype), '__proto__', 'prototype', 'constructor']);
+// проверяет и нормализует как JSON: NaN/Infinity → null, undefined — пропуск; false — команда отбрасывается
+function safeVal(v, depth, budget) {
+  if (--budget.n < 0 || depth > 5) return false;
+  if (v === null || v === undefined || typeof v === 'boolean' || typeof v === 'number') return true;
+  if (typeof v === 'string') return v.length <= 20000 && !PROTO_KEYS.has(v);
+  if (Array.isArray(v)) {
+    if (v.length > 1000) return false;
+    for (let i = 0; i < v.length; i++) { if (typeof v[i] === 'number' && !Number.isFinite(v[i])) v[i] = null; else if (!safeVal(v[i], depth + 1, budget)) return false; }
+    return true;
+  }
+  if (typeof v === 'object') {
+    const pr = Object.getPrototypeOf(v);
+    if (pr !== Object.prototype && pr !== null) return false;
+    for (const k of Object.keys(v)) {
+      if (PROTO_KEYS.has(k)) return false;
+      if (typeof v[k] === 'number' && !Number.isFinite(v[k])) v[k] = null; else if (!safeVal(v[k], depth + 1, budget)) return false;
+    }
+    return true;
+  }
+  return false; // функции и символы — не данные
+}
+// сравнение хэшей за постоянное время (без Buffer: этот же код работает и в браузере, в одиночной игре)
+function sameHash(a, b) {
+  a = String(a); b = String(b);
+  let d = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) | 0) ^ (b.charCodeAt(i) | 0);
+  return d === 0;
+}
+function safeMsg(msg) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return false;
+  if (typeof msg.t !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(msg.t)) return false;
+  return safeVal(msg, 0, { n: 5000 });
+}
+
 class Game {
   constructor(db, save) {
     this.db = db;           // { players: {}, orders: [] }
@@ -84,9 +120,23 @@ class Game {
     name = String(name || '').trim().slice(0, 20);
     pass = String(pass || '');
     if (!/^[\p{L}\p{N}_\- ]{3,20}$/u.test(name)) return sess.send({ t: 'loginErr', msg: 'Имя: 3–20 символов (буквы, цифры, _ -)' });
-    if (pass.length < 3) return sess.send({ t: 'loginErr', msg: 'Пароль слишком короткий (минимум 3 символа)' });
-    let p = this.db.players[name];
-    if (p && this.hashPass(pass, p.salt) !== p.pass) return sess.send({ t: 'loginErr', msg: 'Неверный пароль' });
+    if (PROTO_KEYS.has(name) || /^(admin|root|system|сервер|система)$/i.test(name)) return sess.send({ t: 'loginErr', msg: 'Это имя занято системой — выберите другое' });
+    if (pass.length < 3 || pass.length > 200) return sess.send({ t: 'loginErr', msg: 'Пароль: от 3 до 200 символов' });
+    // перебор паролей: не больше 8 неудачных попыток за 10 минут с одного адреса и 30 — на одно имя (чтобы чужой не мог легко заблокировать ваш вход)
+    const lim = this.loginFails || (this.loginFails = new Map()), now = Date.now();
+    const keys = ['n:' + name.toLowerCase(), 'ip:' + (sess.ip || 'local')];
+    for (const k of keys) { const f = lim.get(k); if (f && f.n >= (k[0] === 'n' ? 30 : 8) && now - f.t < 600000) return sess.send({ t: 'loginErr', msg: 'Слишком много неудачных попыток входа. Подождите 10 минут.' }); }
+    let p = Object.prototype.hasOwnProperty.call(this.db.players, name) ? this.db.players[name] : null;
+    if (p && (typeof p.salt !== 'string' || typeof p.pass !== 'string')) return sess.send({ t: 'loginErr', msg: 'Запись пилота повреждена' });
+    if (!p && this.online && pass.length < 6) return sess.send({ t: 'loginErr', msg: 'Пароль нового пилота — минимум 6 символов' });
+    if (p) {
+      if (!sameHash(this.hashPass(pass, p.salt), p.pass)) {
+        for (const k of keys) { const f = lim.get(k); lim.set(k, f && now - f.t < 600000 ? { n: f.n + 1, t: f.t } : { n: 1, t: now }); }
+        if (lim.size > 50000) lim.clear();
+        return sess.send({ t: 'loginErr', msg: 'Неверный пароль' });
+      }
+      for (const k of keys) lim.delete(k);
+    }
     // повторный вход того же пилота (например, после обрыва связи) вытесняет старую сессию
     for (const s of [...this.sessions]) if (s.player && s.player.name === name) {
       s.send({ t: 'kicked', msg: 'Выполнен вход с другого устройства или после переподключения' });
@@ -364,6 +414,7 @@ class Game {
 
   // Найти объект (сущность или небесное тело) в системе сущности e
   findTarget(e, id) {
+    if (typeof id !== 'string' || !id) return null;
     const x = this.ents.get(id);
     if (x && x.sys === e.sys) return x;
     const c = this.U.celestials[id];
@@ -380,6 +431,9 @@ class Game {
   // Обработка команд клиента
   // ======================================================================
   handle(sess, msg) {
+    // ЗАЩИТА ВХОДА: команда — простой объект с коротким именем; без ключей и строк вида __proto__/constructor/toString
+    // (иначе ITEMS[m.item] находит свойство прототипа, и в сохранение попадают NaN и функции), без NaN/Infinity и без глубокой вложенности
+    if (!safeMsg(msg)) { if (msg && msg.t === 'login' && !sess.player && sess.send) sess.send({ t: 'loginErr', msg: 'Недопустимое имя или пароль' }); return; }
     // ограничение частоты: не больше 40 сообщений в секунду (ручной полёт шлёт ~11)
     const rl = sess.rl || (sess.rl = { t: 0, n: 0, warn: 0 });
     const sec = Math.floor(Date.now() / 1000);
@@ -395,7 +449,7 @@ class Game {
       if (seen.size > 300) seen.delete(seen.keys().next().value);
     }
     const p = sess.player;
-    if (!p) { if (msg.t === 'login') this.login(sess, msg.name, msg.pass); return; }
+    if (!p) { if (msg.t === 'login') try { this.login(sess, msg.name, msg.pass); } catch (err) { console.error('login error', err); sess.send({ t: 'loginErr', msg: 'Ошибка входа' }); } return; }
     const e = sess.ent;
     const fn = this['c_' + msg.t];
     if (!fn) return;

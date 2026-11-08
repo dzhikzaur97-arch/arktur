@@ -938,3 +938,25 @@ body.on-surface #dream-track { display: none !important; }
 .pt-bar i { display: block; height: 100%; }
 .chron li { margin: 2px 0; }
 .rep-pre { white-space: pre-wrap; max-height: 200px; overflow: auto; background: rgba(0, 0, 0, .3); padding: 6px; }
+
+/* ---------- Подвижные окна (v81): шапка — перетаскивание, уголок ◢ — размер ---------- */
+.wm-handle { cursor: grab; }
+body:not(.mobile) .wm-handle { touch-action: none; }
+.floated .wm-handle { touch-action: none; }
+body.wm-dragging, body.wm-dragging * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+.floated { position: fixed !important; right: auto !important; bottom: auto !important; max-height: none !important; max-width: none !important; margin: 0 !important; flex: none !important; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+#rightcol > .floated { z-index: 16; }
+#win.floated, #chat.floated, #overview.floated { overflow: hidden; }
+#win.floated #win-body, #overview.floated #ov-list { flex: 1; min-height: 0; }
+.floated.folded { height: auto !important; }
+.wm-grip { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; z-index: 2;
+  background: linear-gradient(135deg, transparent 50%, rgba(95,200,232,.55) 50%, rgba(95,200,232,.55) 58%, transparent 58%, transparent 70%, rgba(95,200,232,.55) 70%, rgba(95,200,232,.55) 78%, transparent 78%); opacity: .7; }
+.wm-grip:hover { opacity: 1; }
+#overview { position: relative; }
+.folded > .wm-grip { display: none; }
+body.mobile .wm-grip { display: none; }
+body.mobile #win.floated .wm-grip { display: block; width: 30px; height: 30px; }
+body.mobile #win.floated { z-index: 35; border: 1px solid var(--accent); }
+body.mobile #win .ph #win-float { font-size: 20px; }
+#win .ph { gap: 4px; }
+#win .ph > span#win-title { flex: 1; }
