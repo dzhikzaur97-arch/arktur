@@ -47,6 +47,8 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
   await p.goto(`http://127.0.0.1:${PORT}/`); await wait(4000);
   // всплывающие уведомления и обучение не попадают в кадр (остальной интерфейс — как у игрока)
   await p.addStyleTag({ content: '#notes, #tut, #advice, #modal { display: none !important; }' });
+  // CLEAN=1 — «чистый кадр» для обложек: только сама сцена игры, без панелей интерфейса
+  const clean = () => process.env.CLEAN === '1' && p.evaluate(() => document.querySelectorAll('#ui > *').forEach(x => { x.style.visibility = 'hidden'; }));
   await p.fill('#lg-name', LANG === 'en' ? 'Nova' : 'Нова'); await p.fill('#lg-pass', '123456'); await p.click('#lg-go'); await wait(8000);
   // пилот-ветеран: навыки и деньги, чтобы летать на любом корабле (как после долгой игры)
   await G(() => { const g = window.__VF_GAME, s = [...g.sessions].find(x => !x.isBot); for (const k of Object.keys(window.__VF_DBG.S.data.skills)) s.player.skills[k] = 5; s.player.credits = 48500000; g.sendProfile(s); });
@@ -73,7 +75,7 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
       await G(() => { const g = window.__VF_GAME, s = [...g.sessions].find(x => !x.isBot), e = s.ent; e.pos = [e.pos[0] + 6e5, e.pos[1] + 1.5e5, e.pos[2] - 4e5]; e.vel = [0, 0, 0]; e.invulnUntil = Date.now() + 36e5; });
       await wait(2500);
       await G(() => { const D = window.__VF_DBG, gt = D.S.sys.celestials.find(c => c.kind === 'gate'); D.act('approach', gt.id); });
-      await wait(9000); delete SCENES._c; await cam({ yaw: 2.4, pitch: 0.22, k: 0.55 });
+      await wait(9000); await cam({ yaw: 2.4, pitch: 0.2, k: 0.36 });
       return { yaw: 0.0045 };
     },
     async combat() {
@@ -85,7 +87,7 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
       await G(() => { const D = window.__VF_DBG, S = D.S; const t = [...S.ents.values()].filter(o => o.k === 's' && o.npc).sort((a, b) => Math.hypot(...a.p.map((v, i) => v - S.me.p[i])) - Math.hypot(...b.p.map((v, i) => v - S.me.p[i])))[0]; if (!t) return; D.act('lock', t.id); D.act('orbit', t.id); window.__VF_TGT = t.id; });
       await wait(4000);
       await G(() => { const D = window.__VF_DBG, S = D.S; S.me.mods.forEach((m, i) => { if (m && ['weapon', 'launcher'].includes(S.data.modules[m.id].kind) && !m.a) D.send({ t: 'module', slot: i, target: window.__VF_TGT }); }); });
-      await wait(4500); await cam({ yaw: 0.9, pitch: 0.3, k: 1.3 });
+      await wait(6500); await cam({ yaw: 0.9, pitch: 0.26, k: 0.62 });
       return { yaw: -0.003 };
     },
     async mining() {
@@ -100,10 +102,10 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
   };
 
   if (MODE === 'shots') {
-    const list = [['01-flight', 'flight'], ['02-combat', 'combat'], ['03-mining', 'mining'], ['04-map', 'map'], ['05-board', 'board'], ['06-hangar', 'hangar']];
+    const list = process.env.SCENES ? process.env.SCENES.split(',').map(x => x.split(':')) : [['01-flight', 'flight'], ['02-combat', 'combat'], ['03-mining', 'mining'], ['04-map', 'map'], ['05-board', 'board'], ['06-hangar', 'hangar']];
     for (const [name, sc] of list) {
       if (sc !== 'board' && sc !== 'map') await SCENES.closeWin();
-      log('сцена', sc); await SCENES[sc]();
+      log('сцена', sc); await SCENES[sc](); await clean(); await wait(300);
       await shot(path.join(OUT, `${LANG}-${name}.png`)); log('  →', `${LANG}-${name}.png`);
     }
   } else {
