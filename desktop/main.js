@@ -4,7 +4,7 @@
 // все сетевые запросы (http/https/ws) блокируются, разрешения — только полноэкранный режим, захват мыши и «не гасить экран».
 // Сохранения: localStorage источника app://arktur — постоянная папка данных приложения (%APPDATA%\ARKTUR на Windows).
 'use strict';
-const { app, BrowserWindow, protocol, session, Menu } = require('electron');
+const { app, BrowserWindow, protocol, session, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -42,7 +42,11 @@ function lockDown(contents) {
   contents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   contents.on('will-redirect', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   contents.on('will-attach-webview', (e) => e.preventDefault());
-  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // единственный внешний адрес — страница отзывов проекта на GitHub: открывается в системном браузере, не в приложении
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\/github\.com\/dzhikzaur97-arch\/arktur\/issues(\/new)?(\?|$)/.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
 }
 
 function createWindow() {

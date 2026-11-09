@@ -23,14 +23,15 @@ const out = []; const ok = (c, m) => out.push((c ? '✓ ' : '✗ ') + m);
   ok(w.url().startsWith('app://arktur/'), 'переход на чужой адрес отменён');
   ok(await w.evaluate(() => fetch('app://arktur/../../etc/passwd').then(r => r.status !== 200, () => true)), 'выход за папку игры (../) не работает');
   // вход и игра
-  await w.evaluate(() => { localStorage.setItem('vf-dev', '1'); localStorage.setItem('vf-intro', '1'); localStorage.setItem('vf-welcome', '1'); localStorage.setItem('vf-dream-asked', '1'); localStorage.setItem('vf-tut', JSON.stringify({ hidden: true, careerHidden: true, allTabs: true, done: { sell: 1, undock: 1, belt: 1, lock: 1 } })); });
+  await w.evaluate(() => { localStorage.setItem('vf-dev', '1'); localStorage.setItem('vf-intro', '1'); localStorage.setItem('vf-welcome', '1'); localStorage.setItem('vf-dream-asked', '1'); localStorage.setItem('vf-news', '999'); localStorage.setItem('vf-tut', JSON.stringify({ hidden: true, careerHidden: true, allTabs: true, done: { sell: 1, undock: 1, belt: 1, lock: 1 } })); });
   await w.reload(); await w.waitForTimeout(5000);
   await w.fill('#lg-name', 'Десктоп'); await w.fill('#lg-pass', '123'); await w.click('#lg-go'); await w.waitForTimeout(7000);
   await w.evaluate(() => document.querySelector('#modal').classList.add('hidden'));
   ok(await w.evaluate(() => !document.querySelector('#station').classList.contains('hidden')), 'вход: пилот в ангаре станции');
   await w.evaluate(() => window.__VF_DBG.send({ t: 'undock' })); await w.waitForTimeout(5000);
   ok(await w.evaluate(() => !!window.__VF_DBG.S.me && !window.__VF_DBG.S.docked), 'отстыковка: корабль в космосе');
-  await w.keyboard.press('Escape'); await w.waitForTimeout(500);
+  await w.evaluate(() => { document.querySelector('#modal').classList.add('hidden'); const x = document.getElementById('win-close'); if (x && !document.querySelector('#win').classList.contains('hidden')) x.click(); });
+  await w.waitForTimeout(300); await w.keyboard.press('Escape'); await w.waitForTimeout(500);
   const p1 = await w.evaluate(() => ({ s: window.VF_PAUSE.sources(), p: window.VF_PAUSED }));
   await w.keyboard.press('Escape'); await w.waitForTimeout(500);
   const p2 = await w.evaluate(() => ({ s: window.VF_PAUSE.sources(), p: window.VF_PAUSED }));

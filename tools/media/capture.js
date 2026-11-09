@@ -114,7 +114,7 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
     for (const part of PLAN.split(',')) {
       const [sc, sec] = part.split(':'); log('сцена', sc, sec + ' с');
       await SCENES.closeWin(); const mv = await SCENES[sc]();
-      const now = await G(() => Date.now()); await p.clock.pauseAt(now + 20);
+      const now = await G(() => Date.now()); await p.clock.pauseAt(now + 1500); // с запасом: пока идёт вызов, часы ещё бегут
       await p.clock.runFor(step); await shot(path.join(OUT, 'warm.jpg'), 'jpeg'); // первый кадр сцены дольше (шейдеры)
       const frames = Math.round(+sec * fps);
       for (let i = 0; i < frames; i++) {

@@ -1,0 +1,43 @@
+name: "🎮 Отзыв о тесте / Playtest feedback"
+description: "Впечатления после 15–30 минут игры / Impressions after 15–30 minutes"
+labels: ["playtest"]
+body:
+  - type: markdown
+    attributes:
+      value: "Отзыв **виден всем**. Вопросы — из docs/PLAYTEST.md / This feedback is **public**."
+  - type: input
+    id: device
+    attributes:
+      label: "Устройство и браузер / Device and browser"
+      placeholder: "iPhone 13, Safari · Samsung A52, Chrome · Windows 11 ноутбук, приложение"
+    validations:
+      required: true
+  - type: dropdown
+    id: load
+    attributes:
+      label: "Сколько грузилась игра до экрана входа / Load time"
+      options: ["< 5 с", "5–15 с", "15–30 с", "> 30 с", "не загрузилась / did not load"]
+  - type: dropdown
+    id: smooth
+    attributes:
+      label: "Плавность в полёте / Smoothness in flight"
+      options: ["плавно / smooth", "иногда подтормаживает / sometimes stutters", "тормозит / slow", "невозможно играть / unplayable"]
+  - type: textarea
+    id: first10
+    attributes:
+      label: "Первые 10 минут: что было понятно, а где вы застряли? / First 10 minutes: what was clear, where did you get stuck?"
+    validations:
+      required: true
+  - type: textarea
+    id: liked
+    attributes:
+      label: "Что понравилось / What you liked"
+  - type: textarea
+    id: annoyed
+    attributes:
+      label: "Что мешало или раздражало / What got in the way"
+  - type: dropdown
+    id: again
+    attributes:
+      label: "Сыграли бы ещё? / Would you play again?"
+      options: ["да / yes", "может быть / maybe", "нет / no"]

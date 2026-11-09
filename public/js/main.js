@@ -95,7 +95,7 @@ try { FOLD = JSON.parse(localStorage.getItem('vf-fold') || '{}') || {}; } catch 
 const RC_SIZES = [['⅓', 36], ['½', 58], ['¾', 82]];
 function applyFold() {
   for (const id of FOLD_IDS) { const el = document.getElementById(id); if (el) el.classList.toggle('folded', !!FOLD[id]); }
-  const sz = RC_SIZES[FOLD.rcSize != null ? FOLD.rcSize : 1] || RC_SIZES[1];
+  const sz = RC_SIZES[FOLD.rcSize != null ? FOLD.rcSize : (CFG.simple ? 0 : 1)] || RC_SIZES[1];
   document.documentElement.style.setProperty('--rc-h', sz[1] + '%');
   const ls = document.getElementById('rc-size'); if (ls) ls.textContent = sz[0];
   const fb = document.querySelector('#rc-bar [data-rc=fold]');
@@ -2038,7 +2038,15 @@ const HELP = `<p class="muted">Здесь клавиши по умолчанию
 2) Захватите астероид (Ctrl+щелчок), включите буровой лазер (F2).<br>
 3) Когда трюм заполнится — вернитесь на станцию, разгрузите трюм и продайте руду на рынке.<br>
 4) Купите корабль получше, изучайте навыки, берите задания у агентов.<br>
-5) В системах с безопасностью ниже 0.5 руда дороже, но там пираты и другие игроки могут атаковать вас.</p>`;
+5) В системах с безопасностью ниже 0.5 руда дороже, но там пираты и другие игроки могут атаковать вас.</p><h3>Геймпад</h3><div class="kv">
+<span>A</span><span>ручной полёт вкл/выкл</span>
+<span>Левый стик</span><span>тяга вперёд/назад, смещение (ручной полёт)</span>
+<span>Правый стик</span><span>камера; в ручном полёте — курс корабля</span>
+<span>RT / LT</span><span>огонь всеми орудиями по цели / форсаж</span>
+<span>B / X / Y</span><span>захват или смена цели / стоп (торможение) / карта</span>
+<span>LB / RB</span><span>вниз / вверх (ручной полёт)</span>
+<span>Крестовина</span><span>↑ стыковка или прыжок, ↓ варп, ← дроны, → сканер</span>
+<span>Back / Start</span><span>журнал / меню и пауза</span></div>`;
 
 // ---------- HTML-генераторы для окон и станции ----------
 function itemsTable(items, actions) {
@@ -3493,6 +3501,7 @@ function settingsHTML() {
     <div class="set-p ${(S.setTab || 0) === 2 ? '' : 'hidden'}">
       <label class="set-row" data-notr>Язык / Language <select id="cfg-lang"><option value="ru" ${window.VF_LANG !== 'en' ? 'selected' : ''}>Русский</option><option value="en" ${window.VF_LANG === 'en' ? 'selected' : ''}>English</option></select></label>
       ${rng('cfg-ui', 'Масштаб интерфейса', CFG.ui, 0.8, 1.5, 0.05, pct)}
+      ${chk('cfg-simple', CFG.simple === true, 'Простой интерфейс для новичка: меньше панелей и разделов меню (сам выключается после 2 рангов путей)')}
       <div class="set-row"><span>Окна двигаются за шапку и растягиваются за уголок ◢. Двойной щелчок по шапке — вернуть окно на место.</span> <button data-a="wmReset">Вернуть окна на места</button></div>
       ${chk('cfg-threats', CFG.threats, 'Стрелки направления угрозы у краёв экрана')}
       ${chk('cfg-cb', CFG.cb, 'Режим для дальтоников: враги — оранжевые с обводкой, свои — синие')}
@@ -3682,6 +3691,7 @@ if (OFFLINE) cloudInit();
 try { const r = JSON.parse(sessionStorage.getItem('vf-cloud-restored') || 'null'); if (r) { sessionStorage.removeItem('vf-cloud-restored'); setTimeout(() => note(`☁ Загружена облачная копия игры от ${new Date(r.when).toLocaleString('ru-RU')} (${r.pilots.join(', ')}). Прежняя игра этого устройства — в «Сохранениях», автосохранение 3`, 'good'), 4000); } } catch (e) {}
 function applyCfg() {
   for (const [id] of HIDE_EL) document.body.classList.toggle('hide-' + id, !!(CFG.hide || {})[id]);
+  document.body.classList.toggle('simple-ui', CFG.simple === true); if (typeof applyFold === 'function') applyFold();
   document.body.classList.toggle('onehand', !!CFG.onehand);
   R.setGraphics(effectiveGfx());
   perfShow(CFG.perf);
@@ -3720,6 +3730,7 @@ $('#win-body').addEventListener('input', (e) => {
   for (const k of ['volume', 'vMusic', 'vSfx', 'vUi', 'ui', 'sens', 'fov', 'shake']) if (id === 'cfg-' + k) { CFG[k] = +e.target.value; const lab = $('#' + id + '-v'); if (lab) lab.textContent = fmtv(CFG[k]); }
   for (const k of ['labels', 'flash', 'threats', 'cb', 'invX', 'invY', 'perf', 'autoQ', 'liveNpc', 'battery', 'voice', 'haptics', 'awake', 'rings']) if (id === 'cfg-' + k) CFG[k] = e.target.checked;
   if (id === 'cfg-onehand') CFG.onehand = e.target.checked;
+  if (id === 'cfg-simple') { CFG.simple = e.target.checked; CFG.simpleManual = true; } // выбор игрока — сам больше не переключается
   if (id === 'cfg-advisor') { CFG.advisor = e.target.checked; if (!CFG.advisor) hideAdvice(); }
   if (id === 'cfg-heatGuard') { send({ t: 'heatGuard', on: e.target.checked }); return; }
   if (id.startsWith('cfg-hide-')) { CFG.hide = { ...(CFG.hide || {}), [id.slice(9)]: !e.target.checked }; }
@@ -4006,6 +4017,7 @@ function onActionClick(e) {
     case 'nemCall': send({ t: 'nemesisCall', id: d.id }); closeWin(); break;
     case 'setDream': send({ t: 'dream', id: d.id }); break;
     case 'reportShare': reportShare(); break;
+    case 'reportIssue': reportIssue(); break;
     case 'reportCopy': reportCopy(); break;
     case 'jettison': send({ t: 'jettison', item: d.item }); break;
     case 'unload': send({ t: 'unload', item: d.item }); break;
@@ -5218,9 +5230,23 @@ const UNLOCKS = [
   { win: 'build', need: 6, name: 'Постройки' },
   { win: 'mega', need: 10, name: 'Великие стройки', has: () => S.prof && S.prof.credits >= 1e8 }
 ];
+// Простой интерфейс для новичка: на старте — без чата-журнала на компьютере и без второстепенных разделов меню,
+// на телефоне обзор поменьше. Включается только новым пилотам (опытным — нет), выключается сам после 2 заработанных рангов
+// или вручную: Настройки → Интерфейс.
+const SIMPLE_AT = 2;
+function simpleCheck(earned) {
+  // новичок — мало рангов И почти не пройдено обучение «Первые шаги» на этом устройстве (тот же признак, что у приветствия);
+  // опытный пилот (в том числе после обновления игры) простой вид не получает
+  if (CFG.simple === undefined) { const fresh = earned < SIMPLE_AT && TUT.filter(t => tut.done[t[0]]).length < 2; CFG.simple = fresh; saveCfg(); applyCfg(); return; }
+  if (CFG.simple === true && earned >= SIMPLE_AT && !CFG.simpleManual) {
+    CFG.simple = false; saveCfg(); applyCfg();
+    note('🔓 Интерфейс расширен: журнал сообщений, сводка, тактика, имущество и флот. Вернуть простой вид — Настройки → Интерфейс', 'good');
+  }
+}
 function applyUnlocks() {
   const v = S.paths; if (!v) return;
   const earned = v.list.reduce((a, x) => a + x.rank, 0) - v.list.length;
+  simpleCheck(earned);
   let seen = {}; try { seen = JSON.parse(localStorage.getItem('vf-unlocked') || '{}'); } catch {}
   for (const u of UNLOCKS) {
     const btn = document.querySelector(`#neocom [data-win="${u.win}"]`); if (!btn) continue;
@@ -5244,10 +5270,71 @@ function reportText() {
 function reportHTML() {
   return `<p class="small">Опишите, что случилось, — к отчёту автоматически приложатся последние ошибки игры, модель устройства и где вы находитесь. Ничего не отправляется само: вы сами выбираете, куда переслать.</p>
     <textarea id="rep-text" rows="4" placeholder="Что вы делали и что пошло не так?" style="width:100%"></textarea>
-    <div class="btn2"><button class="primary" data-a="reportShare">📤 Поделиться отчётом</button><button data-a="reportCopy">📋 Скопировать</button></div>
+    <div class="btn2">${ISSUES_OK ? '<button class="primary" data-a="reportIssue">🐞 Отправить на GitHub</button>' : ''}<button class="${ISSUES_OK ? '' : 'primary'}" data-a="reportShare">📤 Поделиться отчётом</button><button data-a="reportCopy">📋 Скопировать</button></div>
+    <p class="small muted">${ISSUES_OK ? '«Отправить на GitHub» откроет страницу отзывов игры с готовым текстом. <b>Отчёт будет виден всем</b> — проверьте текст перед отправкой; отправлять или нет, решаете вы (нужен бесплатный аккаунт GitHub).' : 'Скопируйте отчёт и вставьте его в комментарии на странице игры на этом сайте.'}</p>
     <details><summary class="small">Что попадёт в отчёт</summary><pre class="small rep-pre">${esc(reportText())}</pre></details>`;
+}
+// страница отзывов: GitHub Issues проекта. На порталах внешние ссылки запрещены — там только копирование
+const ISSUES_URL = 'https://github.com/dzhikzaur97-arch/arktur/issues/new';
+const ISSUES_OK = !PLATFORM.noExternal || PLATFORM.id === 'desktop';
+function reportIssue() {
+  const t = (($('#rep-text') || {}).value || '').trim();
+  const diag = reportText().slice(0, 5500); // адрес страницы не должен быть слишком длинным
+  const title = 'Ошибка: ' + (t ? t.split('\n')[0].slice(0, 80) : 'опишите кратко');
+  const url = `${ISSUES_URL}?template=bug_report.yml&title=${encodeURIComponent(title)}&description=${encodeURIComponent(t)}&report=${encodeURIComponent(diag)}&platform=${encodeURIComponent(PLATFORM.id)}`;
+  const w = window.open(url, '_blank', 'noopener');
+  if (!w && PLATFORM.id !== 'desktop') { reportCopy(); note('Браузер не открыл новую вкладку — отчёт скопирован. Откройте github.com/dzhikzaur97-arch/arktur/issues и вставьте его', 'warn'); }
 }
 function reportFull() { const t = ($('#rep-text') || {}).value || ''; return (t.trim() ? 'Описание: ' + t.trim() + '\n\n' : '') + reportText(); }
 async function reportCopy() { try { await navigator.clipboard.writeText(reportFull()); note('Отчёт скопирован — вставьте его в сообщение разработчику', 'good'); } catch { note('Не удалось скопировать — выделите текст в «Что попадёт в отчёт»', 'warn'); } }
 async function reportShare() { const text = reportFull(); if (navigator.share) { try { await navigator.share({ title: 'ARKTUR: отчёт о проблеме', text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } } reportCopy(); }
 addEventListener('keydown', (e) => { if (e.code === 'KeyB' && !e.ctrlKey && !e.metaKey && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && S.prof && !S.surface) openWin('board'); });
+
+// ======================================================================
+// Геймпад (Xbox / PlayStation / любой со «стандартной» раскладкой, Gamepad API). Работает поверх обычных действий:
+// кнопки нажимают те же клавиши, что назначены в «Настройки → Управление», стики двигают корабль и камеру.
+//   левый стик — тяга вперёд/назад и смещение (в ручном полёте); правый стик — камера, в ручном полёте — курс;
+//   A — ручной полёт вкл/выкл, B — захват / смена цели, X — стоп (в ручном — торможение), Y — карта,
+//   RT — огонь всеми орудиями по цели, LT — форсаж, LB/RB — вниз/вверх (ручной полёт),
+//   крестовина: ↑ стыковка/прыжок, ↓ варп, ← дроны, → сканер; Back — журнал, Start — меню и пауза.
+// ======================================================================
+const PAD = { on: false, prev: [], held: new Set(), raf: 0, dead: 0.22 };
+function padKey(action, type = 'keydown') {
+  const code = action === 'esc' ? 'Escape' : keyOf(action); if (!code) return;
+  const key = code === 'Escape' ? 'Escape' : code === 'Tab' ? 'Tab' : code === 'Space' ? ' ' : /^Key[A-Z]$/.test(code) ? code.slice(3).toLowerCase() : code;
+  document.dispatchEvent(new KeyboardEvent(type, { code, key, bubbles: true, cancelable: true }));
+}
+function padHold(action, on) { if (on) { if (!PAD.held.has(action)) { PAD.held.add(action); MAN.keys.add(action); } } else if (PAD.held.has(action)) { PAD.held.delete(action); MAN.keys.delete(action); } }
+function padLoop() {
+  PAD.raf = requestAnimationFrame(padLoop);
+  const gp = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(g => g && g.connected);
+  if (!gp || document.hidden) return;
+  const b = gp.buttons.map(x => x && (x.pressed || x.value > 0.5)), was = PAD.prev, down = (i) => b[i] && !was[i];
+  PAD.prev = b;
+  const ax = (i) => { const v = gp.axes[i] || 0; return Math.abs(v) < PAD.dead ? 0 : (v - Math.sign(v) * PAD.dead) / (1 - PAD.dead); };
+  // правый стик: камера (в ручном полёте нос корабля идёт за камерой)
+  const rx = ax(2), ry = ax(3);
+  if (rx || ry) { R.cam.yaw -= rx * 0.045 * CFG.sens * (CFG.invX ? -1 : 1); R.cam.pitch = Math.max(-1.45, Math.min(1.45, R.cam.pitch + ry * 0.035 * CFG.sens * (CFG.invY ? -1 : 1))); }
+  if (S.paused && !down(9)) return;
+  const man = MAN.on && !S.docked;
+  // левый стик и курки — удерживаемые действия ручного полёта
+  const lx = ax(0), ly = ax(1);
+  padHold('m_fwd', man && ly < -0.3); padHold('m_back', man && ly > 0.3);
+  padHold('m_left', man && lx < -0.3); padHold('m_right', man && lx > 0.3);
+  padHold('m_boost', man && b[6]); padHold('m_down', man && b[4]); padHold('m_up', man && b[5]);
+  padHold('m_brake', man && b[2]);
+  if (down(0)) padKey('manual');
+  if (down(1)) padKey(man ? 'm_lock' : 'cycle');
+  if (down(2) && !man) padKey('stop');
+  if (down(3)) padKey('map');
+  if (down(7)) manualFire();
+  if (down(12)) padKey('dock'); if (down(13)) padKey('warp'); if (down(14)) padKey('drones'); if (down(15)) padKey('scan');
+  if (down(8)) padKey('journal'); if (down(9)) padKey('esc');
+}
+addEventListener('gamepadconnected', (e) => {
+  if (!PAD.on) { PAD.on = true; PAD.raf = requestAnimationFrame(padLoop); }
+  note(`🎮 Геймпад подключён: A — ручной полёт, левый стик — тяга, правый — курс, RT — огонь, B — цель, Start — меню (подробнее — «Помощь»)`, 'good');
+});
+addEventListener('gamepaddisconnected', () => {
+  if (![...(navigator.getGamepads ? navigator.getGamepads() : [])].some(g => g && g.connected)) { cancelAnimationFrame(PAD.raf); PAD.on = false; for (const a of [...PAD.held]) padHold(a, false); }
+});

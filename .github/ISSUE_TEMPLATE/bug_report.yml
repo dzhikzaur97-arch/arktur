@@ -1,0 +1,27 @@
+name: "🐞 Ошибка в игре / Bug report"
+description: "Что-то сломалось или работает не так / Something is broken"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что помогаете сделать ARKTUR лучше! Этот отзыв **виден всем** — не пишите сюда пароли и личные данные.
+        Thanks for helping! This report is **public** — do not include passwords or personal data.
+  - type: textarea
+    id: description
+    attributes:
+      label: "Что случилось? / What happened?"
+      description: "Что вы делали, что ожидали и что произошло / What you did, expected and got"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: "Где играли / Where"
+      options: ["web", "desktop", "itch", "crazygames", "poki", "yandex", "claude", "другое / other"]
+  - type: textarea
+    id: report
+    attributes:
+      label: "Отчёт из игры / In-game report"
+      description: "Подставляется сам кнопкой «Отправить на GitHub» в окне «Сообщить о проблеме» / Filled in by the in-game button"
+      render: text

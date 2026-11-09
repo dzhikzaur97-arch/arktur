@@ -974,3 +974,7 @@ body.mobile #win .ph #win-float { font-size: 20px; }
 #privacy-ov .pv-body li { margin: 6px 0; }
 #privacy-ov .pv-foot { padding: 8px 12px; text-align: right; border-top: 1px solid var(--line); }
 .login-box .lg-link { display: block; margin: 10px auto 0; background: none; border: 0; color: var(--muted); text-decoration: underline; font-size: 12px; cursor: pointer; }
+/* простой интерфейс для новичка (v83): на компьютере без журнала-чата, в меню — только главное */
+body.simple-ui:not(.mobile) #chat { display: none !important; }
+body.simple-ui #neocom [data-win=assets], body.simple-ui #neocom [data-win=news], body.simple-ui #neocom [data-win=pilots],
+body.simple-ui #neocom [data-win=fleet], body.simple-ui #b-tac, body.simple-ui #b-photo, body.simple-ui #neocom [data-win=assist] { display: none !important; }

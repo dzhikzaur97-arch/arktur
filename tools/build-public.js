@@ -84,10 +84,10 @@ const LOCAL_EN = ['Progress, settings and saves are stored <b>in your browser st
 const NODATA_RU = 'Игра бесплатная. В ней <b>нет рекламы, покупок, аналитики и сторонних трекеров</b>, и сама игра <b>не собирает и не отправляет</b> данные.';
 const NODATA_EN = 'The game is free. It has <b>no ads, purchases, analytics or third-party trackers</b>, and the game itself <b>collects and sends no data</b>.';
 const PRIV = {
-  web: { ru: [NODATA_RU, ...LOCAL_RU, 'Сайт игры размещён на GitHub Pages. GitHub, как любой хостинг, может записывать технические данные запросов (например, IP-адрес) по своей политике конфиденциальности.'],
-         en: [NODATA_EN, ...LOCAL_EN, 'The game website is hosted on GitHub Pages. Like any host, GitHub may log technical request data (such as IP addresses) under its own privacy policy.'] },
-  itch: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещена на itch.io. Сайт itch.io обрабатывает данные посетителей по своей политике конфиденциальности; сама игра ему ничего не передаёт.'],
-          en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on itch.io. itch.io processes visitor data under its own privacy policy; the game itself sends it nothing.'] },
+  web: { ru: [NODATA_RU, ...LOCAL_RU, 'Сайт игры размещён на GitHub Pages. GitHub, как любой хостинг, может записывать технические данные запросов (например, IP-адрес) по своей политике конфиденциальности.', 'Кнопка «Отправить на GitHub» в окне «Сообщить о проблеме» открывает страницу отзывов игры на GitHub с текстом отчёта (модель устройства и видеокарты, последние ошибки игры, имя пилота и место в игре). Отправлять ли его, решаете вы; отправленный отзыв виден всем, а GitHub обрабатывает данные по своей политике конфиденциальности.'],
+         en: [NODATA_EN, ...LOCAL_EN, 'The game website is hosted on GitHub Pages. Like any host, GitHub may log technical request data (such as IP addresses) under its own privacy policy.', 'The «Send to GitHub» button in the «Report a problem» window opens the game feedback page on GitHub with the report text (device and GPU model, recent game errors, pilot name and in-game location). Whether to submit it is up to you; submitted feedback is public, and GitHub processes data under its own privacy policy.'] },
+  itch: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещена на itch.io. Сайт itch.io обрабатывает данные посетителей по своей политике конфиденциальности; сама игра ему ничего не передаёт.', 'Кнопка «Отправить на GitHub» в окне «Сообщить о проблеме» открывает страницу отзывов игры на GitHub с текстом отчёта (модель устройства и видеокарты, последние ошибки игры, имя пилота и место в игре). Отправлять ли его, решаете вы; отправленный отзыв виден всем, а GitHub обрабатывает данные по своей политике конфиденциальности.'],
+          en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on itch.io. itch.io processes visitor data under its own privacy policy; the game itself sends it nothing.', 'The «Send to GitHub» button in the «Report a problem» window opens the game feedback page on GitHub with the report text (device and GPU model, recent game errors, pilot name and in-game location). Whether to submit it is up to you; submitted feedback is public, and GitHub processes data under its own privacy policy.'] },
   crazygames: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещена на CrazyGames. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Игра не подключает SDK портала, не показывает рекламу и ничего порталу не передаёт.'],
                 en: [NODATA_EN, ...LOCAL_EN, 'The game is hosted on CrazyGames. The portal processes visitor data under its own privacy policy. The game does not include the portal SDK, shows no ads and sends the portal nothing.'] },
   poki: { ru: [NODATA_RU, ...LOCAL_RU, 'Игра размещается на Poki. Портал обрабатывает данные посетителей по своей политике конфиденциальности. Эта сборка не подключает SDK портала и ничего ему не передаёт.'],
@@ -106,8 +106,8 @@ const PRIV = {
       'The game does not ask for a Yandex login, does not use Yandex cloud saves and does not send its saves to Yandex or to the developer.',
       ...LOCAL_EN,
       'Questions about platform data — to Yandex; questions about the game — via the game page on Yandex Games.'] },
-  desktop: { ru: [NODATA_RU, 'Приложение для Windows работает без интернета: оно не устанавливает сетевых соединений. Сохранения хранятся в папке данных приложения на вашем компьютере (%APPDATA%\\ARKTUR); удалить их можно, удалив приложение и эту папку.', 'Имя пилота и пароль, которые вы вводите в игре, нужны только чтобы разделять пилотов на этом компьютере, и никуда не передаются.'],
-             en: [NODATA_EN, 'The Windows app works offline: it makes no network connections. Saves are kept in the app data folder on your computer (%APPDATA%\\ARKTUR); remove them by uninstalling the app and deleting that folder.', 'The pilot name and password you enter in the game only separate pilots on this computer and are never sent anywhere.'] }
+  desktop: { ru: [NODATA_RU, 'Приложение для Windows работает без интернета: оно не устанавливает сетевых соединений. Сохранения хранятся в папке данных приложения на вашем компьютере (%APPDATA%\\ARKTUR); удалить их можно, удалив приложение и эту папку.', 'Имя пилота и пароль, которые вы вводите в игре, нужны только чтобы разделять пилотов на этом компьютере, и никуда не передаются.', 'Кнопка «Отправить на GitHub» в окне «Сообщить о проблеме» открывает страницу отзывов игры на GitHub с текстом отчёта (модель устройства и видеокарты, последние ошибки игры, имя пилота и место в игре). Отправлять ли его, решаете вы; отправленный отзыв виден всем, а GitHub обрабатывает данные по своей политике конфиденциальности.'],
+             en: [NODATA_EN, 'The Windows app works offline: it makes no network connections. Saves are kept in the app data folder on your computer (%APPDATA%\\ARKTUR); remove them by uninstalling the app and deleting that folder.', 'The pilot name and password you enter in the game only separate pilots on this computer and are never sent anywhere.', 'The «Send to GitHub» button in the «Report a problem» window opens the game feedback page on GitHub with the report text (device and GPU model, recent game errors, pilot name and in-game location). Whether to submit it is up to you; submitted feedback is public, and GitHub processes data under its own privacy policy.'] }
 };
 const privFragment = (kind, lang) => '<ul>' + [...PRIV[kind][lang], lang === 'ru' ? AI_RU : AI_EN].map(x => `<li>${x}</li>`).join('\n') + '</ul>';
 function privacyHtml(kind, back) {
@@ -247,6 +247,12 @@ ${t.pwa ? `<meta name="mobile-web-app-capable" content="yes">
 <script>window.VF_EDITION = 'public'; window.VF_AUTHOR = ${JSON.stringify(CFG.author)}; window.VF_PLATFORM = ${JSON.stringify(plat)}; window.VF_PRIVACY = ${JSON.stringify({ ru: privFragment(t.privacy, 'ru'), en: privFragment(t.privacy, 'en') }).replace(/</g, '\\u003c')};</script>
 ${t.yandex ? '<script src="/sdk.js"></script>\n' : ''}</head>
 <body>
+<div id="vf-splash" style="position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#02040a;color:#d8e4f0;font:15px/1.5 system-ui,sans-serif">
+<div style="font-size:34px;letter-spacing:8px;font-weight:300">ARK<b style="color:#5fc8e8;font-weight:600">TUR</b></div>
+<div style="margin:6px 0 18px;letter-spacing:4px;font-size:12px;color:#5fc8e8;text-transform:uppercase">${en ? 'Space Frontier' : 'Космический рубеж'}</div>
+<div style="width:220px;height:3px;background:#0b2233;overflow:hidden;border-radius:2px"><div style="width:40%;height:100%;background:#5fc8e8;animation:vfld 1.2s ease-in-out infinite"></div></div>
+<div style="margin-top:12px;color:#7d93a8;font-size:13px">${en ? 'Loading… (about 3.5 MB, first launch only)' : 'Загрузка… / Loading… (≈ 3,5 МБ, только при первом запуске)'}</div>
+<style>@keyframes vfld{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}</style></div>
 `;
 }
 
@@ -269,7 +275,7 @@ for (const id of ids) {
 if ('serviceWorker' in navigator && location.protocol !== 'file:') addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 </script>
 ` : '';
-  const html = head(id, t) + page + '\n' + sw + '</body>\n</html>\n';
+  const html = head(id, t) + page + '\n' + sw + '<script>(function(){var s=document.getElementById("vf-splash");if(s)s.parentNode.removeChild(s);})();</script>\n</body>\n</html>\n';
   fs.writeFileSync(path.join(OUT, 'index.html'), html);
   fs.writeFileSync(path.join(OUT, 'privacy.html'), privacyHtml(t.privacy, true));
   fs.writeFileSync(path.join(OUT, 'LICENSE'), LICENSE_TEXT);
