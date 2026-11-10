@@ -7,6 +7,7 @@ store.onChange=what=>{
 };
 window.addEventListener('hashchange',route);
 document.querySelector('.nav').addEventListener('click',e=>{const a=e.target.closest('a');if(a&&a.getAttribute('href')===location.hash){e.preventDefault();route()}});
+syncRx();
 route();
 connectStore();
 initVoice();

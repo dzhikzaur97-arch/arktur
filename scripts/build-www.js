@@ -15,7 +15,7 @@ for(const [f,ws] of FONTS)for(const w of ws){
 fs.writeFileSync(path.join(www,'fonts','fonts.css'),css);
 let head=fs.readFileSync(R('src/head.html'),'utf8').split('\n').filter(l=>!/fonts\.(googleapis|gstatic)\.com/.test(l)).join('\n');
 const cfg={api:process.env.RYCHAG_API||'',appKey:process.env.RYCHAG_APP_KEY||''};
-const order=['platform.js','data.js','sims.js','extra.js','plusdata.js','store.js','no3d.js','ui.js','plus.js','boot.js'];
+const order=['platform.js','data.js','sims.js','extra.js','sims2.js','plusdata.js','store.js','no3d.js','ui.js','plus.js','vendor.js','plus2.js','boot.js'];
 const js=order.map(f=>fs.readFileSync(R('src/'+f),'utf8')).join('\n');
 new Function(js); // проверка синтаксиса
 const html=`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0c0d12"><meta name="format-detection" content="telephone=no"><link rel="stylesheet" href="fonts/fonts.css"><style>html,body{margin:0;overscroll-behavior:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}[hidden]{display:none!important}</style><script>window.RYCHAG_CFG=${JSON.stringify(cfg)}</script></head><body>
@@ -25,4 +25,5 @@ ${js}
 </script>
 </body></html>`;
 fs.writeFileSync(path.join(www,'index.html'),html);
-console.log('www готов:',(html.length/1024).toFixed(0)+' КБ', cfg.api?'· сервер ИИ: '+cfg.api:'· без сервера ИИ (тренер и фото скрыты)');
+fs.copyFileSync(R('src/privacypolicy.html'),path.join(www,'privacypolicy.html'));
+console.log('www готов:',(html.length/1024).toFixed(0)+' КБ', cfg.api?'· сервер ИИ: '+cfg.api:'· тренер и фото — по ключу Claude API в профиле');

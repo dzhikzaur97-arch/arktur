@@ -14,6 +14,7 @@ function plusRoute(h){
   if(h.startsWith('prog-')&&PROGRAMS[h.slice(5)]){setNav('workout');showProgram(h.slice(5));return true}
   if(h==='progress'){setNav('workout');showProgress();return true}
   if(h==='health'){setNav('profile');showHealth();return true}
+  if(h==='rx'){setNav('workout');showRx();return true}
   if(h.startsWith('health-')&&HEALTH[h.slice(7)]){setNav('profile');showHealthTopic(h.slice(7));return true}
   return false;
 }
@@ -82,7 +83,8 @@ function showPrograms(){
   const ps=progState();
   view().innerHTML=`${subNav('programs')}<section class="intro"><h1>Программы</h1><p>Готовые планы на 6–8 недель. Дни идут по кругу сами: заверши тренировку — и откроется следующий день. Тренажёры, которых нет в твоём зале или которые не подходят из-за ограничений, заменяются автоматически.</p></section>
   ${ps?progCard(ps):''}
-  <div class="plist">${Object.entries(PROGRAMS).map(([k,P])=>`<a class="pcard${ps&&ps.id===k?' cur':''}" href="#prog-${k}"><div><b>${esc(P.n)}</b><span>${P.weeks} недель · ${P.per} ${plural(P.per,'тренировка','тренировки','тренировок')} в неделю · ${esc(P.lvl)}</span><p>${esc(P.desc)}</p>${P.medical?`<span class="cb care">с ограничениями: поясница</span>`:''}</div><span class="chev">›</span></a>`).join('')}</div>`;
+  <a class="gymlink" href="#rx"><span>🩺</span><div><b>От специалиста</b><small>${store.rx?esc(store.rx.n):'программа от врача или реабилитолога по QR-коду'}</small></div><span class="chev">›</span></a>
+  <div class="plist">${Object.entries(PROGRAMS).filter(([k])=>k!=='rx').map(([k,P])=>`<a class="pcard${ps&&ps.id===k?' cur':''}" href="#prog-${k}"><div><b>${esc(P.n)}</b><span>${P.weeks} недель · ${P.per} ${plural(P.per,'тренировка','тренировки','тренировок')} в неделю · ${esc(P.lvl)}</span><p>${esc(P.desc)}</p>${P.medical?`<span class="cb care">с ограничениями: поясница</span>`:''}</div><span class="chev">›</span></a>`).join('')}</div>`;
   bindProgCard();
 }
 function progCard(ps){
@@ -114,7 +116,7 @@ function showProgram(k){
 function programAdvance(s){
   if(!s.prog||!store.program||store.program.id!==s.prog.id)return null;
   if((store.program.done||0)!==s.prog.n)return null;
-  store.program={...store.program,done:s.prog.n+1};saveSettings();
+  store.program={...store.program,done:s.prog.n+1};saveSettings();rescheduleReminders();
   const ps=progState(); return ps;
 }
 
@@ -154,7 +156,7 @@ function showProgress(){
   <div class="kpis"><div><b>${m4.length}</b><span>тренировок<br>за 4 недели</span></div><div><b>${m4.reduce((a,s)=>a+s.items.reduce((b,it)=>b+it.sets.length,0),0)}</b><span>подходов<br>за 4 недели</span></div><div><b>${Math.round(m4.reduce((a,s)=>a+s.items.reduce((b,it)=>b+it.sets.reduce((c,q)=>c+q.w*q.r,0),0),0)/1000*10)/10}</b><span>тонн<br>тоннаж</span></div></div>
   <section class="pbox"><h2 class="sec">Тоннаж по неделям</h2><div class="wbars">${wk.map((x,i)=>`<div title="${Math.round(x.vol)} кг"><i style="height:${Math.max(2,x.vol/mvol*100)}%"></i><span>${i===7?'эта':i===6?'пр.':'−'+(7-i)}</span></div>`).join('')}</div><p class="note">Сумма вес × повторы за неделю.</p></section>
   <section class="pbox"><h2 class="sec">Тренажёр</h2>${ids.length?`<select id="pex" class="sel">${ids.map(id=>`<option value="${id}" ${id===prg.ex?'selected':''}>${esc(EXI[id].n)} · ${by[id].pts.length}</option>`).join('')}</select><div id="exchart"></div>`:'<p class="note">Запиши первые тренировки — здесь появятся графики по каждому тренажёру.</p>'}</section>
-  ${prs.length?`<section class="pbox"><h2 class="sec">Рекорды</h2><div class="hrows">${prs.map(p=>`<div class="hrow"><a href="#ex-${p.id}">${esc(EXI[p.id].n)}</a><b>${kg(p.bestSet.w)}×${p.bestSet.r} · ~${kg(Math.round(p.bestE))} кг 1ПМ</b></div>`).join('')}</div><p class="note">1ПМ — расчётный разовый максимум по формуле Эпли: вес × (1 + повторы/30). Это ориентир, а не повод проверять максимум на тренажёре.</p></section>`:''}
+  ${prs.length?`<section class="pbox"><h2 class="sec">Рекорды</h2><div class="hrows">${prs.map(p=>`<div class="hrow"><a href="#ex-${p.id}">${esc(EXI[p.id].n)}</a><b>${kg(p.bestSet.w)}×${p.bestSet.r} · ~${kg(Math.round(p.bestE))} кг 1ПМ</b><button class="ib sm" data-prs="${p.id}" aria-label="Поделиться рекордом">↗</button></div>`).join('')}</div><p class="note">1ПМ — расчётный разовый максимум по формуле Эпли: вес × (1 + повторы/30). Это ориентир, а не повод проверять максимум на тренажёре.</p></section>`:''}
   <section class="pbox"><h2 class="sec">Калькулятор 1ПМ</h2><div class="setin"><div class="stepper"><span>Вес, кг</span><div><input id="cw" inputmode="decimal" value="60" aria-label="Вес"></div></div><div class="stepper"><span>Повторы</span><div><input id="cr" inputmode="numeric" value="8" aria-label="Повторы"></div></div></div><div id="cres"></div></section>
   <section class="pbox"><h2 class="sec">Замеры тела</h2>
     <div class="bform">${BODYF.map(([k,n,u])=>`<label><span>${n}, ${u}</span><input data-b="${k}" inputmode="decimal" placeholder="${k==='kg'?kg(store.prof.kg):'—'}"></label>`).join('')}</div>
@@ -162,6 +164,7 @@ function showProgress(){
     <div class="seg sm" id="bmet">${BODYF.map(([k,n])=>`<button data-k="${k}" class="${prg.bm===k?'on':''}">${n.split(' ')[0]}</button>`).join('')}</div>
     <div id="bchart"></div><div id="blist"></div></section>`;
   const drawEx=()=>{const b=by[prg.ex],el=$('#exchart');if(!el||!b)return;el.innerHTML=lineChart([{name:'Расчётный 1ПМ',col:'#ff7a2f',pts:b.pts.map(p=>({x:p.ts,y:p.e}))},{name:'Рабочий вес',col:'#5b8cff',dash:true,pts:b.pts.map(p=>({x:p.ts,y:p.w}))}])+`<p class="note">Лучший результат: ${kg(b.bestSet.w)} кг × ${b.bestSet.r} (${fmtDate(b.bestTs)}), расчётный максимум ~${kg(Math.round(b.bestE))} кг.</p>`};
+  view().addEventListener('click',ev=>{const b=ev.target.closest('[data-prs]');if(!b)return;const id=b.dataset.prs,s0=by[id];sharePr({id,target:topMus(EXI[id]),set:s0.bestSet,e:s0.bestE,prev:0},s0.bestTs)});
   const pe=$('#pex'); if(pe)pe.addEventListener('change',e=>{prg.ex=e.target.value;drawEx()}); drawEx();
   const calc=()=>{const w=parseFloat(String($('#cw').value).replace(',','.')),r=parseInt($('#cr').value,10);const el=$('#cres');if(!(w>0)||!(r>0)){el.innerHTML='';return}const m=e1rm(w,r);
     el.innerHTML=`<p class="bigres">~${kg(Math.round(m))} кг<span>расчётный разовый максимум${r>10?' · при больших повторах оценка менее точна':''}</span></p><div class="ptab">${[[95,2],[90,4],[85,6],[80,8],[75,10],[70,12],[65,15],[60,18]].map(([p,n])=>`<span><b>${p}%</b>${kg(Math.round(m*p/100*2)/2)} кг<em>~${n} повт.</em></span>`).join('')}</div>`};
@@ -174,7 +177,7 @@ function showProgress(){
   $('#bsave').addEventListener('click',()=>{const rec={ts:Date.now()};let n=0;view().querySelectorAll('[data-b]').forEach(i=>{const x=parseFloat(String(i.value).replace(',','.'));if(x>0&&x<400){rec[i.dataset.b]=Math.round(x*10)/10;n++}});
     if(!n){toast('Заполни хотя бы одно поле');return}
     store.body=[rec,...store.body].sort((a,b)=>b.ts-a.ts).slice(0,300);
-    if(rec.kg){store.prof={...store.prof,kg:Math.round(rec.kg)};setBody(store.prof)}
+    if(rec.kg){store.prof={...store.prof,kg:Math.round(rec.kg)};setBody(store.prof);healthWriteWeight(rec.kg)}
     saveSettings();view().querySelectorAll('[data-b]').forEach(i=>i.value='');toast('Замер сохранён'+(rec.kg?' · вес в профиле обновлён':''));drawBody()});
   drawBody();
 }
@@ -320,7 +323,7 @@ async function askCoach(q){
   }catch(e){
     const c=e&&e.code; if(e&&e.text)ans.content=e.text;
     if(c==='aborted'||e.name==='AbortError'){if(!ans.content)ans.content='(остановлено)'}
-    else{chat.err=c==='not_granted'?'Доступ к ответам Claude не разрешён для этой страницы.':c==='rate_limited'?'Слишком много вопросов подряд — подожди минуту.':'Не получилось получить ответ. Попробуй ещё раз.';if(!ans.content)chat.msgs.pop()}
+    else{chat.err=c==='no_key'?'Добавь ключ Claude API: Профиль → «Тренер и фото».':c==='bad_key'?'Ключ Claude API не подошёл — проверь его в Профиле.':c==='network'?'Нет интернета — тренеру нужна связь.':c==='not_granted'?'Доступ к ответам Claude не разрешён для этой страницы.':c==='rate_limited'?'Слишком много вопросов подряд — подожди минуту.':'Не получилось получить ответ. Попробуй ещё раз.';if(!ans.content)chat.msgs.pop()}
   }
   chat.busy=false;chat.ac=null;saveChat();drawChat();
 }

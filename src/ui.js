@@ -753,6 +753,7 @@ function showWorkoutTab(){
   const ps=progState();
   view().innerHTML=`${subNav('workout')}${ps&&!ps.finished?`<a class="gymlink" href="#programs"><span>📅</span><div><b>${esc(ps.P.short)} · неделя ${ps.week}</b><small>следующий: ${esc(ps.P.days[ps.day].n)}</small></div><span class="chev">›</span></a>`:''}<section class="intro"><h1>Тренировка</h1><p>Выбери мышцы на сегодня — соберу 4–6 тренажёров с настройкой под цель${store.concerns.length?` и учту, что беспокоит: ${store.concerns.map(k=>CONCERNS[k].short).join(', ')}`:''}${gymSet()?' — только из тренажёров твоего зала':''}.</p></section>
   <div class="groups" id="wm">${Object.entries(groups).map(([g,ids])=>`<div class="grp"><h3>${g}</h3><div class="chips">${ids.map(id=>`<button class="tchip${plan.muscles.includes(id)?' on':''}" data-m="${id}" style="--c:${MUSCLES[id].c}"><i></i>${MUSCLES[id].n}</button>`).join('')}</div></div>`).join('')}</div>
+  ${globalFatigue()?`<div class="w warn"><span class="wi">${ICON.warn}</span><p>${esc(globalFatigue())}</p></div>`:''}
   <div id="planbox"></div>
   ${journalHtml()}`;
   $('#wm').addEventListener('click',e=>{const b=e.target.closest('.tchip');if(!b)return;const m=b.dataset.m;plan.muscles=plan.muscles.includes(m)?plan.muscles.filter(x=>x!==m):[...plan.muscles,m];b.classList.toggle('on');plan.items=plan.muscles.length?buildPlan(plan.muscles):null;drawPlan()});
@@ -761,12 +762,13 @@ function showWorkoutTab(){
 function drawPlan(){
   const box=$('#planbox'); if(!box)return;
   if(!plan.items||!plan.items.length){box.innerHTML=plan.muscles.length?'<p class="note">Под эти мышцы с учётом ограничений тренажёров не нашлось.</p>':'';return}
-  box.innerHTML=`<h2 class="sec mt">План · ${plan.items.length} упражнений</h2><div class="plan">${plan.items.map((it,i)=>{const e=EXI[it.id],sg=suggest(it.id);return `<div class="pitem">${icon(e.id)}<div class="rowmain"><b>${esc(e.n)}</b><div class="rowsub"><i class="dotc" style="--c:${MUSCLES[it.target].c}"></i>${MUSCLES[it.target].n} · 3 × ${it.reps[0]}–${it.reps[1]} · отдых ${it.rest} с</div>${sg?`<p class="tip">${esc(sg.tx)}</p>`:''}</div><div class="pact"><button class="ib" data-swap="${i}" aria-label="Заменить">⇄</button><button class="ib" data-del="${i}" aria-label="Убрать">✕</button></div></div>`}).join('')}</div>
+  box.innerHTML=`<h2 class="sec mt">План · ${plan.items.length} упражнений</h2><div class="plan">${plan.items.map((it,i)=>{const e=EXI[it.id],sg=suggest(it.id);return `<div class="pitem">${icon(e.id)}<div class="rowmain"><b>${esc(e.n)}</b><div class="rowsub"><i class="dotc" style="--c:${MUSCLES[it.target].c}"></i>${MUSCLES[it.target].n} · 3 × ${it.reps[0]}–${it.reps[1]} · отдых ${it.rest} с</div>${sg?`<p class="tip">${esc(sg.tx)}</p>`:''}</div><div class="pact"><button class="ib" data-swap="${i}" aria-label="Заменить">⇄</button><button class="ib" data-del="${i}" aria-label="Убрать">✕</button></div></div>${i<plan.items.length-1?`<button class="sslink${it.ss?' on':''}" data-ss="${i}" aria-pressed="${!!it.ss}">⛓ ${it.ss?'суперсет — без отдыха между ними':'объединить в суперсет'}</button>`:''}`}).join('')}</div>
   <button class="btn wide" id="startw">Начать тренировку</button>`;
   box.querySelector('.plan').addEventListener('click',e=>{
-    const sw=e.target.closest('[data-swap]'),dl=e.target.closest('[data-del]');
+    const sw=e.target.closest('[data-swap]'),dl=e.target.closest('[data-del]'),ss=e.target.closest('[data-ss]');
+    if(ss){const i=+ss.dataset.ss;plan.items[i].ss=!plan.items[i].ss;if(plan.items[i].ss&&i>0&&plan.items[i-1].ss)plan.items[i-1].ss=false;if(plan.items[i].ss&&plan.items[i+1])plan.items[i+1].ss=false;drawPlan();return}
     if(sw){const i=+sw.dataset.swap,it=plan.items[i],c=candidates(it.target),used=new Set(plan.items.map(x=>x.id));const k=c.findIndex(x=>x.id===it.id);const nx=[...c.slice(k+1),...c.slice(0,k)].find(x=>!used.has(x.id));if(nx)plan.items[i]=planItem(nx,it.target);drawPlan()}
-    if(dl){plan.items.splice(+dl.dataset.del,1);drawPlan()}
+    if(dl){const i=+dl.dataset.del;if(i>0&&plan.items[i-1].ss)plan.items[i-1].ss=false;plan.items.splice(i,1);drawPlan()}
   });
   $('#startw').addEventListener('click',()=>{audio();const s={id:'w'+Date.now().toString(36),ts:Date.now(),items:plan.items.map(x=>({...x,sets:[]})),cur:0,done:false};saveSession(s);plan.items=null;plan.muscles=[];say('Начинаем. Сначала разминка.');showWorkoutTab()});
 }
@@ -779,18 +781,22 @@ function renderActive(s){
   view().innerHTML=`<section class="wact">
   <div class="whead"><p class="eyebrow">${s.prog&&PROGRAMS[s.prog.id]?`${esc(PROGRAMS[s.prog.id].short)} · неделя ${s.prog.week} · `:''}Упражнение ${s.cur+1} из ${s.items.length} · выполнено ${done}</p><div class="wprog">${s.items.map((x,i)=>`<i class="${i===s.cur?'cur':x.sets.length?'dn':''}"></i>`).join('')}</div></div>
   <div class="wcard">${icon(e.id,'ico big')}<div class="rowmain"><h1>${esc(e.n)}</h1><p class="rowsub"><i class="dotc" style="--c:${MUSCLES[it.target].c}"></i>Цель: ${MUSCLES[it.target].n} · ${it.plan?it.plan+' × ':''}${it.reps[0]}–${it.reps[1]} повторов</p></div></div>
+  ${it.ss&&s.items[s.cur+1]?`<p class="ssbadge">⛓ Суперсет с «${esc(EXI[s.items[s.cur+1].id].n)}» — после подхода сразу туда, без отдыха</p>`:ssPrev(s,s.cur)?`<p class="ssbadge">⛓ Суперсет с «${esc(EXI[s.items[s.cur-1].id].n)}» — после подхода отдых и обратно</p>`:''}
+  ${it.note?`<p class="tip rxnote2">📋 ${esc(it.note)}</p>`:''}
   ${e.focus&&e.focus[it.target]?`<p class="tip">${esc(e.focus[it.target])}</p>`:''}
   <a class="link" href="#ex-${e.id}" id="openEx">Модель и настройка тренажёра ›</a>
   ${voiceRow()}
   ${!last&&startHint(e)?`<div class="lastbox"><span>Ориентир для старта (${store.prof.sex==='f'?'женщина':'мужчина'}, ${store.prof.kg} кг)</span><b>около ${kg(startHint(e))} кг</b><p class="note">Грубая оценка по весу тела. Если 12 повторов даются легко — добавь, если техника ломается — сбавь.</p></div>`:''}
-  ${last?`<div class="lastbox"><span>Прошлый раз, ${fmtDate(last.ts)}</span><b>${last.sets.map(x=>`${kg(x.w)}×${x.r}`).join(', ')}</b>${sg?`<p class="sug">${esc(sg.tx)}</p>`:''}</div>`:'<p class="note">Первый раз на этом тренажёре: подбери вес, с которым последний повтор даётся тяжело, но технично.</p>'}
+  ${last?`<div class="lastbox"><span>Прошлый раз, ${fmtDate(last.ts)}</span><b>${last.sets.map(x=>`${kg(x.w)}×${x.r}`).join(', ')}</b>${sg?`<p class="sug${sg.warn?' warnsug':''}">${esc(sg.tx)}</p>`:''}</div>`:'<p class="note">Первый раз на этом тренажёре: подбери вес, с которым последний повтор даётся тяжело, но технично.</p>'}
   <div class="setin">
     <div class="stepper"><span>Вес, кг</span><div><button data-d="w:-${HEAVY.includes(e.id)?5:2.5}">−</button><input id="ww" inputmode="decimal" value="${kg(wk.w)}" aria-label="Вес"><button data-d="w:${HEAVY.includes(e.id)?5:2.5}">+</button></div></div>
     <div class="stepper"><span>Повторы</span><div><button data-d="r:-1">−</button><input id="wr" inputmode="numeric" value="${wk.r}" aria-label="Повторы"><button data-d="r:1">+</button></div></div>
   </div>
+  ${platesHtml(e)}
+  ${rirHtml()}
   ${micHtml()}
   <button class="btn wide${it.plan&&it.sets.length>=it.plan?' ghost':''}" id="logset">${it.plan&&it.sets.length>=it.plan?`Ещё подход (сверх плана)`:`Подход ${it.sets.length+1}${it.plan?' из '+it.plan:''} выполнен`}</button>
-  ${it.sets.length?`<div class="sets">${it.sets.map((x,i)=>`<span class="setc">${i+1}: ${kg(x.w)} кг × ${x.r}<button data-rm="${i}" aria-label="Удалить подход">✕</button></span>`).join('')}</div>`:''}
+  ${it.sets.length?`<div class="sets">${it.sets.map((x,i)=>`<span class="setc">${i+1}: ${kg(x.w)} кг × ${x.r}${x.rir!=null?` <em>запас ${x.rir===4?'4+':x.rir}</em>`:''}<button data-rm="${i}" aria-label="Удалить подход">✕</button></span>`).join('')}</div>`:''}
   <div id="restbox"></div>
   <section class="metro"><div class="mhead2"><b>Метроном темпа</b><span class="hint">звук и вибрация — можно не смотреть в экран</span></div>
     <div class="tempo inl">${[[2,0,2],[3,1,1],[4,1,2]].map(x=>`<button data-t="${x.join('')}" class="${x.join('')===wk.tempo.join('')?'on':''}">${x.join('-')}</button>`).join('')}</div>
@@ -801,12 +807,18 @@ function renderActive(s){
   </section>`;
   const readIn=()=>{const w=parseFloat(String($('#ww').value).replace(',','.')),r=parseInt($('#wr').value,10);if(!isNaN(w))wk.w=Math.max(0,w);if(!isNaN(r))wk.r=Math.max(1,r)};
   view().querySelector('.setin').addEventListener('click',ev=>{const b=ev.target.closest('[data-d]');if(!b)return;readIn();const [k,d]=b.dataset.d.split(':');if(k==='w')wk.w=Math.max(0,Math.round((wk.w+ +d)*10)/10);else wk.r=Math.max(1,wk.r+ +d);$('#ww').value=kg(wk.w);$('#wr').value=wk.r});
-  const logSet=()=>{readIn();audio();it.sets.push({w:wk.w,r:wk.r,ts:Date.now()});saveSession(s);stopMetro();
+  const logSet=()=>{readIn();audio();it.sets.push({w:wk.w,r:wk.r,rir:wk.rir??2,ts:Date.now()});saveSession(s);stopMetro();
     const n=it.sets.length, fin=it.plan&&n>=it.plan;
+    // суперсет: из первого упражнения сразу во второе, без отдыха
+    if(it.ss&&s.items[s.cur+1]){const B=s.items[s.cur+1];s.cur++;saveSession(s);wk.w=null;say(`Сразу: ${EXI[B.id].n}.`);toast(`⛓ Сразу: ${EXI[B.id].n}`);renderActive(s);window.scrollTo(0,0);return}
+    if(ssPrev(s,s.cur)){const A=s.items[s.cur-1];if(A.sets.length<ssTarget(A)){wk.restSay=`Отдых окончен. Снова ${EXI[A.id].n}.`;say(`Подход записан. Отдых ${it.rest} секунд, потом ${EXI[A.id].n}.`);s.cur--;saveSession(s);wk.w=null;startRest(it.rest);renderActive(s);window.scrollTo(0,0);return}}
     wk.restSay=fin?(s.cur<s.items.length-1?`Отдых окончен. Следующее упражнение: ${EXI[s.items[s.cur+1].id].n}.`:'Отдых окончен. Это было последнее упражнение.'):`Отдых окончен. Подход ${n+1}.`;
     say(`Подход ${n} записан: ${kg(wk.w)} килограмм на ${wk.r}. ${fin?'Все подходы сделаны. ':''}Отдых ${it.rest} секунд.`);
     startRest(it.rest);renderActive(s)};
   $('#logset').addEventListener('click',logSet);
+  $('#rir').addEventListener('click',ev=>{const b=ev.target.closest('[data-rir]');if(!b)return;wk.rir=+b.dataset.rir;$('#rir').querySelectorAll('button').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-pressed',on)})});
+  const plb=$('#plbtn');if(plb)plb.addEventListener('click',()=>{readIn();const bx=$('#plbox');bx.hidden=!bx.hidden;if(!bx.hidden)drawPlates(e)});
+  view().querySelector('.setin').addEventListener('click',()=>{const bx=$('#plbox');if(bx&&!bx.hidden)setTimeout(()=>drawPlates(e))});
   bindVoiceRow(()=>renderActive(s));
   bindMic(p=>{if(p.w!=null)wk.w=Math.max(0,p.w);if(p.r!=null)wk.r=Math.max(1,p.r);$('#ww').value=kg(wk.w);$('#wr').value=wk.r;toast(`Распознано: ${kg(wk.w)} кг × ${wk.r}${p.log?' — записываю':''}`);if(p.log)logSet()});
   const sl=view().querySelector('.sets'); if(sl)sl.addEventListener('click',ev=>{const b=ev.target.closest('[data-rm]');if(!b)return;it.sets.splice(+b.dataset.rm,1);saveSession(s);renderActive(s)});
@@ -846,14 +858,17 @@ function finishWorkout(s){
   const pa=programAdvance(s);
   say('Тренировка завершена. Отличная работа! Не забудь заминку.');
   const vol=s.items.reduce((a,x)=>a+x.sets.reduce((b,y)=>b+y.w*y.r,0),0);
-  const prs=s.items.filter(x=>{const l=lastSets(x.id,s.id);return l&&Math.max(...x.sets.map(y=>y.w))>Math.max(...l.sets.map(y=>y.w))});
+  const prs=s.items.filter(x=>{const l=lastSets(x.id,s.id);return l&&Math.max(...x.sets.map(y=>y.w))>Math.max(...l.sets.map(y=>y.w))}), rec=prsOf(s);
   view().innerHTML=`<section class="intro"><p class="eyebrow">Тренировка завершена</p><h1>Готово!</h1><p>${s.items.length} упражнений · ${s.items.reduce((a,x)=>a+x.sets.length,0)} подходов · ${Math.round(vol).toLocaleString('ru-RU')} кг общего тоннажа${s.end?` · ${Math.max(1,Math.round((s.end-s.ts)/60000))} мин`:''}</p></section>
-  ${prs.length?`<div class="w ok"><span class="wi">${ICON.ok}</span><p>Рост веса: ${prs.map(x=>esc(EXI[x.id].n)).join(', ')}</p></div>`:''}
+  ${rec.length?`<section class="pbox prbox"><h2 class="sec">🏆 ${rec.length>1?'Новые рекорды':'Новый рекорд'}</h2>${rec.map((r,i)=>`<div class="hrow"><span>${esc(EXI[r.id].n)}</span><b>${kg(r.set.w)}×${r.set.r} · ~${kg(Math.round(r.e))} кг 1ПМ</b><button class="btn sm ghost" data-pr="${i}">Поделиться</button></div>`).join('')}</section>`:prs.length?`<div class="w ok"><span class="wi">${ICON.ok}</span><p>Рост веса: ${prs.map(x=>esc(EXI[x.id].n)).join(', ')}</p></div>`:''}
+  ${s.prog&&s.prog.id==='rx'?`<section class="pbox"><h2 class="sec">Самочувствие</h2><p class="note">Боль во время тренировки, 0 — нет, 10 — невыносимая. Попадёт в отчёт для специалиста.</p><div class="wdays pain" id="pain">${[0,1,2,3,4,5,6,7,8,9,10].map(n=>`<button data-p="${n}" class="${s.pain===n?'on':''}">${n}</button>`).join('')}</div></section>`:''}
   <div class="list">${s.items.map(x=>`<div class="row">${icon(x.id)}<div class="rowmain"><b>${esc(EXI[x.id].n)}</b><div class="rowsub">${x.sets.map(y=>`${kg(y.w)}×${y.r}`).join(', ')}</div></div></div>`).join('')}</div>
   ${pa?`<div class="w ok"><span class="wi">${ICON.ok}</span><p>${pa.finished?`Программа «${esc(pa.P.n)}» пройдена!`:`Программа: следующий раз — ${esc(pa.P.days[pa.day].n)} (неделя ${pa.week} из ${pa.P.weeks}).`}</p></div>`:''}
   ${cooldownHtml(s)}
   <a class="btn wide" href="#progress">Мой прогресс</a><a class="btn ghost wide" href="#muscles">На главную</a>`;
   const cc=$('#cchk');if(cc)cc.addEventListener('click',e=>{const b=e.target.closest('.ck');if(b)b.classList.toggle('on')});
+  view().querySelectorAll('[data-pr]').forEach(b=>b.addEventListener('click',()=>sharePr(rec[+b.dataset.pr],s.ts)));
+  const pn=$('#pain');if(pn)pn.addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(!b)return;s.pain=+b.dataset.p;saveSession(s);pn.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))});
 }
 function journalHtml(){
   const L=store.log.filter(x=>x.done);
@@ -875,6 +890,7 @@ function showProfileTab(){
   <div class="plinks"><a class="gymlink" href="#health"><span>🩺</span><div><b>Тренировки и здоровье</b><small>поясница, колено, плечо, давление, беременность, диабет</small></div><span class="chev">›</span></a>
   <a class="gymlink" href="#gym"><span>🏠</span><div><b>Мой зал</b><small>${gymSet()?`отмечено ${store.gym.length} тренажёров`:'не отмечен — используются все тренажёры'}</small></div><span class="chev">›</span></a></div>
   ${voiceAvail()?`<section class="pbox"><h2 class="sec">Голосовой тренер</h2><p class="note">Подсказывает во время тренировки: подход записан, отдых, «десять секунд», следующее упражнение, счёт повторов под метроном.</p>${voiceRow()}<div class="param"><label class="plabel" for="vrate"><span>Скорость речи</span><output id="ovr">${kg(store.voice.rate||1)}×</output></label><input type="range" id="vrate" min=".8" max="1.4" step=".1" value="${store.voice.rate||1}"></div><button class="btn sm ghost" id="vtest">Проверить голос</button></section>`:''}
+  ${backupHtml()}${apiKeyHtml()}${remindHtml()}${healthHtml()}
   <section class="pbox"><h2 class="sec">Что беспокоит</h2><div class="cgrid" id="cg">${Object.entries(CONCERNS).map(([k,c])=>`<button class="cbtn${store.concerns.includes(k)?' on':''}" data-k="${k}" aria-pressed="${store.concerns.includes(k)}"><b>${c.n}</b><span>${c.note}</span></button>`).join('')}</div>
     <p class="note">Это общие рекомендации, а не диагноз. При острой боли, отёке, онемении или боли после травмы сначала покажись врачу. Подробнее — в разделе <a href="#health">«Тренировки и здоровье»</a>.</p></section>
   <section class="pbox"><h2 class="sec">Где хранятся данные</h2><p class="note" id="smode">${store.mode==='db'?'Избранное, профиль и журнал сохраняются в твоём аккаунте и видны только тебе.':IS_APP?'Данные хранятся на этом телефоне. Если удалить приложение, журнал пропадёт.':'Данные сохраняются в этом браузере. Если очистить данные сайта, журнал пропадёт.'}</p></section>
@@ -889,6 +905,7 @@ function showProfileTab(){
   <section class="txt"><h2 class="sec">Исследования в приложении</h2><div class="srcs">${Object.values(SOURCES).map(s=>`<a class="src" href="${s.u}" target="_blank" rel="noopener"><b>${esc(s.t)}</b><span>${esc(s.tx)}</span><small>${esc(s.j)} · PubMed ↗</small></a>`).join('')}</div></section>`;
   bindProfileFields();
   bindVoiceRow(()=>showProfileTab());
+  bindBackup();bindApiKey();bindRemind();bindHealth();
   const vr=$('#vrate');if(vr){vr.addEventListener('input',e=>{store.voice={...store.voice,rate:+e.target.value};$('#ovr').textContent=kg(+e.target.value)+'×';saveSettings()});$('#vtest').addEventListener('click',()=>say('Подход два записан: сорок килограмм на десять. Отдых девяносто секунд.',{force:true}))}
   $('#cg').addEventListener('click',e=>{const b=e.target.closest('.cbtn');if(!b)return;const k=b.dataset.k,on=!store.concerns.includes(k);store.concerns=on?[...store.concerns,k]:store.concerns.filter(x=>x!==k);b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);saveSettings();renderTopConcerns()});
 }

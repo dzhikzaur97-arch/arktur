@@ -75,8 +75,33 @@ window.RYCHAG_APP=true;
     if(!r.ok)throw {code:'error',message:'Сервер ответил '+r.status};
     return r;
   }
+  // прямой вызов Claude API со своим ключом пользователя (ключ хранится только на телефоне)
+  async function direct(msgs,images,onText,signal){
+    const key=localStorage.getItem('rychag.apikey');if(!key)throw {code:'no_key',message:'Добавь ключ Claude API в Профиле'};
+    const messages=msgs.map((m,i)=>i===msgs.length-1&&images.length?{role:'user',content:[...images.map(im=>({type:'image',source:{type:'base64',media_type:im.type,data:im.data}})),{type:'text',text:m.content}]}:m);
+    let r;try{r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:localStorage.getItem('rychag.model')||'claude-haiku-5-5',max_tokens:1500,messages,stream:!!onText})})}
+    catch(e){if(e&&e.name==='AbortError')throw {code:'aborted'};throw {code:'network',message:'Нет интернета'}}
+    if(r.status===401)throw {code:'bad_key',message:'Ключ API не подошёл'};
+    if(r.status===429||r.status===529)throw {code:'rate_limited'};
+    if(!r.ok)throw {code:'error',message:'Claude API ответил '+r.status};
+    if(!onText){const j=await r.json();return (j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('')}
+    const rd=r.body.getReader(),dec=new TextDecoder();let buf='',text='';
+    try{for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+      while((i=buf.indexOf('\n\n'))>=0){const ev=buf.slice(0,i);buf=buf.slice(i+2);const line=ev.split('\n').find(l=>l.startsWith('data:'));if(!line)continue;
+        try{const d=JSON.parse(line.slice(5));if(d.type==='content_block_delta'&&d.delta&&d.delta.type==='text_delta'){text+=d.delta.text;onText({text,delta:d.delta.text})}}catch(e){}}}}
+    catch(e){if(e&&e.name==='AbortError')throw {code:'aborted',text};throw e}
+    return text;
+  }
   function sampleShim(){
-    if(!CFG.api)return null;
+    if(!CFG.api){
+      if(!native)return null;
+      const norm=i=>typeof i==='string'?[{role:'user',content:i}]:i;
+      const sample=async(input,o={})=>{const imgs=o.images&&o.images.length?await Promise.all(o.images.slice(0,1).map(async b=>({type:'image/jpeg',data:await b64(await shrink(b))}))):[];return {text:await direct(norm(input),imgs,o.onText||null,o.signal),truncated:false}};
+      sample.json=async(input,o={})=>{const r=await sample(input+'\n\nОтветь только JSON, без пояснений.',{...o,onText:null});const m=r.text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);if(!m)throw {code:'invalid_json'};return JSON.parse(m[0])};
+      sample.limits=async()=>({images:localStorage.getItem('rychag.apikey')?{maxCount:1,maxInputBytes:2e7,mediaTypes:['image/jpeg','image/png','image/webp','image/heic']}:null});
+      return sample;
+    }
     const norm=i=>typeof i==='string'?[{role:'user',content:i}]:i;
     const sample=async(input,o={})=>{
       const imgs=o.images&&o.images.length?await Promise.all(o.images.slice(0,1).map(async b=>({type:'image/jpeg',data:await b64(await shrink(b))}))):[];
@@ -91,6 +116,43 @@ window.RYCHAG_APP=true;
     sample.limits=async()=>({images:{maxCount:1,maxInputBytes:2e7,mediaTypes:['image/jpeg','image/png','image/webp','image/heic']}});
     return sample;
   }
+  // --- Нативные возможности для приложения: файлы, «Поделиться», уведомления, ключ API, «Здоровье» ---
+  const FS=plug('Filesystem'), Share=plug('Share'), LN=plug('LocalNotifications'), HL=plug('Health');
+  const N={};
+  if(FS&&Share){
+    N.saveFile=async(name,data,mime)=>{const isData=typeof data==='string'&&data.startsWith('data:');
+      const r=await FS.writeFile({path:name,data:isData?data.split(',')[1]:data,directory:'CACHE',...(isData?{}:{encoding:'utf8'})});
+      await Share.share({title:name,files:[r.uri]})};
+    N.shareImage=(url,name)=>N.saveFile(name,url,'image/png');
+  }
+  if(LN){
+    const perm=async()=>{let p=await LN.checkPermissions().catch(()=>null);if(!p||p.display!=='granted')p=await LN.requestPermissions().catch(()=>null);return !!p&&p.display==='granted'};
+    N.notify={
+      async weekly(days,time,title,body){if(!await perm())throw new Error('denied');const [h,m]=String(time).split(':').map(Number);
+        await LN.schedule({notifications:days.map((d,i)=>({id:200+i,title,body,schedule:{on:{weekday:d,hour:h,minute:m},allowWhileIdle:true}}))})},
+      async cancelWeekly(){await LN.cancel({notifications:[0,1,2,3,4,5,6].map(i=>({id:200+i}))})},
+    };
+    // таймер отдыха в фоне: уведомление, если приложение свернули во время отдыха
+    let asked=false;
+    document.addEventListener('visibilitychange',async()=>{
+      try{
+        if(document.hidden&&typeof wk!=='undefined'&&wk.restEnd>Date.now()+3000){if(!asked){asked=true;await perm()}
+          await LN.schedule({notifications:[{id:101,title:'Отдых окончен',body:(wk.restSay||'Следующий подход').replace(/^Отдых окончен\.\s*/,''),schedule:{at:new Date(wk.restEnd),allowWhileIdle:true}}]})}
+        else if(!document.hidden)await LN.cancel({notifications:[{id:101}]});
+      }catch(e){}
+    });
+  }
+  N.apiKey={get:()=>localStorage.getItem('rychag.apikey')||'',set:k=>{k?localStorage.setItem('rychag.apikey',k):(localStorage.removeItem('rychag.apikey'),Prefs&&Prefs.remove({key:'rychag.apikey'}).catch(()=>{}))},
+    model:()=>localStorage.getItem('rychag.model')||'claude-haiku-5-5',setModel:m=>localStorage.setItem('rychag.model',m)};
+  if(HL){
+    const ios=Cap.getPlatform&&Cap.getPlatform()==='ios';
+    N.health={ok:false,name:ios?'Apple Здоровье':'Health Connect',
+      auth:async()=>{const r=await HL.requestAuthorization({read:['weight'],write:['weight']});return !!r},
+      writeWeight:kgv=>HL.saveSample({dataType:'weight',value:kgv,unit:'kilogram'}),
+      lastWeight:async()=>{const r=await HL.readSamples({dataType:'weight',startDate:new Date(Date.now()-365*864e5).toISOString(),limit:1});const s=r&&r.samples&&r.samples[0];return s?{kg:s.value,ts:Date.parse(s.startDate)}:null}};
+    HL.isAvailable().then(a=>{N.health.ok=!!(a&&a.available)}).catch(()=>{});
+  }
+  window.RYCHAG_NATIVE=native?N:null;
   const caps={tts:ttsShim(),dictation:dictShim(),sample:sampleShim()};
-  window.claude={use:async n=>caps[n]||null};
+  window.claude={use:async n=>n==='sample'?sampleShim():caps[n]||null};
 })();

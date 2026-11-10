@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSHealthShareUsageDescription</key>
+	<string>«Рычаг» читает вес тела из «Здоровья», чтобы точнее подсказывать стартовые веса.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>«Рычаг» записывает в «Здоровье» вес, который ты вводишь в замерах.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Микрофон нужен, чтобы надиктовать вес и повторы во время подхода.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
