@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Рычаг</string>
+    <string name="title_activity_main">Рычаг</string>
+    <string name="package_name">ru.rychag.app</string>
+    <string name="custom_url_scheme">ru.rychag.app</string>
+</resources>

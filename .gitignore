@@ -1,0 +1,9 @@
+node_modules/
+www/
+.DS_Store
+*.jks
+*.p12
+*.mobileprovision
+server/.wrangler/
+*.keystore
+!android/app/rychag-debug.keystore

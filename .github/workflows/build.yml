@@ -1,0 +1,94 @@
+# Облачная сборка «Рычага»: Android (APK для установки и AAB для Google Play) и iOS (проверка сборки, TestFlight при наличии сертификатов).
+# Запуск: вкладка Actions → «Сборка приложения» → Run workflow, либо любой push в main.
+name: Сборка приложения
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  RYCHAG_API: ${{ secrets.RYCHAG_API }}
+  RYCHAG_APP_KEY: ${{ secrets.RYCHAG_APP_KEY }}
+  BUILD_NUMBER: ${{ github.run_number }}
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build && npx cap sync android
+      - name: Ключ подписи (если задан)
+        env: { KS: "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" }
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > $RUNNER_TEMP/release.jks; echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV; fi
+      - name: Сборка APK и AAB
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          if [ -n "$ANDROID_KEYSTORE_PATH" ]; then ./gradlew assembleRelease bundleRelease; fi
+      - name: Опубликовать APK по постоянной ссылке (для QR-кода)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk rychag.apk
+          gh release delete latest -y --cleanup-tag || true
+          gh release create latest rychag.apk --title "Рычаг — последняя сборка №$BUILD_NUMBER" --notes "Скачай rychag.apk на Android-телефон и открой файл. Ставится поверх прошлой версии, данные сохраняются." --latest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rychag-android
+          path: |
+            android/app/build/outputs/apk/**/*.apk
+            android/app/build/outputs/bundle/**/*.aab
+
+  ios:
+    runs-on: macos-15
+    env:
+      HAS_SIGNING: ${{ secrets.IOS_CERT_P12_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build && npx cap sync ios
+      - name: Проверочная сборка для симулятора (без подписи)
+        working-directory: ios/App
+        run: xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -20
+      - name: Подписанная сборка и отправка в TestFlight (если заданы сертификаты)
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          CERT: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          CERT_PW: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        working-directory: ios/App
+        run: |
+          KC=$RUNNER_TEMP/b.keychain-db; security create-keychain -p x $KC; security set-keychain-settings -lut 21600 $KC; security unlock-keychain -p x $KC
+          echo "$CERT" | base64 -d > $RUNNER_TEMP/c.p12; security import $RUNNER_TEMP/c.p12 -P "$CERT_PW" -A -t cert -f pkcs12 -k $KC; security list-keychain -d user -s $KC
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles; echo "$PROFILE" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/rychag.mobileprovision
+          PUUID=$(security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/rychag.mobileprovision | plutil -extract UUID raw -)
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -archivePath $RUNNER_TEMP/App.xcarchive archive \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$TEAM_ID PROVISIONING_PROFILE=$PUUID CODE_SIGN_IDENTITY="Apple Distribution" CURRENT_PROJECT_VERSION=$BUILD_NUMBER | tail -20
+          cat > $RUNNER_TEMP/export.plist <<PL
+          <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>method</key><string>app-store-connect</string><key>teamID</key><string>$TEAM_ID</string>
+          <key>provisioningProfiles</key><dict><key>ru.rychag.app</key><string>$PUUID</string></dict></dict></plist>
+          PL
+          xcodebuild -exportArchive -archivePath $RUNNER_TEMP/App.xcarchive -exportOptionsPlist $RUNNER_TEMP/export.plist -exportPath $RUNNER_TEMP/out
+          mkdir -p ~/.appstoreconnect/private_keys; echo "$ASC_KEY" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8
+          xcrun altool --upload-app -f $RUNNER_TEMP/out/*.ipa -t ios --apiKey $ASC_KEY_ID --apiIssuer $ASC_ISSUER

@@ -1,0 +1,12 @@
+{
+  "appId": "ru.rychag.app",
+  "appName": "Рычаг",
+  "webDir": "www",
+  "backgroundColor": "#0c0d12",
+  "android": { "backgroundColor": "#0c0d12" },
+  "ios": { "backgroundColor": "#0c0d12", "contentInset": "never", "scheme": "Rychag" },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 600, "launchAutoHide": true, "backgroundColor": "#0c0d12", "showSpinner": false },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#0c0d12", "overlaysWebView": false }
+  }
+}
