@@ -23,7 +23,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
-      - uses: android-actions/setup-android@v3
+      # Android SDK уже установлен в образе ubuntu-latest (ANDROID_HOME)
       - run: npm ci
       - run: npm run build && npx cap sync android
       - name: Ключ подписи (если задан)
