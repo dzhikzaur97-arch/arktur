@@ -5,6 +5,7 @@ const { chromium, devices } = require('playwright');
 const fs = require('fs'), path = require('path'), os = require('os');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vf-smoke-')), DEV = process.argv[2] || 'iPhone 13';
 fs.writeFileSync(path.join(dir, 'sa.html'), '<!doctype html>' + fs.readFileSync(path.join(__dirname, '../dist/void-frontier.html'), 'utf8'));
+fs.cpSync(path.join(__dirname, '../public/audio'), path.join(dir, 'audio'), { recursive: true }); // музыка лежит рядом, как на сайте
 (async () => {
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await b.newContext(DEV === 'desktop' ? { viewport: { width: 1400, height: 860 } } : { ...devices[DEV] });
