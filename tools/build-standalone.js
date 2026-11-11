@@ -227,7 +227,7 @@ const i18n = read('public/js/i18n-en.js') + '\n' + read('public/js/i18n.js');
 if (i18n.includes('</script')) throw new Error('в словаре перевода встретилось </script');
 const page = `<title>ARKTUR: Космический рубеж</title>
 <script>${i18n}</script>
-<script>window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_TEX = ${JSON.stringify(photoTex)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
+<script>window.VF_MUSIC = ${JSON.stringify(fs.existsSync(path.join(ROOT, 'public/audio/music')) ? { base: 'audio/music/', tracks: Object.fromEntries(fs.readdirSync(path.join(ROOT, 'public/audio/music')).filter(f => f.endsWith('.mp3')).map(f => [f.slice(0, -4), f])) } : null)}; window.VF_ART = ${JSON.stringify(art)}; window.VF_PHOTO = ${JSON.stringify(photos)}; window.VF_TEX = ${JSON.stringify(photoTex)}; window.VF_SHIP_GLB = ${JSON.stringify(shipGlb)};</script>
 <style>
 ${css}
 .offline-tag { display: block; margin-top: 4px; color: var(--accent2); font-size: 11px; text-align: center; }

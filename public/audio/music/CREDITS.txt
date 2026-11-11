@@ -1,0 +1,16 @@
+Музыка ARKTUR / ARKTUR music — Loyalty Freak Music, CC0 1.0 (общественное достояние / public domain dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+CC0 не требует указания авторства — указываем из уважения. / CC0 needs no attribution — credited out of respect.
+
+explore.mp3 — «Traveling in your mind» (альбом «TO CHILL AND STAY AWAKE»)
+  https://archive.org/details/LoyaltyFreakMusicTOCHILLANDSTAYAWAKE20170923132621469
+  https://commons.wikimedia.org/wiki/File:Loyalty_Freak_Music_-_05_-_Traveling_in_your_mind.ogg
+station.mp3 — «Resting time» (альбом «GAME JAM VOL 1»)
+  https://archive.org/details/LoyaltyFreakMusic-GAMEJAMVOL1
+danger.mp3 — «Dramatic time» (альбом «GAME JAM VOL 1»)
+  https://archive.org/details/LoyaltyFreakMusic-GAMEJAMVOL1
+combat.mp3 — «Anxious time» (альбом «GAME JAM VOL 1»)
+  https://archive.org/details/LoyaltyFreakMusic-GAMEJAMVOL1
+
+Обработка для игры: обрезана тишина в начале, громкость выровнена (−19 LUFS), плавные начало и конец, MP3 112 кбит/с.
+Processing for the game: leading silence trimmed, loudness normalized (−19 LUFS), fades, MP3 112 kbps.

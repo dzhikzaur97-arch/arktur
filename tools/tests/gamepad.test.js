@@ -23,6 +23,8 @@ const { chromium } = require('playwright');
   const s1 = await st(); console.log((s1.yaw !== s0.yaw ? '✓' : '✗') + ' правый стик поворачивает камеру', s0.yaw.toFixed(2), '→', s1.yaw.toFixed(2));
   await tap(3); const s2 = await st(); console.log((s2.map ? '✓' : '✗') + ' Y — карта открылась');
   await p.evaluate(() => document.querySelector('#map').classList.add('hidden')); await p.waitForTimeout(300); // карту закрываем напрямую — без гонки
+  // перед Start закрываем всплывшие окна: Start, как и Esc, сначала закрывает открытое окно и только потом открывает меню
+  await p.evaluate(() => { document.querySelector('#modal').classList.add('hidden'); const x = document.getElementById('win-close'); if (x && !document.querySelector('#win').classList.contains('hidden')) x.click(); }); await p.waitForTimeout(300);
   await tap(9); const s3 = await st(); console.log((s3.esc ? '✓' : '✗') + ' Start — меню и пауза');
   await tap(9); const s4 = await st(); console.log((!s4.esc ? '✓' : '✗') + ' Start ещё раз — меню закрылось');
   await tap(0); await p.waitForTimeout(500); const man1 = await p.evaluate(() => document.body.innerText.match(/ручн|manual/i) ? true : false);

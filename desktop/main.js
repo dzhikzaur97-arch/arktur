@@ -11,7 +11,7 @@ const fs = require('fs');
 const SCHEME = 'app', HOST = 'arktur', ORIGIN = `${SCHEME}://${HOST}`;
 const ROOT = path.join(__dirname, 'app');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
+  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.mp3': 'audio/mpeg' };
 const ALLOWED_PERMS = new Set(['fullscreen', 'pointerLock', 'screen-wake-lock', 'keyboardLock']);
 
 // постоянная папка сохранений с понятным именем; до готовности приложения

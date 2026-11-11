@@ -73,6 +73,7 @@ pack('web', path.join(ROOT, 'dist/site'), 'web', {});
   const im = /<script type="importmap">[\s\S]*?<\/script>/;
   if (!im.test(html)) throw new Error('нет карты импортов');
   html = html.replace(im, () => `<script type="importmap">${JSON.stringify({ imports: map })}</script>`).replace("script-src 'self'", "script-src 'self' data:");
+  html = html.replace(/window\.VF_MUSIC = \{[^;]*\};/g, 'window.VF_MUSIC = null;'); // один файл — без папки музыки: играет синтезированная
   const readme = `ARKTUR: Космический рубеж / ARKTUR: Space Frontier — ${VERSION} (alpha)
 
 RU: Откройте файл ARKTUR.html в браузере (Chrome, Edge, Firefox, Safari) — двойным щелчком. Интернет не нужен.

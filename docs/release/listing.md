@@ -45,8 +45,8 @@ ARKTUR: Космический рубеж — одиночная космиче�
 действий); ☰ — меню (карта, трюм, навыки, задания, настройки); круглые кнопки справа внизу — модули.
 
 **Об использовании ИИ:** игру создали Salamov Rustam и Claude — ИИ-ассистент Anthropic. Код игры (включая генераторы
-3D-моделей кораблей, звуков и музыки) и игровые тексты написаны с помощью Claude по замыслу и под руководством автора.
-Фототекстуры поверхностей — свободные (CC0, ambientCG). Опубликованные версии игры не подключаются к ИИ-сервисам
+3D-моделей кораблей и звуков) и игровые тексты написаны с помощью Claude по замыслу и под руководством автора.
+Фототекстуры поверхностей — свободные (CC0, ambientCG); музыка — Loyalty Freak Music (CC0, общественное достояние). Опубликованные версии игры не подключаются к ИИ-сервисам
 во время игры.
 
 ---
@@ -91,8 +91,8 @@ tap an object — select it (action buttons appear at the bottom); ☰ — menu 
 round buttons at the bottom right — modules.
 
 **AI disclosure:** the game was made by Salamov Rustam together with Claude, Anthropic's AI assistant. The game code
-(including the generators for 3D ship models, sound effects and music) and the in-game text were written with Claude,
-following the author's ideas and direction. Surface photo textures are free CC0 assets (ambientCG). The published versions
+(including the generators for 3D ship models and sound effects) and the in-game text were written with Claude,
+following the author's ideas and direction. Surface photo textures are free CC0 assets (ambientCG); music is by Loyalty Freak Music (CC0, public domain). The published versions
 of the game do not connect to any AI service while you play.
 
 ---

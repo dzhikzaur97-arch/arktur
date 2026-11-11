@@ -21,7 +21,9 @@ const CFG = { author: process.env.VF_AUTHOR || 'Salamov Rustam', title: 'ARKTUR:
   desc: 'Космическая песочница: добыча, торговля, бои, войны фракций, планеты и тайны Предтеч. Бесплатно, без рекламы, работает без интернета.',
   descEn: 'Single-player space sandbox: mining, trading, combat, faction wars, planets and Precursor mysteries. Free, no ads, works offline.' };
 const THREE_VER = require(path.join(ROOT, 'node_modules/three/package.json')).version;
-const THREE_FILES = require('./three-files.js'); // файлы three.js, которые нужны игре (с зависимостями эффектов)
+const THREE_FILES = require('./three-files.js');
+const MUSIC_DIR = path.join(ROOT, 'public/audio/music');
+const MUSIC = fs.existsSync(MUSIC_DIR) ? Object.fromEntries(fs.readdirSync(MUSIC_DIR).filter(f => f.endsWith('.mp3')).map(f => [f.slice(0, -4), f])) : {}; // файлы three.js, которые нужны игре (с зависимостями эффектов)
 
 // Настройки площадок. lang — язык по умолчанию (выбор игрока в настройках важнее); noChat — без свободного чата
 // (сообщения игры остаются); noFullscreen — без своей кнопки «Во весь экран» (у портала своя); noExternal — без внешних ссылок;
@@ -244,7 +246,7 @@ ${t.pwa ? `<meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 ` : ''}${t.icons ? '<link rel="icon" href="icons/icon-192.png">\n' : ''}<meta name="author" content="${CFG.author} и Claude">
 <style>html,body{margin:0;padding:0;background:#02040a;height:100%;overflow:hidden}</style>
-<script>window.VF_EDITION = 'public'; window.VF_AUTHOR = ${JSON.stringify(CFG.author)}; window.VF_PLATFORM = ${JSON.stringify(plat)}; window.VF_PRIVACY = ${JSON.stringify({ ru: privFragment(t.privacy, 'ru'), en: privFragment(t.privacy, 'en') }).replace(/</g, '\\u003c')};</script>
+<script>window.VF_EDITION = 'public'; window.VF_AUTHOR = ${JSON.stringify(CFG.author)}; window.VF_PLATFORM = ${JSON.stringify(plat)}; window.VF_MUSIC = ${JSON.stringify(Object.keys(MUSIC).length ? { base: 'audio/music/', tracks: MUSIC } : null)}; window.VF_PRIVACY = ${JSON.stringify({ ru: privFragment(t.privacy, 'ru'), en: privFragment(t.privacy, 'en') }).replace(/</g, '\\u003c')};</script>
 ${t.yandex ? '<script src="/sdk.js"></script>\n' : ''}</head>
 <body>
 <div id="vf-splash" style="position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#02040a;color:#d8e4f0;font:15px/1.5 system-ui,sans-serif">
@@ -267,6 +269,7 @@ for (const id of ids) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'node_modules/three', f), to);
   }
+  if (Object.keys(MUSIC).length) fs.cpSync(MUSIC_DIR, path.join(OUT, 'audio/music'), { recursive: true }); // музыка — отдельными файлами (лимит на файл у порталов)
   if (t.pwa || t.icons) { fs.mkdirSync(path.join(OUT, 'icons'), { recursive: true }); for (const f of fs.readdirSync(ICONS)) fs.copyFileSync(path.join(ICONS, f), path.join(OUT, 'icons', f)); }
   let page = PAGE;
   if (t.yandex) page = deferScripts(page) + '\n' + YANDEX_BOOT;
@@ -309,6 +312,8 @@ self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then(ks => 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const page = e.request.mode === 'navigate';
+  // музыка кэшируется при первом прослушивании (не грузим 14 МБ заранее)
+  if (/\/audio\//.test(new URL(e.request.url).pathname)) { e.respondWith(caches.open(CACHE + '-audio').then(c => c.match(e.request).then(r => r || fetch(e.request).then(n => { if (n.ok && n.status === 200) c.put(e.request, n.clone()); return n; })))); return; }
   e.respondWith(page
     ? fetch(e.request).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); return r; }).catch(() => caches.match('index.html'))
     : caches.match(e.request).then(r => r || fetch(e.request)));

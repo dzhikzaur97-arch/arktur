@@ -173,7 +173,7 @@ const extPaused = () => !!(window.VF_PAUSE && window.VF_PAUSE.sources().some(x =
 const Sound = {
   ctx: null, master: null, muted: false, noiseBuf: null, ambient: null,
   init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended' && !extPaused()) this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state === 'suspended' && !extPaused()) this.ctx.resume(); if (Tracks.active) Tracks.sync(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
@@ -192,6 +192,7 @@ const Sound = {
     setTimeout(() => { this.startAmbient(); Music.start(); }, 700);
     // звук включили, когда игра уже стоит на паузе платформы или без фокуса: контекст сразу молчит до снятия паузы
     if (extPaused()) this.ctx.suspend().catch(() => {});
+    Tracks.prime(); // настоящая музыка — запускается здесь, в нажатии (так требует iPhone)
   },
   setVolume(v) { if (this.master && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
   setBus(k, v) { if (this[k] && this.ctx) this[k].gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); },
@@ -272,6 +273,59 @@ const Sound = {
 // Адаптивная музыка (синтез на лету): спокойные пэды и арпеджио в исследовании,
 // пульс, бочка и бас в бою. Слои плавно переходят друг в друга по границе такта.
 // ======================================================================
+// Настоящая музыка (публичные версии и claude.ai): треки Loyalty Freak Music (CC0) из папки audio/music, которую кладёт сборка.
+// Две дорожки по очереди — плавный переход между настроениями: бой → станция → опасная система → космос.
+// Звук идёт в ту же шину «Музыка» Web Audio (громкость, выключение звука, пауза платформы работают как раньше);
+// если файл не загрузился — играет прежняя синтезированная музыка.
+const Tracks = {
+  list: (window.VF_MUSIC && window.VF_MUSIC.tracks) || null, base: (window.VF_MUSIC && window.VF_MUSIC.base) || '',
+  active: false, failed: false, cur: null, want: null, since: 0, ch: [], idx: 0, timer: 0,
+  // во время нажатия (Sound.init): обе дорожки «разрешаем» на iPhone — звук браузер даёт запускать только из касания
+  prime() {
+    if (!this.list || this.failed || this.ch.length || !Sound.ctx) return;
+    for (let i = 0; i < 2; i++) {
+      const a = new Audio(); a.loop = true; a.preload = 'none';
+      a.addEventListener('error', () => { if (a.getAttribute('src')) this.fail(); });
+      let node = null; try { node = Sound.ctx.createMediaElementSource(a); } catch { this.fail(); return; }
+      const g = Sound.ctx.createGain(); g.gain.value = 0; node.connect(g); g.connect(Sound.music);
+      this.ch.push({ a, g });
+    }
+    const m = this.mood(); this.play(m, true);
+    this.timer = setInterval(() => this.tick(), 1500);
+    addEventListener('vf-pause', () => this.sync());
+  },
+  fail() { if (this.failed) return; this.failed = true; this.active = false; for (const c of this.ch) { try { c.a.pause(); } catch {} } },
+  mood() {
+    if (Music.combat) return 'combat';
+    if (S.docked || !S.prof) return 'station';
+    if (S.sys && S.sys.sec < 0.45) return 'danger';
+    return 'explore';
+  },
+  play(m, now) {
+    const file = this.list[m]; if (!file || !Sound.ctx) return;
+    const t = Sound.ctx.currentTime, next = this.ch[this.cur === null ? 0 : 1 - this.idx], prev = this.cur === null ? null : this.ch[this.idx];
+    next.a.src = this.base + file; next.a.currentTime = 0;
+    const pr = next.a.play(); if (pr && pr.catch) pr.catch(() => {}); // без касания iPhone может отказать — повторим при следующей смене
+    next.g.gain.cancelScheduledValues(t); next.g.gain.setValueAtTime(0, t); next.g.gain.linearRampToValueAtTime(1, t + (now ? 1.5 : 3));
+    if (prev) { prev.g.gain.cancelScheduledValues(t); prev.g.gain.setValueAtTime(prev.g.gain.value, t); prev.g.gain.linearRampToValueAtTime(0, t + 3); setTimeout(() => { if (this.ch[this.idx] !== prev) prev.a.pause(); }, 3300); }
+    this.idx = this.ch.indexOf(next); this.cur = m; this.active = true;
+    // синтезированная музыка уходит в тень, пока играют треки
+    if (Music.pad) { Music.pad.gain.setTargetAtTime(0, t, 0.5); Music.cmb.gain.setTargetAtTime(0, t, 0.5); }
+  },
+  tick() {
+    if (this.failed || !this.active) return;
+    const m = this.mood();
+    if (m !== this.want) { this.want = m; this.since = Date.now(); }
+    // смена настроения — если продержалось 3 с (бой — сразу), чтобы музыка не дёргалась
+    if (m !== this.cur && (m === 'combat' || Date.now() - this.since > 3000)) this.play(m);
+  },
+  // внешняя пауза (платформа, потеря фокуса): дорожка стоит, после паузы — продолжает с того же места
+  sync() {
+    if (!this.active) return;
+    const c = this.ch[this.idx]; if (!c) return;
+    if (extPaused()) c.a.pause(); else { const pr = c.a.play(); if (pr && pr.catch) pr.catch(() => {}); }
+  }
+};
 const Music = {
   on: false, step: 0, next: 0, combat: false,
   CH: [[220, 261.6, 329.6], [174.6, 220, 261.6], [261.6, 329.6, 392], [196, 246.9, 293.7], [220, 261.6, 329.6], [146.8, 174.6, 220], [164.8, 207.7, 246.9], [164.8, 207.7, 246.9]],
@@ -295,6 +349,7 @@ const Music = {
   },
   schedule() {
     const c = Sound.ctx;
+    if (Tracks.active) { if (c) this.next = c.currentTime + 0.3; return; } // играют настоящие треки
     if (!c || c.state !== 'running' || CFG.vMusic <= 0) { if (c) this.next = c.currentTime + 0.3; return; }
     while (this.next < c.currentTime + 0.6) { this.beat(this.next, this.step++); this.next += 0.25; } // восьмые при 120 уд/мин
   },
@@ -450,6 +505,7 @@ function onMsg(m) {
       setTimeout(() => { const v = S.prof && S.prof.story; if (v && v.n === 1 && TUT.filter(t => tut.done[t[0]]).length < 2) { introOnce(welcomeOnce); try { localStorage.setItem('vf-news', NEWS_VER); } catch {} } else { try { localStorage.setItem('vf-welcome', '1'); } catch {} setTimeout(whatsNew, 1500); } }, 1800);
       $('#login').classList.add('hidden'); $('#ui').classList.remove('hidden');
       try { dispatchEvent(new CustomEvent('vf-session', { detail: { on: true } })); } catch {}
+      S.sessionStart = Date.now();
       S.stationById = Object.fromEntries(m.data.stations.map(s => [s.id, s]));
       S.sysById = Object.fromEntries(m.data.systems.map(s => [s.id, s]));
       R.prewarm(m.data.ships, m.data.drones, m.ship || (S.prof && S.prof.ship && S.prof.ship.type));
@@ -855,7 +911,7 @@ setTimeout(() => { if (!S.data) R.warmup(); }, 1200); // прогрев шейд
 window.__VF_PORTRAIT = (type) => R.shipPortrait(type); // инструмент сборки: портреты кораблей
 // отладочный доступ — только в автотестах (браузер под управлением Playwright) или с явным флагом разработчика vf-dev
 const VF_DEV = (() => { try { return navigator.webdriver === true || localStorage.getItem('vf-dev') === '1'; } catch { return false; } })();
-if (VF_DEV) window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id), speak: (t, k) => speak(t, k) }; // для автотестов
+if (VF_DEV) window.__VF_DBG = { S, send: (m) => send(m), act: (a, id) => act(a, id), speak: (t, k) => speak(t, k), protectCheck: () => protectCheck(), tracks: () => ({ active: Tracks.active, failed: Tracks.failed, cur: Tracks.cur, src: Tracks.ch.map(c => c.a.getAttribute('src')), paused: Tracks.ch.map(c => c.a.paused), t: Tracks.ch.map(c => c.a.currentTime) }) }; // для автотестов
 window.__VF_PHOTO = (type) => R.shipPhoto(type, S.data.ships[type]); // инструмент сборки: единая серия фото кораблей
 window.__VF_WSHEET = () => R.weaponSheet(); // инструмент проверки: витрина всех орудий
 window.__VF_TURN = (type, weapons, tw, th) => R.shipTurntable(type, S.data.ships[type], tw || 320, th || 200, weapons || null); // инструмент проверки: модель со всех сторон
@@ -3100,7 +3156,7 @@ function aboutHTML() {
   return `<h3>Об игре</h3><div class="about"><b>ARKTUR: Космический рубеж</b> — космическая песочница.<br>
     Создатели игры: <b>${esc(AUTHORS)}</b> и <b>Claude</b> (ИИ-ассистент Anthropic) — вместе, от первой строчки до последней.<br>
     <span class="muted small">${EDITION === 'public' ? 'Бесплатная версия для всех: работает без интернета, сохранения — на вашем устройстве (экспорт в файл — в «Сохранениях»).' : 'Версия на claude.ai: с живыми персонажами, помощником, облачной копией и игрой с друзьями.'}
-    3D-графика — three.js (лицензия MIT). ${PLATFORM.id === 'yandex' ? 'Игра бесплатна и без своей рекламы; какие данные получает платформа — в политике конфиденциальности.' : 'Игра бесплатна и не собирает никаких данных.'}</span>
+    3D-графика — three.js (лицензия MIT). ${window.VF_MUSIC ? 'Музыка — Loyalty Freak Music: «Traveling in your mind», «Resting time», «Dramatic time», «Anxious time» (CC0, общественное достояние).' : ''} ${PLATFORM.id === 'yandex' ? 'Игра бесплатна и без своей рекламы; какие данные получает платформа — в политике конфиденциальности.' : 'Игра бесплатна и не собирает никаких данных.'}</span>
     ${window.VF_PRIVACY ? '<p><button data-a="privacy">Политика конфиденциальности</button></p>' : ''}</div>`;
 }
 // вступление для нового пилота: несколько кадров истории поверх живого космоса, можно пропустить
@@ -3592,7 +3648,53 @@ async function exportSave() {
   }
   const u = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const l = document.createElement('a'); l.href = u; l.download = filename; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
+  const st = protectState(); st.lastBackup = Date.now(); protectSave(st);
+  note('Копия сохранения выгружена в файл ' + filename + '. Вернуть её — Настройки → Сохранения → «Импорт из файла»', 'good');
 }
+// ======================================================================
+// Сохранность прогресса в браузере (публичные версии). Safari на iPhone стирает данные сайта, который не открывали 7 дней
+// (кроме игр, установленных «На экран Домой»), браузеры чистят место — поэтому: (1) просим постоянное хранилище,
+// (2) на сайте предлагаем установить игру (iPhone — подсказка «Поделиться → На экран Домой», Android/ПК — кнопка установки),
+// (3) время от времени напоминаем выгрузить копию сохранения в файл. На claude.ai есть облачная копия, у ПК-приложения
+// сохранения в папке приложения — там не напоминаем.
+// ======================================================================
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const INSTALLED = (() => { try { return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true; } catch { return false; } })();
+let INSTALL_EVT = null;
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); INSTALL_EVT = e; });
+function protectState() { try { return JSON.parse(localStorage.getItem('vf-protect') || '{}') || {}; } catch { return {}; } }
+function protectSave(o) { try { localStorage.setItem('vf-protect', JSON.stringify(o)); } catch {} }
+const PROTECT_ON = EDITION === 'public' && PLATFORM.id !== 'desktop';
+const DAY = 864e5;
+function protectCheck() {
+  if (!PROTECT_ON || !S.prof || S.surface) return;
+  if (!$('#modal').classList.contains('hidden') || S.win) return; // не перебиваем открытые окна — спросим в следующий раз
+  const st = protectState(), now = Date.now();
+  if (!st.first) { st.first = now; protectSave(st); }
+  if (!st.persist && navigator.storage && navigator.storage.persist) { st.persist = 'asked'; protectSave(st); navigator.storage.persist().then(ok => { const s2 = protectState(); s2.persist = ok ? 'granted' : 'denied'; protectSave(s2); }).catch(() => {}); }
+  const played = (now - (S.sessionStart || now)) / 60000;
+  // 1) установка — только на сайте игры (в iframe порталов установить нельзя), не чаще раза в 3 дня, не больше 3 раз
+  if (PLATFORM.id === 'web' && !INSTALLED && played >= 5 && (st.installAsks || 0) < 3 && now - (st.installAsk || 0) > 3 * DAY && (IOS || INSTALL_EVT)) {
+    st.installAsk = now; st.installAsks = (st.installAsks || 0) + 1; protectSave(st);
+    if (IOS) modal(`<h3>📲 Чтобы прогресс не пропал</h3><p>Safari на iPhone удаляет данные сайтов, которые не открывали 7 дней, — вместе с вашим пилотом.
+      Игру, <b>установленную на экран «Домой»</b>, это не касается, и она открывается во весь экран.</p>
+      <ol><li>Нажмите <b>«Поделиться»</b> <span style="font-size:18px">⬆︎</span> внизу Safari.</li><li>Выберите <b>«На экран „Домой“»</b> → «Добавить».</li><li>Дальше запускайте ARKTUR с иконки на экране.</li></ol>
+      <p class="muted small">Важно: у установленной игры своё хранилище — сначала выгрузите копию (кнопка ниже), а в установленной игре загрузите её: Настройки → Сохранения → «Импорт из файла».</p>`,
+      [['Позже', null], ['💾 Выгрузить копию', () => exportSave(), 'primary']]);
+    else modal(`<h3>📲 Установите игру</h3><p>Установленная игра работает без интернета, открывается во весь экран, и браузер не удалит её данные при чистке места.</p>`,
+      [['Позже', null], ['Установить', () => { const e = INSTALL_EVT; INSTALL_EVT = null; if (e) e.prompt(); }, 'primary']]);
+    return;
+  }
+  // 2) копия сохранения в файл: в Safari вне установленной игры и на порталах (там данные чистятся строже) — раз в 3 дня, иначе раз в 7
+  const every = ((IOS && !INSTALLED) || PLATFORM.noExternal ? 3 : 7) * DAY;
+  if (played >= 10 && now - (st.lastBackup || st.first) > every && now - (st.backupAsk || 0) > DAY) {
+    st.backupAsk = now; protectSave(st);
+    modal(`<h3>💾 Резервная копия</h3><p>Прогресс хранится в браузере на этом устройстве. Если браузер очистит данные сайта, пилот пропадёт —
+      поэтому раз в несколько дней выгружайте копию в файл (на iPhone — в «Файлы»). Вернуть её: Настройки → Сохранения → «Импорт из файла».</p>`,
+      [['Не сейчас', null], ['💾 Выгрузить копию', () => exportSave(), 'primary']]);
+  }
+}
+setInterval(protectCheck, 5 * 60000);
 // ======================================================================
 // Облачная копия (только на claude.ai): сохранение дублируется в личное хранилище страницы.
 // Память браузера на телефоне может быть очищена — облачная копия переживает это и переносится между устройствами.
